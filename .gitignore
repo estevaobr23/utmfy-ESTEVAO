@@ -47,3 +47,6 @@ supabase/.branches
 
 # credenciais geradas localmente
 *.local.txt
+
+.vercel
+.env*
