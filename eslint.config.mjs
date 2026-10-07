@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // tracker público: ES5 de propósito (catch (e) para navegadores antigos)
+    "public/**",
+    "supabase/**",
   ]),
 ]);
 

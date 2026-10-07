@@ -1,7 +1,29 @@
 import type { NextConfig } from "next";
 
+const security = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+];
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  poweredByHeader: false,
+  async headers() {
+    return [
+      { source: "/:path*", headers: security },
+      {
+        // tracker público: carregável de qualquer site, cache curto
+        source: "/t.js",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=300, s-maxage=3600" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

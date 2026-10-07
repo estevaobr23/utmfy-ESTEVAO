@@ -1,0 +1,52 @@
+import { NextResponse } from "next/server";
+import { addDays, todayIn } from "@/lib/core/dates";
+import { safeEqual } from "@/lib/core/hash";
+import { env } from "@/lib/env";
+import { adminClient } from "@/lib/supabase/admin";
+import { syncCaktoOrders } from "@/lib/services/cakto-sync";
+import { processDispatches } from "@/lib/services/capi-dispatch";
+import { syncMeta } from "@/lib/services/meta-sync";
+
+// Rotinas automáticas. Chamadas por Vercel Cron ou pg_cron (pg_net) com
+// "Authorization: Bearer $CRON_SECRET".
+//   meta-sync        hoje + ontem + retroativo (META_LOOKBACK_DAYS)
+//   cakto-reconcile  pedidos atualizados nos últimos 3 dias
+//   capi-dispatch    fila de conversões (só com CAPI_ENABLED=true)
+//   all              os três
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+function authorized(request: Request) {
+  if (!env.cronSecret) return false;
+  const h = request.headers.get("authorization") ?? "";
+  return safeEqual(h, `Bearer ${env.cronSecret}`);
+}
+
+async function run(job: string) {
+  const db = adminClient();
+  const { data: workspaces } = await db.from("workspaces").select("id, timezone").eq("is_demo", false);
+  const results: Record<string, unknown> = {};
+  for (const ws of workspaces ?? []) {
+    const r: Record<string, unknown> = {};
+    if (job === "meta-sync" || job === "all") {
+      const { count } = await db.from("meta_ad_accounts").select("id", { count: "exact", head: true }).eq("workspace_id", ws.id).eq("active", true);
+      r.meta = count ? (await syncMeta(db, ws.id, { trigger: "cron" })).stats : "sem contas ativas";
+    }
+    if (job === "cakto-reconcile" || job === "all") {
+      const today = todayIn(ws.timezone);
+      r.cakto = (await syncCaktoOrders(db, ws.id, { from: `${addDays(today, -3)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "cron" })).stats;
+    }
+    results[ws.id] = r;
+  }
+  if (job === "capi-dispatch" || job === "all") results.capi = await processDispatches(db, { trigger: "cron" });
+  return results;
+}
+
+async function handler(request: Request, ctx: { params: Promise<{ job: string }> }) {
+  if (!authorized(request)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const { job } = await ctx.params;
+  if (!["meta-sync", "cakto-reconcile", "capi-dispatch", "all"].includes(job)) return NextResponse.json({ error: "unknown_job" }, { status: 404 });
+  return NextResponse.json({ ok: true, job, results: await run(job) });
+}
+
+export { handler as GET, handler as POST };
