@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Renova a sessão e manda para /login quem não está autenticado. A proteção
 // real dos dados é a RLS; isto é conveniência.
-const PUBLIC = [/^\/login/, /^\/api\/webhooks\//, /^\/api\/track/, /^\/api\/cron\//, /^\/t\.js$/];
+const PUBLIC = [/^\/login/, /^\/api\/webhooks\//, /^\/api\/track/, /^\/api\/cron\//, /^\/api\/mcp(\/|$)/,/^\/t\.js$/];
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;

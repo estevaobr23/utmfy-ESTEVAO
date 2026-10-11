@@ -29,6 +29,8 @@ export const env = {
 
   capiEnabled: bool(process.env.CAPI_ENABLED, false),
   metaCapiToken: process.env.META_CAPI_TOKEN ?? "",
+
+  mcpAuthToken: process.env.MCP_AUTH_TOKEN ?? "",
 };
 
 /** Só booleans — seguro para exibir na UI. */
@@ -47,5 +49,6 @@ export function envStatus() {
     META_APP_SECRET: !!env.metaAppSecret,
     META_CAPI_TOKEN: !!env.metaCapiToken,
     CAPI_ENABLED: env.capiEnabled,
+    MCP_AUTH_TOKEN: env.mcpAuthToken.length >= 32,
   };
 }

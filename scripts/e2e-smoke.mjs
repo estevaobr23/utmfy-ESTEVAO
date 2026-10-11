@@ -15,7 +15,10 @@ const BASE = arg("base", "http://localhost:3200");
 const OUT = arg("out", ".e2e");
 mkdirSync(OUT, { recursive: true });
 const creds = Object.fromEntries(readFileSync("admin-credentials.local.txt", "utf8").trim().split("\n").map((l) => l.split("=")));
-const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+  db: { schema: "utmfy" },
+});
 const SECRET = env.CAKTO_WEBHOOK_SECRETS.split(",")[0];
 const run = Date.now().toString(36);
 const results = [];

@@ -10,6 +10,24 @@ const security = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // O servidor MCP lê o código-fonte em runtime (src/lib/mcp/files.ts).
+  // Nunca incluir .env*, *.local.txt ou supabase/.temp (tem segredos locais).
+  outputFileTracingIncludes: {
+    "/api/mcp/\\[\\[\\.\\.\\.key\\]\\]": [
+      "src/**/*",
+      "supabase/migrations/**/*",
+      "supabase/sql/**/*",
+      "supabase/config.toml",
+      "scripts/**/*",
+      "tests/**/*",
+      "public/**/*",
+      "*.md",
+      "package.json",
+      "next.config.ts",
+      "vercel.json",
+      "tsconfig.json",
+    ],
+  },
   async headers() {
     return [
       { source: "/:path*", headers: security },
