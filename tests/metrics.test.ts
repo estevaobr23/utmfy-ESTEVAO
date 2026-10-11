@@ -28,7 +28,8 @@ describe("fórmulas centralizadas", () => {
     const m = derive({ ...emptySums(), spend: 100, gross_revenue: 400, fees: 20, refunded_amount: 40, chargeback_amount: 35, other_costs: 10 });
     expect(m.net_revenue).toBe(305);
     expect(m.profit).toBe(195);
-    expect(m.net_roas).toBeCloseTo(3.05);
+    expect(m.roas).toBeCloseTo(3.05);
+    expect(m.gross_roas).toBeCloseTo(4);
   });
   it("conversão Pix, CTR, CPC", () => {
     const m = derive({ ...emptySums(), pix_generated: 10, pix_paid: 7, impressions: 1000, clicks: 25, spend: 50 });

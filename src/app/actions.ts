@@ -10,6 +10,7 @@ import { serverClient } from "@/lib/supabase/server";
 import { requireWorkspace, requireSession, WS_COOKIE } from "@/lib/session";
 import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { discoverAccounts, syncMeta } from "@/lib/services/meta-sync";
+import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
 import { seedDemo } from "@/lib/services/demo";
 import { logEvent } from "@/lib/services/logs";
@@ -88,6 +89,22 @@ export async function addCaktoItem(fd: FormData) {
     workspace_id: s.workspace.id, offer_id: offerId, cakto_product_id: product, cakto_offer_id: offer || null, label: str(fd, "label").slice(0, 120) || null,
   });
   back(`/ofertas/${offerId}/configurar`, error ? (error.message.includes("duplicate") ? "Esse produto/oferta Cakto já está mapeado para uma oferta" : error.message) : "Produto Cakto associado", error ? "error" : "ok");
+}
+
+/** Lê na Cakto o webhook desta oferta: produtos marcados lá passam a ser desta oferta. */
+export async function checkOfferWebhook(fd: FormData) {
+  const s = await writer();
+  const offerId = uuid.parse(str(fd, "offer_id"));
+  const path = `/ofertas/${offerId}/configurar`;
+  let r: Awaited<ReturnType<typeof syncOfferWebhooks>>;
+  try {
+    r = await syncOfferWebhooks(adminClient(), s.workspace.id);
+  } catch (e) {
+    return back(path, `Falha ao ler webhooks da Cakto: ${(e as Error).message}`, "error");
+  }
+  const { data: offer } = await s.sb.from("offers").select("cakto_webhook_id").eq("id", offerId).single();
+  if (!offer?.cakto_webhook_id) return back(path, "Nenhum webhook com a URL desta oferta foi encontrado na Cakto.", "error");
+  back(path, r.conflicts.length ? `Webhook encontrado. Atenção: ${r.conflicts.join("; ")}` : "Webhook encontrado: produtos atualizados.", r.conflicts.length ? "error" : "ok");
 }
 
 export async function removeCaktoItem(fd: FormData) {

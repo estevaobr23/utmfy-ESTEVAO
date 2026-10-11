@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Derived } from "@/lib/core/metrics";
 import type { ReportNode } from "@/lib/core/report";
+import type { SpendStatus } from "@/lib/core/spend-status";
 import { formatMoney, formatNumber, formatPct } from "@/lib/core/money";
 import { filtersToQuery, type Filters } from "@/lib/queries";
 import { Badge, Kpi } from "./ui";
@@ -8,16 +9,24 @@ import { Badge, Kpi } from "./ui";
 const roasTone = (r: number | null) => (r == null ? "default" : r >= 1.5 ? "good" : r < 1 ? "bad" : "warn");
 const ratio = (v: number | null) => (v == null ? "—" : formatNumber(v, 2));
 
-export function KpiGrid({ m, currency, untrackedHref }: { m: Derived; currency: string; untrackedHref?: string }) {
+export function KpiGrid({ m, currency, untrackedHref, spend }: { m: Derived; currency: string; untrackedHref?: string; spend?: SpendStatus }) {
   const money = (v: number | null) => formatMoney(v, currency);
+  // Gasto incompleto: nada derivado dele é exibido como se fosse real.
+  const ok = spend?.reliable ?? true;
+  const na = "gasto incompleto";
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-      <Kpi label="Gasto" value={money(m.spend)} hint="Meta Ads" />
+      <Kpi label="Gasto" value={money(m.spend)} hint={ok ? "Meta Ads" : "⚠ incompleto"} tone={ok ? "default" : "warn"} />
       <Kpi label="Receita bruta" value={money(m.gross_revenue)} hint="Cakto (aprovadas)" />
       <Kpi label="Receita líquida" value={money(m.net_revenue)} hint={`taxas ${money(m.fees)}`} />
-      <Kpi label="Lucro estimado" value={money(m.profit)} tone={m.profit >= 0 ? "good" : "bad"} hint={m.other_costs ? `outros custos ${money(m.other_costs)}` : undefined} />
-      <Kpi label="ROAS" value={ratio(m.roas)} tone={roasTone(m.roas)} hint={`líquido ${ratio(m.net_roas)}`} />
-      <Kpi label="CPA" value={money(m.cpa)} />
+      <Kpi
+        label="Lucro estimado"
+        value={ok ? money(m.profit) : "—"}
+        tone={ok ? (m.profit >= 0 ? "good" : "bad") : "default"}
+        hint={ok ? (m.other_costs ? `outros custos ${money(m.other_costs)}` : undefined) : na}
+      />
+      <Kpi label="ROAS" value={ok ? ratio(m.roas) : "—"} tone={ok ? roasTone(m.roas) : "default"} hint={ok ? `sobre receita líquida · bruto ${ratio(m.gross_roas)}` : na} />
+      <Kpi label="CPA" value={ok ? money(m.cpa) : "—"} hint={ok ? undefined : na} />
       <Kpi label="Ticket médio" value={money(m.ticket)} />
       <Kpi label="Vendas aprovadas" value={formatNumber(m.approved_count)} hint={m.approved_items > m.approved_count ? `+${m.approved_items - m.approved_count} bump/upsell` : undefined} />
       <Kpi label="Pix gerados" value={formatNumber(m.pix_generated)} hint={`${formatNumber(m.pix_paid)} pagos`} />

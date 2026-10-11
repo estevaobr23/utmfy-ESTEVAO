@@ -13,6 +13,7 @@ export async function freshDb() {
     const sql = readFileSync(join(dir, f), "utf8").replace(/create extension if not exists pgcrypto;/g, "");
     await db.exec(sql);
   }
+  await db.exec("set search_path to utmfy, public");
   const su = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
   /** Executa como usuário autenticado (RLS ativa). */
   const as = async <T = Record<string, unknown>>(uid: string, sql: string, params: unknown[] = []) =>

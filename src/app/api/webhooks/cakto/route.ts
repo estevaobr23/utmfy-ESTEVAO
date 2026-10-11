@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { adminClient } from "@/lib/supabase/admin";
 import { handleCaktoWebhook } from "@/lib/services/cakto-webhook";
+import { TOKEN_RE } from "@/lib/services/offer-webhooks";
 
-// POST /api/webhooks/cakto?ws=<slug-do-workspace>
+// POST /api/webhooks/cakto?o=<token-da-oferta>  (uma URL por oferta, produtos escolhidos na Cakto)
+// POST /api/webhooks/cakto?ws=<slug>             (webhook geral: oferta pelo mapeamento de produto)
 // Corpo lido CRU (request.text()) para validar o HMAC byte a byte.
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -29,6 +31,7 @@ export async function POST(request: Request) {
       secrets: env.caktoWebhookSecrets,
       allowBodySecret: env.caktoAllowBodySecret,
       workspaceSlug: slug && /^[a-z0-9-]{1,63}$/.test(slug) ? slug : env.caktoWebhookWorkspace || null,
+      offerToken: TOKEN_RE.test(url.searchParams.get("o") ?? "") ? url.searchParams.get("o") : null,
     },
   );
   return NextResponse.json(out.body, { status: out.httpStatus });

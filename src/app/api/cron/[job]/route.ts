@@ -29,8 +29,7 @@ async function run(job: string) {
   for (const ws of workspaces ?? []) {
     const r: Record<string, unknown> = {};
     if (job === "meta-sync" || job === "all") {
-      const { count } = await db.from("meta_ad_accounts").select("id", { count: "exact", head: true }).eq("workspace_id", ws.id).eq("active", true);
-      r.meta = count ? (await syncMeta(db, ws.id, { trigger: "cron" })).stats : "sem contas ativas";
+      r.meta = (await syncMeta(db, ws.id, { trigger: "cron" })).stats;
     }
     if (job === "cakto-reconcile" || job === "all") {
       const today = todayIn(ws.timezone);

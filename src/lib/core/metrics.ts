@@ -16,8 +16,8 @@
 // Fórmulas:
 //   net_revenue   = gross_revenue − refunded_amount − chargeback_amount − fees
 //   profit        = net_revenue − spend − other_costs
-//   roas          = gross_revenue / spend                (null se spend = 0)
-//   net_roas      = net_revenue / spend
+//   roas          = net_revenue / spend                  (padrão UTMify; null se spend = 0)
+//   gross_roas    = gross_revenue / spend
 //   cpa           = spend / approved_count                (null se 0 vendas)
 //   ticket        = gross_revenue / approved_count
 //   pix_conversion= pix_paid / pix_generated
@@ -51,7 +51,7 @@ export type Derived = BaseSums & {
   net_revenue: number;
   profit: number;
   roas: number | null;
-  net_roas: number | null;
+  gross_roas: number | null;
   cpa: number | null;
   ticket: number | null;
   pix_conversion: number | null;
@@ -100,8 +100,8 @@ export function derive(s: BaseSums): Derived {
     ...s,
     net_revenue,
     profit: round2(net_revenue - s.spend - s.other_costs),
-    roas: ratio(s.gross_revenue, s.spend),
-    net_roas: ratio(net_revenue, s.spend),
+    roas: ratio(net_revenue, s.spend),
+    gross_roas: ratio(s.gross_revenue, s.spend),
     cpa: ratio(s.spend, s.approved_count),
     ticket: ratio(s.gross_revenue, s.approved_count),
     pix_conversion: ratio(s.pix_paid, s.pix_generated),
@@ -116,7 +116,7 @@ export const METRIC_DEFINITIONS: { key: string; label: string; formula: string }
   { key: "gross_revenue", label: "Receita Bruta", formula: "Σ valor cobrado dos pedidos Cakto aprovados no período (paid_at)" },
   { key: "net_revenue", label: "Receita Líquida", formula: "Receita Bruta − Reembolsos − Chargebacks − Taxas Cakto" },
   { key: "profit", label: "Lucro estimado", formula: "Receita Líquida − Gasto − Outros custos configurados" },
-  { key: "roas", label: "ROAS", formula: "Receita Bruta ÷ Gasto" },
+  { key: "roas", label: "ROAS", formula: "Receita Líquida ÷ Gasto (mesmo critério da UTMify)" },
   { key: "cpa", label: "CPA", formula: "Gasto ÷ Vendas aprovadas (pedidos principais)" },
   { key: "approved_count", label: "Vendas aprovadas", formula: "nº de pedidos principais aprovados no período (sem bump/upsell)" },
   { key: "pix_generated", label: "Pix gerados", formula: "nº de pedidos Pix criados no período" },

@@ -3,6 +3,7 @@ import type { Db } from "../supabase/types";
 import { normalizeCaktoOrder } from "../core/cakto/normalize";
 import { caktoApi, caktoConfigured, CaktoApiError } from "./cakto-client";
 import { finishJob, logEvent, startJob } from "./logs";
+import { syncOfferWebhooks } from "./offer-webhooks";
 import { ingestOrder } from "./orders";
 
 // Sincronização/reconciliação: busca pedidos na API (fonte da verdade) por
@@ -34,6 +35,13 @@ export async function syncCaktoOrders(
     await finishJob(db, jobId, "failed", stats, error);
     await logEvent(db, { workspaceId, level: "warn", code: "CAKTO_SYNC_SKIPPED", provider: "cakto", message: error });
     return { jobId, stats, error };
+  }
+
+  // Produtos escolhidos nos webhooks de cada oferta definem para onde vão os pedidos históricos.
+  try {
+    await syncOfferWebhooks(db, workspaceId);
+  } catch (e) {
+    await logEvent(db, { workspaceId, level: "warn", code: "CAKTO_WEBHOOKS_READ_FAILED", provider: "cakto", message: (e as Error).message });
   }
 
   try {

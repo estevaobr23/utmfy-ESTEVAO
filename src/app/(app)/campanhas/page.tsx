@@ -35,7 +35,7 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campan
       />
       <Flash sp={sp} />
       <FilterBar f={f} offers={offers} accounts={accounts} catalog={catalog} action="/campanhas" />
-      <KpiGrid m={report.summary} currency={s.workspace.currency} untrackedHref={`/nao-rastreadas${filtersToQuery(f)}`} />
+      <KpiGrid m={report.summary} currency={s.workspace.currency} untrackedHref={`/nao-rastreadas${filtersToQuery(f)}`} spend={report.spendStatus} />
       <div className="mt-4">
         <CampaignTree tree={report.tree} currency={s.workspace.currency} filters={f} />
       </div>

@@ -12,7 +12,12 @@ export default async function OffersPage({ searchParams }: PageProps<"/ofertas">
   const sp = await searchParams;
   const offers = await listOffers(s.sb, s.workspace.id);
   const f = parseFilters({ preset: "7d" }, s.workspace.timezone);
-  const rows = await Promise.all(offers.map(async (o) => ({ o, r: (await loadReport(s.sb, s.workspace, { ...f, offer: o.id })).summary })));
+  const rows = await Promise.all(
+    offers.map(async (o) => {
+      const rep = await loadReport(s.sb, s.workspace, { ...f, offer: o.id });
+      return { o, r: rep.summary, ok: rep.spendStatus.reliable };
+    }),
+  );
   return (
     <>
       <PageHeader title="Ofertas" subtitle="Cada oferta é uma operação independente (produtos Cakto, contas Meta e pixels próprios). Métricas: últimos 7 dias." />
@@ -22,18 +27,18 @@ export default async function OffersPage({ searchParams }: PageProps<"/ofertas">
       ) : (
         <Table>
           <thead>
-            <tr><Th>Oferta</Th><Th>Status</Th><Th right>Gasto</Th><Th right>Receita</Th><Th right>Vendas</Th><Th right>ROAS</Th><Th right>CPA</Th><Th /></tr>
+            <tr><Th>Oferta</Th><Th>Status</Th><Th right>Gasto</Th><Th right>Receita líquida</Th><Th right>Vendas</Th><Th right>ROAS</Th><Th right>CPA</Th><Th /></tr>
           </thead>
           <tbody>
-            {rows.map(({ o, r }) => (
+            {rows.map(({ o, r, ok }) => (
               <tr key={o.id}>
                 <Td><Link href={`/ofertas/${o.id}`} className="font-medium text-slate-900 hover:underline">{o.name}</Link><div className="font-mono text-xs text-slate-400">{o.slug}</div></Td>
                 <Td><Badge tone={o.status === "active" ? "ok" : "muted"}>{o.status}</Badge></Td>
-                <Td right>{formatMoney(r.spend, s.workspace.currency)}</Td>
-                <Td right>{formatMoney(r.gross_revenue, s.workspace.currency)}</Td>
+                <Td right>{formatMoney(r.spend, s.workspace.currency)}{!ok && <div><Badge tone="warn">gasto incompleto</Badge></div>}</Td>
+                <Td right>{formatMoney(r.net_revenue, s.workspace.currency)}</Td>
                 <Td right>{formatNumber(r.approved_count)}</Td>
-                <Td right>{r.roas == null ? "—" : formatNumber(r.roas, 2)}</Td>
-                <Td right>{formatMoney(r.cpa, s.workspace.currency)}</Td>
+                <Td right>{!ok || r.roas == null ? "—" : formatNumber(r.roas, 2)}</Td>
+                <Td right>{ok ? formatMoney(r.cpa, s.workspace.currency) : "—"}</Td>
                 <Td><Link href={`/ofertas/${o.id}/configurar`} className="text-xs text-sky-700 hover:underline">configurar</Link> · <Link href={`/ofertas/${o.id}/saude`} className="text-xs text-sky-700 hover:underline">saúde</Link></Td>
               </tr>
             ))}

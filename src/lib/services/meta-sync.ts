@@ -4,6 +4,7 @@ import { hint } from "../core/hash";
 import { chunkRange, INSIGHTS_FIELDS, normalizeAccountId, normalizeInsight, type RawInsight } from "../core/meta";
 import { addDays, todayIn } from "../core/dates";
 import { env } from "../env";
+import { ensureFxRates } from "./fx";
 import { finishJob, logEvent, startJob } from "./logs";
 import { MetaApiError, MetaClient } from "./meta-client";
 import { reattributePending } from "./orders";
@@ -44,7 +45,7 @@ async function markConnection(db: Db, conn: Conn, e: unknown) {
 export async function discoverAccounts(db: Db, workspaceId: string, trigger: "manual" | "cron" = "manual") {
   const jobId = await startJob(db, workspaceId, "meta_accounts", trigger);
   const conns = await ensureEnvConnection(db, workspaceId);
-  const stats = { connections: conns.length, accounts: 0 };
+  const stats = { connections: conns.length, accounts: 0, created: 0 };
   if (!conns.length) {
     await finishJob(db, jobId, "failed", stats, "Nenhuma conexão Meta (defina META_ACCESS_TOKEN ou conecte via OAuth)");
     return { error: "no_connection", stats };
@@ -62,19 +63,26 @@ export async function discoverAccounts(db: Db, workspaceId: string, trigger: "ma
         "me/adaccounts",
         { fields: "account_id,name,currency,timezone_name,account_status", limit: 200 },
       );
+      const { data: known } = await db.from("meta_ad_accounts").select("account_id").eq("workspace_id", workspaceId);
+      const knownIds = new Set((known ?? []).map((k) => k.account_id as string));
       for (const a of accounts) {
-        await db.from("meta_ad_accounts").upsert(
-          {
-            workspace_id: workspaceId,
-            connection_id: conn.id,
-            account_id: normalizeAccountId(a.account_id),
-            account_name: a.name ?? null,
-            currency: a.currency ?? null,
-            timezone: a.timezone_name ?? null,
-            account_status: a.account_status ?? null,
-          },
-          { onConflict: "workspace_id,account_id" },
-        );
+        const accountId = normalizeAccountId(a.account_id);
+        const row = {
+          workspace_id: workspaceId,
+          connection_id: conn.id,
+          account_id: accountId,
+          account_name: a.name ?? null,
+          currency: a.currency ?? null,
+          timezone: a.timezone_name ?? null,
+          account_status: a.account_status ?? null,
+        };
+        // Conta nova e ativa na Meta já entra monitorada; a escolha do usuário em contas existentes é preservada.
+        if (knownIds.has(accountId)) {
+          await db.from("meta_ad_accounts").update(row).eq("workspace_id", workspaceId).eq("account_id", accountId);
+        } else {
+          await db.from("meta_ad_accounts").insert({ ...row, active: a.account_status === 1 });
+          stats.created++;
+        }
       }
       stats.accounts += accounts.length;
       await db.from("meta_connections").update({ status: "active", last_error: null, meta_user_name: me.name ?? null }).eq("id", conn.id);
@@ -89,7 +97,7 @@ export async function discoverAccounts(db: Db, workspaceId: string, trigger: "ma
   return { stats };
 }
 
-type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null };
+type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null; currency: string | null };
 
 async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string) {
   const stats = { ads: 0, insights: 0 };
@@ -151,15 +159,19 @@ export async function syncMeta(
   workspaceId: string,
   opts: { since?: string; until?: string; trigger: "manual" | "cron"; accountIds?: string[] },
 ) {
-  const { data: ws } = await db.from("workspaces").select("timezone").eq("id", workspaceId).maybeSingle();
+  const { data: ws } = await db.from("workspaces").select("timezone, currency").eq("id", workspaceId).maybeSingle();
   const today = todayIn(ws?.timezone ?? "America/Sao_Paulo");
   const since = opts.since ?? addDays(today, -env.metaLookbackDays);
   const until = opts.until ?? today;
+
+  // Contas novas na Meta entram sozinhas (sem depender de clique em "Descobrir contas").
+  const discovered = await discoverAccounts(db, workspaceId, opts.trigger);
+
   const jobId = await startJob(db, workspaceId, "meta_insights", opts.trigger, { since, until });
-  const stats: Record<string, unknown> = { accounts: 0, ads: 0, insights: 0, failed: [] as string[] };
+  const stats: Record<string, unknown> = { accounts: 0, ads: 0, insights: 0, failed: [] as string[], discovered: discovered.stats };
 
   const conns = await ensureEnvConnection(db, workspaceId);
-  let q = db.from("meta_ad_accounts").select("id, account_id, connection_id, timezone").eq("workspace_id", workspaceId).eq("active", true);
+  let q = db.from("meta_ad_accounts").select("id, account_id, connection_id, timezone, currency").eq("workspace_id", workspaceId).eq("active", true);
   if (opts.accountIds?.length) q = q.in("account_id", opts.accountIds);
   const { data: accounts } = await q;
   if (!accounts?.length) {
@@ -196,6 +208,18 @@ export async function syncMeta(
       if (reason === "token_expired") await markConnection(db, conn, e);
       await logEvent(db, { workspaceId, level: "error", code: "META_SYNC_FAILED", provider: "meta", message: (e as Error).message, context: { account_id: acc.account_id, reason } });
       if (reason === "token_expired") break;
+    }
+  }
+
+  const wsCurrency = ws?.currency ?? "BRL";
+  const foreign = [...new Set((accounts as AccountRow[]).map((a) => a.currency).filter((c): c is string => !!c && c !== wsCurrency))];
+  if (wsCurrency === "BRL") {
+    for (const cur of foreign) {
+      try {
+        stats[`fx_${cur}`] = (await ensureFxRates(db, cur, since, until)).fetched;
+      } catch (e) {
+        await logEvent(db, { workspaceId, level: "error", code: "FX_FETCH_FAILED", provider: "bcb", message: (e as Error).message, context: { currency: cur, since, until } });
+      }
     }
   }
 

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { DashboardView } from "@/components/dashboard";
 import { Flash } from "@/components/filters";
 import { Card, LinkButton, PageHeader } from "@/components/ui";
-import { envStatus } from "@/lib/env";
 import { requireWorkspace } from "@/lib/session";
 
 export default async function OfferDashboard({ params, searchParams }: PageProps<"/ofertas/[id]">) {
@@ -22,8 +21,8 @@ export default async function OfferDashboard({ params, searchParams }: PageProps
     s.sb.from("tracking_sessions").select("id", { count: "exact", head: true }).eq("offer_id", id).not("ad_id", "is", null),
     s.sb.from("meta_connections").select("status").eq("workspace_id", s.workspace.id),
   ]);
-  const env = envStatus();
-  const metaOk = (meta.data ?? []).some((m) => m.status === "active") || env.META_ACCESS_TOKEN;
+  // Conectada = a Meta respondeu numa sincronização real, não "existe um token".
+  const metaOk = (meta.data ?? []).some((m) => m.status === "active");
   const steps: [string, boolean, string, string][] = [
     ["Criar oferta", true, `/ofertas/${id}/configurar`, "feito"],
     ["Associar produto/oferta da Cakto", (items.count ?? 0) > 0, `/ofertas/${id}/configurar`, `${items.count ?? 0} associado(s)`],

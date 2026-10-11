@@ -5,6 +5,7 @@ import { verifyCaktoWebhook } from "../core/cakto/signature";
 import { sha256Hex } from "../core/hash";
 import { ingestOrder } from "./orders";
 import { logEvent } from "./logs";
+import { loadOfferForWebhook, syncOfferWebhooks } from "./offer-webhooks";
 
 export type WebhookOutcome = {
   httpStatus: number;
@@ -15,6 +16,8 @@ export type WebhookConfig = {
   secrets: string[];
   allowBodySecret: boolean;
   workspaceSlug: string | null;
+  /** Token da URL por oferta (?o=). Define a oferta e o secret esperado. */
+  offerToken?: string | null;
   nowSeconds?: number;
 };
 
@@ -47,17 +50,38 @@ export async function handleCaktoWebhook(
   }
   const env = parseEnvelope(body);
 
-  const sig = verifyCaktoWebhook({
-    rawBody: req.rawBody,
-    timestampHeader: req.timestamp,
-    signatureHeader: req.signature,
-    bodySecret: env.secret,
-    secrets: cfg.secrets,
-    allowBodySecret: cfg.allowBodySecret,
-    nowSeconds: cfg.nowSeconds,
-  });
+  let offer: Awaited<ReturnType<typeof loadOfferForWebhook>> = null;
+  if (cfg.offerToken) {
+    offer = await loadOfferForWebhook(db, cfg.offerToken);
+    if (!offer) {
+      await logEvent(db, { level: "warn", code: "WEBHOOK_UNKNOWN_OFFER", provider: "cakto", message: "Token de oferta desconhecido na URL do webhook", context: { event: env.event } });
+      return { httpStatus: 404, body: { error: "unknown_offer" } };
+    }
+  }
 
-  const workspaceId = await resolveWebhookWorkspace(db, cfg.workspaceSlug);
+  const verify = () =>
+    verifyCaktoWebhook({
+      rawBody: req.rawBody,
+      timestampHeader: req.timestamp,
+      signatureHeader: req.signature,
+      bodySecret: env.secret,
+      secrets: offer?.secret ? [offer.secret, ...cfg.secrets] : cfg.secrets,
+      allowBodySecret: cfg.allowBodySecret,
+      nowSeconds: cfg.nowSeconds,
+    });
+  let sig = verify();
+  if (!sig.ok && offer) {
+    // Primeira entrega de um webhook recém-criado: o secret ainda não foi lido da Cakto.
+    try {
+      await syncOfferWebhooks(db, offer.workspaceId);
+      offer = await loadOfferForWebhook(db, cfg.offerToken!);
+      sig = verify();
+    } catch (e) {
+      await logEvent(db, { workspaceId: offer?.workspaceId ?? null, level: "error", code: "CAKTO_WEBHOOK_REFRESH_FAILED", provider: "cakto", message: (e as Error).message });
+    }
+  }
+
+  const workspaceId = offer ? offer.workspaceId : await resolveWebhookWorkspace(db, cfg.workspaceSlug);
 
   if (!sig.ok) {
     await logEvent(db, {
@@ -106,9 +130,9 @@ export async function handleCaktoWebhook(
     const { data: prev } = await db.from("webhook_events").select("id, processing_status").eq("provider", "cakto").eq("dedupe_key", dedupeKey).maybeSingle();
     if (prev && prev.processing_status !== "failed") return { httpStatus: 200, body: { ok: true, duplicate: true } };
     if (!prev) return { httpStatus: 200, body: { ok: true, duplicate: true } };
-    return processEvent(db, workspaceId, prev.id, env, sig.timestamp);
+    return processEvent(db, workspaceId, prev.id, env, sig.timestamp, offer?.id ?? null);
   }
-  return processEvent(db, workspaceId, eventId, env, sig.timestamp);
+  return processEvent(db, workspaceId, eventId, env, sig.timestamp, offer?.id ?? null);
 }
 
 async function processEvent(
@@ -117,6 +141,7 @@ async function processEvent(
   eventId: string,
   env: ReturnType<typeof parseEnvelope>,
   deliveryTs: number | null,
+  offerId: string | null,
 ): Promise<WebhookOutcome> {
   if (env.kind !== "order") {
     await db.from("webhook_events").update({ processing_status: "ignored", processed_at: new Date().toISOString(), error_message: env.kind }).eq("id", eventId);
@@ -132,7 +157,7 @@ async function processEvent(
       continue;
     }
     try {
-      const r = await ingestOrder(db, workspaceId, n.order, "webhook");
+      const r = await ingestOrder(db, workspaceId, n.order, "webhook", { offerId });
       results.push({ order: n.order.external_order_id, status: r.status, applied: r.applied, attribution: r.attribution });
     } catch (e) {
       errors.push(`${n.order.external_order_id}: ${(e as Error).message}`);

@@ -186,8 +186,23 @@ export async function ingestOrder(
   workspaceId: string,
   o: NormalizedOrder,
   source: Source,
+  opts: { offerId?: string | null } = {},
 ): Promise<IngestResult> {
-  const offerId = await resolveOffer(db, workspaceId, o.product_external_id, o.offer_external_id);
+  const mapped = await resolveOffer(db, workspaceId, o.product_external_id, o.offer_external_id);
+  // A URL do webhook (por oferta) decide; o mapeamento por produto cobre API e webhook geral.
+  const offerId = opts.offerId ?? mapped;
+  if (opts.offerId && !mapped && o.product_external_id) {
+    await db.from("offer_cakto_items").insert({
+      workspace_id: workspaceId, offer_id: opts.offerId, cakto_product_id: o.product_external_id,
+      product_name: o.product_name, label: o.product_name, source: "cakto_webhook",
+    });
+  } else if (opts.offerId && mapped && mapped !== opts.offerId) {
+    await logEvent(db, {
+      workspaceId, level: "warn", code: "OFFER_PRODUCT_CONFLICT", provider: "cakto",
+      message: "Webhook de uma oferta recebeu produto vinculado a outra",
+      context: { order_id: o.external_order_id, product_id: o.product_external_id, webhook_offer_id: opts.offerId, mapped_offer_id: mapped },
+    });
+  }
   if (!offerId) {
     await logEvent(db, {
       workspaceId,

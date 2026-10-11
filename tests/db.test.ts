@@ -13,7 +13,7 @@ const USER = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
 
 const upsert = async (p: Record<string, unknown>) =>
-  (await t.su<{ r: Record<string, unknown> }>("select public.upsert_order($1::jsonb) as r", [JSON.stringify({ workspace_id: WS, ...p })]))[0].r;
+  (await t.su<{ r: Record<string, unknown> }>("select utmfy.upsert_order($1::jsonb) as r", [JSON.stringify({ workspace_id: WS, ...p })]))[0].r;
 
 beforeAll(async () => {
   t = await freshDb();
@@ -121,7 +121,7 @@ describe("dedupe de webhook", () => {
 
 describe("RLS e isolamento", () => {
   it("usuário só enxerga o próprio workspace", async () => {
-    await t.su(`select public.upsert_order($1::jsonb)`, [JSON.stringify({ workspace_id: WS2, external_order_id: "X1", status: "paid" })]);
+    await t.su(`select utmfy.upsert_order($1::jsonb)`, [JSON.stringify({ workspace_id: WS2, external_order_id: "X1", status: "paid" })]);
     const mine = await t.as(USER, `select external_order_id from orders order by 1`);
     expect(mine.map((r) => r.external_order_id)).not.toContain("X1");
     const theirs = await t.as(OTHER, `select external_order_id from orders`);
@@ -140,7 +140,7 @@ describe("RLS e isolamento", () => {
   });
 
   it("upsert_order não pode ser chamado por authenticated", async () => {
-    await expect(t.as(USER, `select public.upsert_order('{"workspace_id":"${WS}","external_order_id":"Z","status":"paid"}'::jsonb)`)).rejects.toThrow();
+    await expect(t.as(USER, `select utmfy.upsert_order('{"workspace_id":"${WS}","external_order_id":"Z","status":"paid"}'::jsonb)`)).rejects.toThrow();
   });
 
   it("secret_refs é inacessível para membros", async () => {
@@ -224,5 +224,18 @@ describe("sessão do tracker", () => {
     await t.su(`select track_session($1::jsonb)`, [JSON.stringify({ ...base, event: "checkout_click" })]);
     const [s] = await t.su(`select first_touch->>'utm_source' ft, utm_source, utm_content, pageviews, checkout_clicks from tracking_sessions where session_id = 'sabcdefgh1234'`);
     expect(s).toEqual({ ft: "FB", utm_source: "ig", utm_content: "ad2|222222222", pageviews: 2, checkout_clicks: 1 });
+  });
+});
+
+describe("câmbio diário (PTAX)", () => {
+  it("usa a cotação do dia, a do último dia útil no fim de semana e nada sem cotação", async () => {
+    await t.su(`insert into utmfy.fx_rates (currency, date, rate) values ('USD', '2026-10-09', 4.9892), ('USD', '2026-10-08', 5.0119)`);
+    const fx = async (d: string, manual: number | null = null) =>
+      Number((await t.su<{ r: string | null }>(`select utmfy.fx_for('USD', $1::date, 'BRL', $2::numeric) as r`, [d, manual]))[0].r ?? NaN);
+    expect(await fx("2026-10-08")).toBeCloseTo(5.0119, 4);
+    expect(await fx("2026-10-11")).toBeCloseTo(4.9892, 4); // domingo → sexta
+    expect(await fx("2026-09-01")).toBeNaN(); // sem cotação e sem manual → fora do relatório
+    expect(await fx("2026-09-01", 5.5)).toBe(5.5); // fallback manual
+    expect(Number((await t.su<{ r: string }>(`select utmfy.fx_for('BRL', '2026-10-08', 'BRL', null) as r`))[0].r)).toBe(1);
   });
 });

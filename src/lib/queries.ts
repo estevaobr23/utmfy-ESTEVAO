@@ -1,6 +1,7 @@
 import "server-only";
 import type { Db } from "./supabase/types";
-import { resolveRange } from "./core/dates";
+import { resolveRange, todayIn } from "./core/dates";
+import { spendStatus } from "./core/spend-status";
 import { buildTree, totals, type OrderRow, type SpendRow } from "./core/report";
 import type { Workspace } from "./session";
 
@@ -64,13 +65,33 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters) {
   });
   const summary = totals(spendRows, orderRows, Number(other ?? 0));
   const { data: excluded } = await sb.rpc("report_spend_excluded", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_currency: ws.currency });
+  const excludedSpend = (excluded ?? []) as { account_id: string; currency: string; spend: number }[];
   return {
     summary,
     tree: buildTree(spendRows, orderRows),
     spendRows,
     orderRows,
-    excludedSpend: (excluded ?? []) as { account_id: string; currency: string; spend: number }[],
+    excludedSpend,
+    spendStatus: await loadSpendStatus(sb, ws, f, excludedSpend),
   };
+}
+
+async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { account_id: string; currency: string; spend: number }[]) {
+  const accountsQ = f.offer
+    ? sb.from("offer_ad_accounts").select("meta_ad_accounts(account_id, last_error)").eq("offer_id", f.offer)
+    : sb.from("meta_ad_accounts").select("account_id, last_error").eq("workspace_id", ws.id).eq("active", true);
+  const [accounts, jobs] = await Promise.all([
+    accountsQ,
+    sb.from("sync_jobs").select("params").eq("workspace_id", ws.id).eq("kind", "meta_insights").in("status", ["success", "partial"]).order("started_at", { ascending: false }).limit(500),
+  ]);
+  type Acc = { account_id: string; last_error: string | null };
+  const rows = (accounts.data ?? []) as unknown[];
+  const list = (f.offer ? rows.map((r) => (r as { meta_ad_accounts: Acc | null }).meta_ad_accounts).filter(Boolean) : rows) as Acc[];
+  const scoped = f.account ? list.filter((a) => a.account_id === f.account) : list;
+  const windows = (jobs.data ?? [])
+    .map((j) => j.params as { since?: string; until?: string } | null)
+    .filter((p): p is { since: string; until: string } => !!p?.since && !!p?.until);
+  return spendStatus({ accounts: scoped, syncedWindows: windows, excluded, from: f.from, to: f.to, today: todayIn(ws.timezone) });
 }
 
 export async function listOffers(sb: Db, wsId: string) {

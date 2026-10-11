@@ -119,7 +119,17 @@ export async function caktoListAll<T>(path: string, query: Record<string, string
 export type CaktoProduct = { id: string; name: string; status?: string; short_id?: string };
 export type CaktoOffer = { id: string; name: string; price?: number; product?: string | { id: string }; status?: string };
 
+export type CaktoWebhook = {
+  id: number;
+  name: string;
+  url: string | null;
+  status?: string;
+  products?: ({ id: string; name?: string } | string)[];
+  fields?: { secret?: string } | null;
+};
+
 export const caktoApi = {
+  listWebhooks: () => caktoListAll<CaktoWebhook>("/public_api/webhook/", {}, { limit: 100, maxPages: 10 }),
   listOrders: (q: Record<string, string | number | undefined>) => caktoListAll<Record<string, unknown>>("/public_api/orders/", q, { limit: 100 }),
   getOrder: (id: string) => caktoGet<Record<string, unknown>>(`/public_api/orders/${encodeURIComponent(id)}/`),
   listProducts: () => caktoListAll<CaktoProduct>("/public_api/products/", {}, { limit: 100, maxPages: 20 }),

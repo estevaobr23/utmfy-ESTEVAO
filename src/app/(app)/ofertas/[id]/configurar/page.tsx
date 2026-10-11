@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation";
-import { addCaktoItem, linkAdAccount, linkPixel, removeCaktoItem, unlinkAdAccount, unlinkPixel, updateOffer } from "@/app/actions";
+import { addCaktoItem, checkOfferWebhook, linkAdAccount, linkPixel, removeCaktoItem, unlinkAdAccount, unlinkPixel, updateOffer } from "@/app/actions";
+import { timeAgo } from "@/lib/core/dates";
+import { offerWebhookUrl } from "@/lib/services/offer-webhooks";
+
+const EVENTS = ["Compra aprovada", "Pix gerado", "Compra recusada", "Reembolso", "Reembolso solicitado", "Chargeback"];
 import { CodeBlock, SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
 import { Badge, Card, Code, Field, inputCls, LinkButton, Notice, PageHeader } from "@/components/ui";
@@ -56,18 +60,34 @@ export default async function ConfigureOffer({ params, searchParams }: PageProps
           </form>
         </Card>
 
-        <Card title="Passo 2 — Produtos/ofertas Cakto">
-          <p className="mb-3 text-sm text-slate-500">
-            Vendas destes produtos (ou ofertas específicas) entram nesta oferta. Com só o produto, todas as ofertas dele (inclusive bump/upsell do mesmo produto) são incluídas.
+        <Card title="Passo 2 — Webhook da Cakto (produtos desta oferta)">
+          <p className="mb-2 text-sm text-slate-500">
+            Na Cakto, em <b>Integrações → Webhooks → Adicionar</b>, cole esta URL e <b>marque os produtos desta oferta</b>. Eventos: {EVENTS.join(", ")}.
           </p>
-          <ul className="mb-3 space-y-1 text-sm">
+          <CodeBlock code={offerWebhookUrl(env.appUrl, offer.webhook_token)} />
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            {offer.cakto_webhook_id ? (
+              <Badge tone="ok">webhook encontrado na Cakto (#{offer.cakto_webhook_id})</Badge>
+            ) : (
+              <Badge tone="warn">{offer.cakto_webhook_checked_at ? "não encontrado na Cakto" : "ainda não verificado"}</Badge>
+            )}
+            {offer.cakto_webhook_checked_at && <span>verificado {timeAgo(offer.cakto_webhook_checked_at)}</span>}
+            {w && (
+              <form action={checkOfferWebhook}>
+                <input type="hidden" name="offer_id" value={id} />
+                <SubmitButton variant="secondary" pendingText="Verificando...">Verificar na Cakto</SubmitButton>
+              </form>
+            )}
+          </div>
+          <ul className="my-3 space-y-1 text-sm">
             {(items ?? []).map((it) => (
               <li key={it.id} className="flex items-center justify-between gap-2 rounded border border-slate-100 px-2 py-1">
                 <span>
-                  {it.label && <b>{it.label} · </b>}produto <Code>{it.cakto_product_id}</Code>
-                  {it.cakto_offer_id ? <> · oferta <Code>{it.cakto_offer_id}</Code></> : <Badge>todas as ofertas</Badge>}
+                  {it.product_name ?? it.label ?? <Code>{it.cakto_product_id}</Code>}
+                  {it.cakto_offer_id && <> · oferta <Code>{it.cakto_offer_id}</Code></>}{" "}
+                  <Badge tone={it.source === "cakto_webhook" ? "info" : "muted"}>{it.source === "cakto_webhook" ? "via webhook" : "manual"}</Badge>
                 </span>
-                {w && (
+                {w && it.source !== "cakto_webhook" && (
                   <form action={removeCaktoItem}>
                     <input type="hidden" name="id" value={it.id} /><input type="hidden" name="offer_id" value={id} />
                     <button className="text-xs text-rose-700">remover</button>
@@ -75,10 +95,12 @@ export default async function ConfigureOffer({ params, searchParams }: PageProps
                 )}
               </li>
             ))}
-            {!items?.length && <li className="text-slate-400">Nenhum produto associado — vendas não serão ligadas a esta oferta.</li>}
+            {!items?.length && <li className="text-slate-400">Nenhum produto ainda — crie o webhook na Cakto e clique em Verificar.</li>}
           </ul>
           {w && (
-            <form action={addCaktoItem} className="grid gap-2">
+            <details className="text-sm">
+              <summary className="cursor-pointer text-xs text-slate-500">Avançado: vincular produto manualmente</summary>
+            <form action={addCaktoItem} className="mt-2 grid gap-2">
               <input type="hidden" name="offer_id" value={id} />
               {products.length > 0 ? (
                 <Field label="Produto (da sua conta Cakto)">
@@ -97,6 +119,7 @@ export default async function ConfigureOffer({ params, searchParams }: PageProps
               <Field label="Rótulo (opcional)"><input name="label" className={inputCls} /></Field>
               <div><SubmitButton>Associar</SubmitButton></div>
             </form>
+            </details>
           )}
         </Card>
 
