@@ -19,7 +19,7 @@
 //   roas          = net_revenue / spend                  (padrão UTMify; null se spend = 0)
 //   gross_roas    = gross_revenue / spend
 //   cpa           = spend / approved_count                (null se 0 vendas)
-//   ticket        = gross_revenue / approved_count
+//   ticket        = net_revenue / approved_count         (ARPU da UTMify)
 //   pix_conversion= pix_paid / pix_generated
 //   ctr           = clicks / impressions
 //   cpc           = spend / clicks
@@ -103,7 +103,7 @@ export function derive(s: BaseSums): Derived {
     roas: ratio(net_revenue, s.spend),
     gross_roas: ratio(s.gross_revenue, s.spend),
     cpa: ratio(s.spend, s.approved_count),
-    ticket: ratio(s.gross_revenue, s.approved_count),
+    ticket: ratio(net_revenue, s.approved_count),
     pix_conversion: ratio(s.pix_paid, s.pix_generated),
     ctr: ratio(s.clicks, s.impressions),
     cpc: ratio(s.spend, s.clicks),
@@ -121,7 +121,7 @@ export const METRIC_DEFINITIONS: { key: string; label: string; formula: string }
   { key: "approved_count", label: "Vendas aprovadas", formula: "nº de pedidos principais aprovados no período (sem bump/upsell)" },
   { key: "pix_generated", label: "Pix gerados", formula: "nº de pedidos Pix criados no período" },
   { key: "pix_conversion", label: "Conversão Pix", formula: "Pix pagos ÷ Pix gerados (mesma coorte)" },
-  { key: "ticket", label: "Ticket médio", formula: "Receita Bruta ÷ Vendas aprovadas" },
+  { key: "ticket", label: "Ticket médio", formula: "Faturamento Líquido ÷ Vendas aprovadas (ARPU)" },
   { key: "refunded_amount", label: "Reembolsos", formula: "Σ valor dos aprovados no período hoje reembolsados" },
   { key: "chargeback_amount", label: "Chargebacks", formula: "Σ valor dos aprovados no período hoje em chargeback" },
   { key: "untracked_count", label: "Não rastreadas", formula: "Vendas aprovadas com atribuição UNTRACKED/UNKNOWN" },

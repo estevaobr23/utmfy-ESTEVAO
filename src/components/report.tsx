@@ -56,11 +56,11 @@ export function KpiGrid({ m, currency, untrackedHref, spend }: { m: Derived; cur
   );
 }
 
-const COLS = ["Gasto", "Receita", "Vendas", "CPA", "ROAS", "Ticket", "Impr.", "Cliques", "CTR", "CPC"];
+const COLS = ["Gasto", "Faturamento", "Vendas", "CPA", "ROAS", "Ticket", "Impr.", "Cliques", "CTR", "CPC"];
 
 function Cells({ m, currency }: { m: Derived; currency: string }) {
   const money = (v: number | null) => formatMoney(v, currency);
-  const vals = [money(m.spend), money(m.gross_revenue), formatNumber(m.approved_count), money(m.cpa), ratio(m.roas), money(m.ticket), formatNumber(m.impressions), formatNumber(m.clicks), formatPct(m.ctr, 2), money(m.cpc)];
+  const vals = [money(m.spend), money(m.net_revenue), formatNumber(m.approved_count), money(m.cpa), ratio(m.roas), money(m.ticket), formatNumber(m.impressions), formatNumber(m.clicks), formatPct(m.ctr, 2), money(m.cpc)];
   return (
     <>
       {vals.map((v, i) => (

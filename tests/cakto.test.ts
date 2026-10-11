@@ -128,3 +128,18 @@ describe("envelope e normalização", () => {
     expect((red.data.customer as Record<string, unknown>).email_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe("líquido pela comissão do produtor", () => {
+  it("taxa de serviço paga pelo comprador (R$ 0,99) sai do líquido, como na UTMify", () => {
+    const n = normalizeCaktoOrder({ id: "ord-1", status: "paid", amount: "30.89", baseAmount: "29.90", fees: "3.98", paidAt: "2026-10-11T12:00:00Z", commissions: [{ type: "producer", commissionValue: 25.92 }] }, {});
+    if ("error" in n) throw new Error(n.error);
+    expect(n.order.gross_amount).toBe(30.89);
+    expect(n.order.fees).toBe(4.97);
+    expect(n.order.net_amount).toBe(25.92);
+  });
+  it("sem comissão no payload, usa o campo fees", () => {
+    const n = normalizeCaktoOrder({ id: "ord-2", status: "paid", amount: "32.90", fees: "2.63", paidAt: "2026-10-11T12:00:00Z" }, {});
+    if ("error" in n) throw new Error(n.error);
+    expect(n.order.fees).toBe(2.63);
+  });
+});

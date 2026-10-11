@@ -191,7 +191,13 @@ export function normalizeCaktoOrder(
   const refundRequest = obj(data.refundRequest);
 
   const gross = toMoney(data.amount);
-  const fees = toMoney(data.fees);
+  // O valor cobrado inclui a taxa de serviço que o comprador paga à Cakto (ex.: R$ 0,99),
+  // que não está em `fees`. O que o produtor recebe é a comissão "producer": quando ela
+  // vier, as taxas efetivas = cobrado − comissão (mesmo líquido que a UTMify mostra).
+  const commissions = Array.isArray(data.commissions) ? (data.commissions as Record<string, unknown>[]) : [];
+  const producer = commissions.filter((c) => c?.type === "producer").map((c) => toMoney(c.commissionValue)).filter((v): v is number => v != null);
+  const producerNet = producer.length ? producer.reduce((a, b) => a + b, 0) : null;
+  const fees = gross != null && producerNet != null ? Math.round((gross - producerNet) * 100) / 100 : toMoney(data.fees);
   const email = normalizeEmail(customer.email);
   const phone = normalizePhone(customer.phone);
 
