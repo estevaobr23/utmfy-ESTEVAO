@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { normalizeCaktoOrder, parseEnvelope, redactPayload } from "../core/cakto/normalize";
 import { verifyCaktoWebhook } from "../core/cakto/signature";
 import { sha256Hex } from "../core/hash";
@@ -19,7 +19,7 @@ export type WebhookConfig = {
 };
 
 /** Qual workspace recebe o webhook: ?ws=slug > env > único workspace não-demo. */
-export async function resolveWebhookWorkspace(db: SupabaseClient, slug: string | null): Promise<string | null> {
+export async function resolveWebhookWorkspace(db: Db, slug: string | null): Promise<string | null> {
   if (slug) {
     const { data } = await db.from("workspaces").select("id").eq("slug", slug).maybeSingle();
     return data?.id ?? null;
@@ -35,7 +35,7 @@ export async function resolveWebhookWorkspace(db: SupabaseClient, slug: string |
  * bem dentro dos 8 s da Cakto.
  */
 export async function handleCaktoWebhook(
-  db: SupabaseClient,
+  db: Db,
   req: { rawBody: string; timestamp: string | null; signature: string | null },
   cfg: WebhookConfig,
 ): Promise<WebhookOutcome> {
@@ -112,7 +112,7 @@ export async function handleCaktoWebhook(
 }
 
 async function processEvent(
-  db: SupabaseClient,
+  db: Db,
   workspaceId: string,
   eventId: string,
   env: ReturnType<typeof parseEnvelope>,

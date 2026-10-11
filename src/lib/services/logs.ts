@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 
 // Logs estruturados, sempre sem secrets. Códigos estáveis (ex.: META_SYNC_FAILED,
 // ATTRIBUTION_FAILED) para filtrar na tela de Eventos/Health.
@@ -22,7 +22,7 @@ export function sanitize(value: unknown, depth = 0): unknown {
 }
 
 export async function logEvent(
-  db: SupabaseClient,
+  db: Db,
   entry: {
     workspaceId?: string | null;
     level: "info" | "warn" | "error";
@@ -50,13 +50,13 @@ export async function logEvent(
   }
 }
 
-export async function startJob(db: SupabaseClient, workspaceId: string | null, kind: string, trigger: "manual" | "cron" | "system", params: Record<string, unknown> = {}) {
+export async function startJob(db: Db, workspaceId: string | null, kind: string, trigger: "manual" | "cron" | "system", params: Record<string, unknown> = {}) {
   const { data } = await db.from("sync_jobs").insert({ workspace_id: workspaceId, kind, trigger, params }).select("id").single();
   return (data?.id as string | undefined) ?? null;
 }
 
 export async function finishJob(
-  db: SupabaseClient,
+  db: Db,
   jobId: string | null,
   status: "success" | "partial" | "failed",
   stats: Record<string, unknown>,

@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { z } from "zod";
 import { parseUtms } from "../core/utm";
 
@@ -41,7 +41,7 @@ function stripQuery(u: string | null | undefined) {
   }
 }
 
-export async function recordTrack(db: SupabaseClient, p: TrackPayload, userAgent: string | null) {
+export async function recordTrack(db: Db, p: TrackPayload, userAgent: string | null) {
   if (!p.offer) return { ok: false, reason: "no_offer" };
   const { data: offer } = await db.from("offers").select("id, workspace_id").eq("id", p.offer).maybeSingle();
   if (!offer) return { ok: false, reason: "unknown_offer" };

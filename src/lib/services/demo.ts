@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { caktoOrder } from "../core/cakto/fixtures";
 import { normalizeCaktoOrder } from "../core/cakto/normalize";
 import { todayIn } from "../core/dates";
@@ -24,7 +24,7 @@ const catalog = [
   { campaign_id: CAMP_S, campaign_name: "SOFÁS Topo", adset_id: "120200000000000101", adset_name: "Adset A", ad_id: "120200000000000123", ad_name: "Ad 123", spend: 10 },
 ];
 
-export async function seedDemo(db: SupabaseClient, userId: string) {
+export async function seedDemo(db: Db, userId: string) {
   // Remove SOMENTE o workspace demo anterior.
   const { data: old } = await db.from("workspaces").select("id, is_demo").eq("slug", DEMO_SLUG).maybeSingle();
   if (old && !old.is_demo) throw new Error("Já existe um workspace 'demo' que NÃO é demo — abortado por segurança.");

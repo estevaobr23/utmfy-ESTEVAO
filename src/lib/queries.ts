@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "./supabase/types";
 import { resolveRange } from "./core/dates";
 import { buildTree, totals, type OrderRow, type SpendRow } from "./core/report";
 import type { Workspace } from "./session";
@@ -42,7 +42,7 @@ export function parseFilters(sp: SP, tz: string, fixedOffer?: string): Filters {
   };
 }
 
-export async function loadReport(sb: SupabaseClient, ws: Workspace, f: Filters) {
+export async function loadReport(sb: Db, ws: Workspace, f: Filters) {
   const offers = f.offer ? [f.offer] : null;
   const [spend, orders] = await Promise.all([
     sb.rpc("report_spend_rows", {
@@ -73,18 +73,18 @@ export async function loadReport(sb: SupabaseClient, ws: Workspace, f: Filters) 
   };
 }
 
-export async function listOffers(sb: SupabaseClient, wsId: string) {
+export async function listOffers(sb: Db, wsId: string) {
   const { data } = await sb.from("offers").select("id, name, slug, status, currency, checkout_url, landing_url, created_at").eq("workspace_id", wsId).order("created_at");
   return data ?? [];
 }
 
-export async function listAccounts(sb: SupabaseClient, wsId: string) {
+export async function listAccounts(sb: Db, wsId: string) {
   const { data } = await sb.from("meta_ad_accounts").select("id, account_id, account_name, currency, timezone, active, last_sync_at, last_error").eq("workspace_id", wsId).order("account_name");
   return data ?? [];
 }
 
 /** Opções dos filtros de campanha/conjunto/anúncio a partir do catálogo. */
-export async function catalogOptions(sb: SupabaseClient, wsId: string, f: Filters) {
+export async function catalogOptions(sb: Db, wsId: string, f: Filters) {
   let q = sb.from("meta_ads").select("campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name").eq("workspace_id", wsId).limit(2000);
   if (f.account) q = q.eq("account_id", f.account);
   const { data } = await q;

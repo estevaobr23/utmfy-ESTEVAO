@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { attribute, type Catalog, type CatalogAd, type SessionTouch } from "../core/attribution";
 import type { NormalizedOrder } from "../core/cakto/normalize";
 import { purchaseEventId } from "../core/capi";
@@ -24,7 +24,7 @@ export type IngestResult = {
 type Source = "webhook" | "api_sync" | "reconcile" | "demo" | "test";
 
 /** Oferta interna a partir do produto/oferta Cakto (oferta Cakto específica > produto inteiro). */
-export async function resolveOffer(db: SupabaseClient, workspaceId: string, productId: string | null, offerId: string | null) {
+export async function resolveOffer(db: Db, workspaceId: string, productId: string | null, offerId: string | null) {
   if (!productId && !offerId) return null;
   const { data } = await db
     .from("offer_cakto_items")
@@ -50,7 +50,7 @@ function encodeFilter(v: string) {
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
 
 /** Carrega do catálogo só o que pode casar com as UTMs (por id: workspace; por nome: contas da oferta). */
-export async function loadCatalogFor(db: SupabaseClient, workspaceId: string, offerId: string | null, utms: UtmInput): Promise<Catalog> {
+export async function loadCatalogFor(db: Db, workspaceId: string, offerId: string | null, utms: UtmInput): Promise<Catalog> {
   const parsed = parseUtms(utms);
   const cols = "account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name";
   const ads: CatalogAd[] = [];
@@ -85,7 +85,7 @@ export async function loadCatalogFor(db: SupabaseClient, workspaceId: string, of
   return { ads, synced: (count ?? 0) > 0 };
 }
 
-async function loadSession(db: SupabaseClient, workspaceId: string, callback: string | null): Promise<SessionTouch> {
+async function loadSession(db: Db, workspaceId: string, callback: string | null): Promise<SessionTouch> {
   if (!callback || !/^[A-Za-z0-9._~-]{8,64}$/.test(callback)) return null;
   const { data } = await db
     .from("tracking_sessions")
@@ -110,7 +110,7 @@ async function loadSession(db: SupabaseClient, workspaceId: string, callback: st
 
 /** (Re)calcula e grava a atribuição de um pedido. */
 export async function attributeOrder(
-  db: SupabaseClient,
+  db: Db,
   args: { workspaceId: string; orderId: string; offerId: string | null; utms: UtmInput & { fbc?: string | null; fbp?: string | null }; callback: string | null; externalOrderId: string },
 ) {
   const session = await loadSession(db, args.workspaceId, args.callback);
@@ -161,7 +161,7 @@ export async function attributeOrder(
 }
 
 /** Cria dispatches CAPI (um por pixel ativo da oferta). Idempotente pela unique (order, pixel, evento). */
-export async function enqueuePurchaseDispatches(db: SupabaseClient, workspaceId: string, orderId: string, offerId: string | null, externalOrderId: string) {
+export async function enqueuePurchaseDispatches(db: Db, workspaceId: string, orderId: string, offerId: string | null, externalOrderId: string) {
   if (!offerId) return 0;
   const { data: links } = await db
     .from("offer_pixels")
@@ -182,7 +182,7 @@ export async function enqueuePurchaseDispatches(db: SupabaseClient, workspaceId:
 }
 
 export async function ingestOrder(
-  db: SupabaseClient,
+  db: Db,
   workspaceId: string,
   o: NormalizedOrder,
   source: Source,
@@ -250,7 +250,7 @@ export async function ingestOrder(
 }
 
 /** Reatribui pedidos pendentes de catálogo (chamado após sincronizar a Meta). */
-export async function reattributePending(db: SupabaseClient, workspaceId: string, sinceDays = 60) {
+export async function reattributePending(db: Db, workspaceId: string, sinceDays = 60) {
   const since = new Date(Date.now() - sinceDays * 864e5).toISOString();
   const { data } = await db
     .from("order_attribution")

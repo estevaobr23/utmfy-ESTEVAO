@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { catalogOptions, filtersToQuery, listAccounts, listOffers, loadReport, parseFilters } from "@/lib/queries";
 import type { Workspace } from "@/lib/session";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../lib/supabase/types";
 import { FilterBar } from "./filters";
 import { CampaignTree, KpiGrid, PeriodBadge } from "./report";
 import { Card, Notice } from "./ui";
@@ -14,7 +14,7 @@ export async function DashboardView({
   offerId,
   basePath,
 }: {
-  sb: SupabaseClient;
+  sb: Db;
   ws: Workspace;
   sp: Record<string, string | string[] | undefined>;
   offerId?: string;

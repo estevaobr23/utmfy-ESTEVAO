@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { normalizeCaktoOrder } from "../core/cakto/normalize";
 import { caktoApi, caktoConfigured, CaktoApiError } from "./cakto-client";
 import { finishJob, logEvent, startJob } from "./logs";
@@ -21,7 +21,7 @@ export type SyncStats = {
 };
 
 export async function syncCaktoOrders(
-  db: SupabaseClient,
+  db: Db,
   workspaceId: string,
   opts: { from: string; to: string; mode: "sync" | "reconcile"; trigger: "manual" | "cron" },
 ): Promise<{ jobId: string | null; stats: SyncStats; error?: string }> {

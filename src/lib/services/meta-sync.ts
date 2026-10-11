@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { hint } from "../core/hash";
 import { chunkRange, INSIGHTS_FIELDS, normalizeAccountId, normalizeInsight, type RawInsight } from "../core/meta";
 import { addDays, todayIn } from "../core/dates";
@@ -14,7 +14,7 @@ import { reattributePending } from "./orders";
 
 type Conn = { id: string; workspace_id: string; token_source: string; status: string };
 
-export async function getMetaToken(db: SupabaseClient, conn: Conn): Promise<string | null> {
+export async function getMetaToken(db: Db, conn: Conn): Promise<string | null> {
   if (conn.token_source === "env") return env.metaAccessToken || null;
   const { data, error } = await db.rpc("read_secret", { p_owner_type: "meta_connection", p_owner_id: conn.id });
   if (error) return null;
@@ -22,7 +22,7 @@ export async function getMetaToken(db: SupabaseClient, conn: Conn): Promise<stri
 }
 
 /** Garante uma conexão "env" quando META_ACCESS_TOKEN existe. */
-export async function ensureEnvConnection(db: SupabaseClient, workspaceId: string) {
+export async function ensureEnvConnection(db: Db, workspaceId: string) {
   const { data } = await db.from("meta_connections").select("id, workspace_id, token_source, status").eq("workspace_id", workspaceId).order("created_at");
   if (data && data.length) return data as Conn[];
   if (!env.metaAccessToken) return [];
@@ -33,7 +33,7 @@ export async function ensureEnvConnection(db: SupabaseClient, workspaceId: strin
   return (created ?? []) as Conn[];
 }
 
-async function markConnection(db: SupabaseClient, conn: Conn, e: unknown) {
+async function markConnection(db: Db, conn: Conn, e: unknown) {
   if (e instanceof MetaApiError && (e.kind === "token_expired" || e.kind === "no_permission")) {
     await db.from("meta_connections").update({ status: e.kind, last_error: e.message.slice(0, 300) }).eq("id", conn.id);
   } else {
@@ -41,7 +41,7 @@ async function markConnection(db: SupabaseClient, conn: Conn, e: unknown) {
   }
 }
 
-export async function discoverAccounts(db: SupabaseClient, workspaceId: string, trigger: "manual" | "cron" = "manual") {
+export async function discoverAccounts(db: Db, workspaceId: string, trigger: "manual" | "cron" = "manual") {
   const jobId = await startJob(db, workspaceId, "meta_accounts", trigger);
   const conns = await ensureEnvConnection(db, workspaceId);
   const stats = { connections: conns.length, accounts: 0 };
@@ -91,7 +91,7 @@ export async function discoverAccounts(db: SupabaseClient, workspaceId: string, 
 
 type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null };
 
-async function syncAccount(db: SupabaseClient, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string) {
+async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string) {
   const stats = { ads: 0, insights: 0 };
   // 1) catálogo (campanha → conjunto → anúncio), inclusive anúncios sem gasto
   const ads = await client.getAll<{ id: string; name?: string; effective_status?: string; adset?: { id: string; name?: string }; campaign?: { id: string; name?: string } }>(
@@ -147,7 +147,7 @@ async function syncAccount(db: SupabaseClient, workspaceId: string, client: Meta
 
 /** Sincroniza todas as contas monitoradas (active=true) do workspace. */
 export async function syncMeta(
-  db: SupabaseClient,
+  db: Db,
   workspaceId: string,
   opts: { since?: string; until?: string; trigger: "manual" | "cron"; accountIds?: string[] },
 ) {

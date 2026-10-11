@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../lib/supabase/types";
 import { timeAgo } from "@/lib/core/dates";
 import { envStatus } from "@/lib/env";
 import { LevelBadge } from "./ui";
@@ -22,7 +22,7 @@ type Health = {
 
 const minutes = (iso: string | null) => (iso ? (Date.now() - new Date(iso).getTime()) / 60000 : Infinity);
 
-export async function loadHealth(sb: SupabaseClient, wsId: string, offerId?: string): Promise<{ items: Item[]; raw: Health | null }> {
+export async function loadHealth(sb: Db, wsId: string, offerId?: string): Promise<{ items: Item[]; raw: Health | null }> {
   const { data } = await sb.rpc("integration_health", { p_workspace: wsId, p_offer: offerId ?? null });
   const h = data as Health | null;
   const env = envStatus();

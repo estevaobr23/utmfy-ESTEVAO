@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Db } from "../supabase/types";
 import { buildPurchaseEvent } from "../core/capi";
 import { env } from "../env";
 import { finishJob, logEvent, startJob } from "./logs";
@@ -10,7 +10,7 @@ import { finishJob, logEvent, startJob } from "./logs";
 
 const MAX_ATTEMPTS = 6;
 
-async function pixelToken(db: SupabaseClient, pixel: { id: string; token_source: string }) {
+async function pixelToken(db: Db, pixel: { id: string; token_source: string }) {
   if (pixel.token_source === "env") return env.metaCapiToken || null;
   if (pixel.token_source === "vault") {
     const { data } = await db.rpc("read_secret", { p_owner_type: "pixel", p_owner_id: pixel.id });
@@ -19,7 +19,7 @@ async function pixelToken(db: SupabaseClient, pixel: { id: string; token_source:
   return null;
 }
 
-export async function processDispatches(db: SupabaseClient, opts: { limit?: number; trigger: "manual" | "cron"; workspaceId?: string | null }) {
+export async function processDispatches(db: Db, opts: { limit?: number; trigger: "manual" | "cron"; workspaceId?: string | null }) {
   if (!env.capiEnabled) return { disabled: true as const };
   const jobId = await startJob(db, opts.workspaceId ?? null, "capi_dispatch", opts.trigger);
   let q = db
@@ -129,6 +129,6 @@ export async function processDispatches(db: SupabaseClient, opts: { limit?: numb
 }
 
 /** Reprocessar: volta para a fila SOMENTE o dispatch escolhido (ex.: Pixel C). */
-export async function retryDispatch(db: SupabaseClient, dispatchId: string) {
+export async function retryDispatch(db: Db, dispatchId: string) {
   return db.from("conversion_dispatches").update({ status: "pending", next_attempt_at: new Date().toISOString(), last_error: null }).eq("id", dispatchId).in("status", ["failed", "skipped"]);
 }
