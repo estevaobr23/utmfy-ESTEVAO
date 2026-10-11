@@ -20,8 +20,8 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campan
   return (
     <>
       <PageHeader
-        title="Relatório de campanhas"
-        subtitle="Receita e vendas vêm dos pedidos Cakto atribuídos; gasto, impressões e cliques vêm da Meta. Clique numa linha para expandir."
+        title="Meta Ads · todas as ofertas"
+        subtitle="Visão consolidada de todas as contas monitoradas. Receita e vendas vêm dos pedidos Cakto atribuídos; gasto, impressões e cliques vêm da Meta."
         actions={
           s.canWrite && (
             <form action={syncMetaNow}>

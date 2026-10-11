@@ -13,6 +13,19 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   );
 }
 
+/** Título de seção dentro de uma oferta (o nome da oferta já está na faixa de contexto). */
+export function SectionTitle({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
 export function Card({ title, children, actions, className = "" }: { title?: ReactNode; children: ReactNode; actions?: ReactNode; className?: string }) {
   return (
     <section className={`rounded-lg border border-slate-200 bg-white ${className}`}>
@@ -27,12 +40,14 @@ export function Card({ title, children, actions, className = "" }: { title?: Rea
   );
 }
 
-export function Kpi({ label, value, hint, tone = "default" }: { label: string; value: ReactNode; hint?: ReactNode; tone?: "default" | "good" | "bad" | "warn" }) {
+export function Kpi({
+  label, value, hint, tone = "default", size = "md",
+}: { label: string; value: ReactNode; hint?: ReactNode; tone?: "default" | "good" | "bad" | "warn"; size?: "md" | "lg" }) {
   const color = tone === "good" ? "text-emerald-700" : tone === "bad" ? "text-rose-700" : tone === "warn" ? "text-amber-700" : "text-slate-900";
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+    <div className={`rounded-lg border border-slate-200 bg-white px-4 ${size === "lg" ? "py-4" : "py-3"}`}>
       <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums ${color}`}>{value}</div>
+      <div className={`mt-1 font-semibold tabular-nums ${size === "lg" ? "text-2xl" : "text-xl"} ${color}`}>{value}</div>
       {hint && <div className="mt-0.5 text-xs text-slate-500">{hint}</div>}
     </div>
   );

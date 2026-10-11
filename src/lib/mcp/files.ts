@@ -7,7 +7,8 @@ import path from "node:path";
 // em next.config.ts). Segredos locais (.env*, *.local.txt, supabase/.temp)
 // nunca entram no bundle e também são bloqueados aqui.
 
-const ROOT = process.cwd();
+// Opaco para o bundler: sem isso o Turbopack empacota o projeto inteiro na função.
+const ROOT = /* turbopackIgnore: true */ process.cwd();
 const DIRS = ["src", "supabase/migrations", "supabase/sql", "scripts", "tests", "public"];
 const ROOT_FILES = /^([A-Z_]+\.md|package\.json|next\.config\.ts|vercel\.json|tsconfig\.json)$/;
 const EXTRA_FILES = ["supabase/config.toml"];
@@ -29,9 +30,9 @@ function allowed(rel: string) {
 }
 
 async function walk(rel: string, out: string[]) {
-  const abs = path.join(ROOT, rel);
-  if (!existsSync(abs)) return;
-  for (const e of await readdir(abs, { withFileTypes: true })) {
+  const abs = path.join(/* turbopackIgnore: true */ ROOT, rel);
+  if (!existsSync(/* turbopackIgnore: true */ abs)) return;
+  for (const e of await readdir(/* turbopackIgnore: true */ abs, { withFileTypes: true })) {
     const child = `${rel}/${e.name}`;
     if (BLOCKED.test(child)) continue;
     if (e.isDirectory()) await walk(child, out);
@@ -43,19 +44,19 @@ export async function listFiles(prefix = ""): Promise<string[]> {
   const p = normalize(prefix);
   const out: string[] = [];
   for (const d of DIRS) await walk(d, out);
-  for (const f of await readdir(ROOT)) if (ROOT_FILES.test(f)) out.push(f);
-  for (const f of EXTRA_FILES) if (existsSync(path.join(ROOT, f))) out.push(f);
+  for (const f of await readdir(/* turbopackIgnore: true */ ROOT)) if (ROOT_FILES.test(f)) out.push(f);
+  for (const f of EXTRA_FILES) if (existsSync(path.join(/* turbopackIgnore: true */ ROOT, f))) out.push(f);
   return out.filter((f) => !p || f === p || f.startsWith(`${p}/`)).sort();
 }
 
 export async function readText(p: string, start?: number, end?: number) {
   const rel = normalize(p);
   if (!allowed(rel)) throw new Error(`fora das pastas liberadas: ${p}`);
-  const abs = path.join(ROOT, rel);
-  const s = await stat(abs).catch(() => null);
+  const abs = path.join(/* turbopackIgnore: true */ ROOT, rel);
+  const s = await stat(/* turbopackIgnore: true */ abs).catch(() => null);
   if (!s?.isFile()) throw new Error(`arquivo não encontrado: ${p}`);
   if (s.size > 1_000_000) throw new Error("arquivo grande demais (>1MB)");
-  const lines = (await readFile(abs, "utf8")).split(/\r?\n/);
+  const lines = (await readFile(/* turbopackIgnore: true */ abs, "utf8")).split(/\r?\n/);
   const from = Math.max(1, start ?? 1);
   const to = Math.min(lines.length, end ?? lines.length);
   return {
@@ -77,7 +78,7 @@ export async function searchCode(query: string, prefix = "", regex = false, limi
   const hits: string[] = [];
   for (const f of await listFiles(prefix)) {
     if (!TEXT.test(f)) continue;
-    const lines = (await readFile(path.join(ROOT, f), "utf8").catch(() => "")).split(/\r?\n/);
+    const lines = (await readFile(path.join(/* turbopackIgnore: true */ ROOT, f), "utf8").catch(() => "")).split(/\r?\n/);
     for (let i = 0; i < lines.length && hits.length < limit; i++) {
       if (re.test(lines[i])) hits.push(`${f}:${i + 1}: ${lines[i].trim().slice(0, 240)}`);
     }

@@ -15,31 +15,43 @@ export function KpiGrid({ m, currency, untrackedHref, spend }: { m: Derived; cur
   const ok = spend?.reliable ?? true;
   const na = "gasto incompleto";
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-      <Kpi label="Gasto" value={money(m.spend)} hint={ok ? "Meta Ads" : "⚠ incompleto"} tone={ok ? "default" : "warn"} />
-      <Kpi label="Receita bruta" value={money(m.gross_revenue)} hint="Cakto (aprovadas)" />
-      <Kpi label="Receita líquida" value={money(m.net_revenue)} hint={`taxas ${money(m.fees)}`} />
-      <Kpi
-        label="Lucro estimado"
-        value={ok ? money(m.profit) : "—"}
-        tone={ok ? (m.profit >= 0 ? "good" : "bad") : "default"}
-        hint={ok ? (m.other_costs ? `outros custos ${money(m.other_costs)}` : undefined) : na}
-      />
-      <Kpi label="ROAS" value={ok ? ratio(m.roas) : "—"} tone={ok ? roasTone(m.roas) : "default"} hint={ok ? `sobre receita líquida · bruto ${ratio(m.gross_roas)}` : na} />
-      <Kpi label="CPA" value={ok ? money(m.cpa) : "—"} hint={ok ? undefined : na} />
-      <Kpi label="Ticket médio" value={money(m.ticket)} />
-      <Kpi label="Vendas aprovadas" value={formatNumber(m.approved_count)} hint={m.approved_items > m.approved_count ? `+${m.approved_items - m.approved_count} bump/upsell` : undefined} />
-      <Kpi label="Pix gerados" value={formatNumber(m.pix_generated)} hint={`${formatNumber(m.pix_paid)} pagos`} />
-      <Kpi label="Conversão Pix" value={formatPct(m.pix_conversion)} />
-      <Kpi label="Reembolsos" value={money(m.refunded_amount)} hint={`${formatNumber(m.refunded_count)} pedido(s)`} tone={m.refunded_count ? "warn" : "default"} />
-      <Kpi label="Chargebacks" value={money(m.chargeback_amount)} hint={`${formatNumber(m.chargeback_count)} pedido(s)`} tone={m.chargeback_count ? "bad" : "default"} />
-      <Kpi
-        label="Não rastreadas"
-        value={untrackedHref ? <Link href={untrackedHref} className="underline decoration-dotted">{formatNumber(m.untracked_count)}</Link> : formatNumber(m.untracked_count)}
-        hint={money(m.untracked_revenue)}
-        tone={m.untracked_count ? "warn" : "default"}
-      />
-      <Kpi label="Compras (Meta)" value={formatNumber(m.meta_purchases)} hint="reportado pela Meta, só referência" />
+    <div className="space-y-3">
+      {/* Quanto vendi, quanto gastei, quanto voltou, quanto sobrou. */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi size="lg" label="Faturamento líquido" value={money(m.net_revenue)} hint={`bruto ${money(m.gross_revenue)} · taxas ${money(m.fees)}`} />
+        <Kpi size="lg" label="Gasto com anúncios" value={money(m.spend)} hint={ok ? "Meta Ads" : "⚠ incompleto"} tone={ok ? "default" : "warn"} />
+        <Kpi size="lg" label="ROAS" value={ok ? ratio(m.roas) : "—"} tone={ok ? roasTone(m.roas) : "default"} hint={ok ? `sobre faturamento líquido · bruto ${ratio(m.gross_roas)}` : na} />
+        <Kpi
+          size="lg"
+          label="Lucro"
+          value={ok ? money(m.profit) : "—"}
+          tone={ok ? (m.profit >= 0 ? "good" : "bad") : "default"}
+          hint={ok ? (m.other_costs ? `outros custos ${money(m.other_costs)}` : "faturamento líquido − gasto") : na}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi label="Vendas aprovadas" value={formatNumber(m.approved_count)} hint={m.approved_items > m.approved_count ? `+${m.approved_items - m.approved_count} bump/upsell` : undefined} />
+        <Kpi label="CPA" value={ok ? money(m.cpa) : "—"} hint={ok ? undefined : na} />
+        <Kpi label="Ticket médio" value={money(m.ticket)} />
+        <Kpi label="Reembolsos" value={money(m.refunded_amount)} hint={`${formatNumber(m.refunded_count)} pedido(s)`} tone={m.refunded_count ? "warn" : "default"} />
+      </div>
+      {m.untracked_count > 0 && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {formatNumber(m.untracked_count)} venda(s) sem anúncio identificado ({money(m.untracked_revenue)}): entram nos totais, mas não em nenhuma campanha.{" "}
+          {untrackedHref && <Link href={untrackedHref} className="underline">ver vendas</Link>}
+        </p>
+      )}
+      <details className="rounded-lg border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Mais métricas</summary>
+        <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3 xl:grid-cols-6">
+          <Kpi label="Faturamento bruto" value={money(m.gross_revenue)} hint="Cakto (aprovadas)" />
+          <Kpi label="Pix gerados" value={formatNumber(m.pix_generated)} hint={`${formatNumber(m.pix_paid)} pagos`} />
+          <Kpi label="Conversão Pix" value={formatPct(m.pix_conversion)} />
+          <Kpi label="Chargebacks" value={money(m.chargeback_amount)} hint={`${formatNumber(m.chargeback_count)} pedido(s)`} tone={m.chargeback_count ? "bad" : "default"} />
+          <Kpi label="CTR · CPC" value={formatPct(m.ctr, 2)} hint={`CPC ${money(m.cpc)} · ${formatNumber(m.clicks)} cliques`} />
+          <Kpi label="Compras (Meta)" value={formatNumber(m.meta_purchases)} hint="reportado pela Meta, só referência" />
+        </div>
+      </details>
     </div>
   );
 }
@@ -62,10 +74,10 @@ function Cells({ m, currency }: { m: Derived; currency: string }) {
 
 const GRID = "grid grid-cols-[minmax(260px,2fr)_repeat(10,minmax(78px,1fr))] items-center gap-2 px-3 py-2 text-sm";
 
-function Row({ node, currency, depth, filters }: { node: ReportNode; currency: string; depth: number; filters?: Filters }) {
+function Row({ node, currency, depth, filters, basePath }: { node: ReportNode; currency: string; depth: number; filters?: Filters; basePath: string }) {
   const drill =
     filters && !node.id.startsWith("__")
-      ? `/campanhas${filtersToQuery({ ...filters, [node.level]: node.id })}`
+      ? `${basePath}${filtersToQuery({ ...filters, [node.level]: node.id })}`
       : null;
   const label = (
     <span className="flex min-w-0 items-center gap-2" style={{ paddingLeft: depth * 18 }}>
@@ -97,14 +109,14 @@ function Row({ node, currency, depth, filters }: { node: ReportNode; currency: s
       </summary>
       <div className="bg-slate-50/50">
         {node.children.map((c) => (
-          <Row key={c.id} node={c} currency={currency} depth={depth + 1} filters={filters} />
+          <Row key={c.id} node={c} currency={currency} depth={depth + 1} filters={filters} basePath={basePath} />
         ))}
       </div>
     </details>
   );
 }
 
-export function CampaignTree({ tree, currency, filters }: { tree: ReportNode[]; currency: string; filters?: Filters }) {
+export function CampaignTree({ tree, currency, filters, basePath = "/campanhas" }: { tree: ReportNode[]; currency: string; filters?: Filters; basePath?: string }) {
   if (!tree.length) return <p className="p-4 text-sm text-slate-500">Nenhum gasto ou venda atribuída no período.</p>;
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -118,7 +130,7 @@ export function CampaignTree({ tree, currency, filters }: { tree: ReportNode[]; 
           ))}
         </div>
         {tree.map((n) => (
-          <Row key={n.id} node={n} currency={currency} depth={0} filters={filters} />
+          <Row key={n.id} node={n} currency={currency} depth={0} filters={filters} basePath={basePath} />
         ))}
       </div>
     </div>

@@ -62,7 +62,7 @@ export async function createOffer(fd: FormData) {
     .select("id")
     .single();
   if (error) back("/ofertas", error.message.includes("duplicate") ? "Já existe oferta com esse slug" : error.message, "error");
-  back(`/ofertas/${data!.id}/configurar`, "Oferta criada");
+  back(`/ofertas/${data!.id}/integracoes`, "Oferta criada");
 }
 
 export async function updateOffer(fd: FormData) {
@@ -75,7 +75,7 @@ export async function updateOffer(fd: FormData) {
     .update({ name: str(fd, "name").slice(0, 120), status, checkout_url: url(str(fd, "checkout_url")), landing_url: url(str(fd, "landing_url")), notes: str(fd, "notes").slice(0, 2000) || null })
     .eq("id", id)
     .eq("workspace_id", s.workspace.id);
-  back(`/ofertas/${id}/configurar`, error ? error.message : "Oferta salva", error ? "error" : "ok");
+  back(`/ofertas/${id}/configuracoes`, error ? error.message : "Oferta salva", error ? "error" : "ok");
 }
 
 export async function addCaktoItem(fd: FormData) {
@@ -84,18 +84,18 @@ export async function addCaktoItem(fd: FormData) {
   const product = str(fd, "cakto_product_id");
   const offer = str(fd, "cakto_offer_id");
   const valid = /^[A-Za-z0-9_-]{1,255}$/;
-  if (!valid.test(product) || (offer && !valid.test(offer))) back(`/ofertas/${offerId}/configurar`, "IDs Cakto inválidos", "error");
+  if (!valid.test(product) || (offer && !valid.test(offer))) back(`/ofertas/${offerId}/integracoes`, "IDs Cakto inválidos", "error");
   const { error } = await s.sb.from("offer_cakto_items").insert({
     workspace_id: s.workspace.id, offer_id: offerId, cakto_product_id: product, cakto_offer_id: offer || null, label: str(fd, "label").slice(0, 120) || null,
   });
-  back(`/ofertas/${offerId}/configurar`, error ? (error.message.includes("duplicate") ? "Esse produto/oferta Cakto já está mapeado para uma oferta" : error.message) : "Produto Cakto associado", error ? "error" : "ok");
+  back(`/ofertas/${offerId}/integracoes`, error ? (error.message.includes("duplicate") ? "Esse produto/oferta Cakto já está mapeado para uma oferta" : error.message) : "Produto Cakto associado", error ? "error" : "ok");
 }
 
 /** Lê na Cakto o webhook desta oferta: produtos marcados lá passam a ser desta oferta. */
 export async function checkOfferWebhook(fd: FormData) {
   const s = await writer();
   const offerId = uuid.parse(str(fd, "offer_id"));
-  const path = `/ofertas/${offerId}/configurar`;
+  const path = `/ofertas/${offerId}/integracoes`;
   let r: Awaited<ReturnType<typeof syncOfferWebhooks>>;
   try {
     r = await syncOfferWebhooks(adminClient(), s.workspace.id);
@@ -111,7 +111,7 @@ export async function removeCaktoItem(fd: FormData) {
   const s = await writer();
   const offerId = uuid.parse(str(fd, "offer_id"));
   await s.sb.from("offer_cakto_items").delete().eq("id", uuid.parse(str(fd, "id"))).eq("workspace_id", s.workspace.id);
-  back(`/ofertas/${offerId}/configurar`, "Removido");
+  back(`/ofertas/${offerId}/integracoes`, "Removido");
 }
 
 export async function linkAdAccount(fd: FormData) {
@@ -121,14 +121,14 @@ export async function linkAdAccount(fd: FormData) {
   const { error } = await s.sb.from("offer_ad_accounts").upsert({
     workspace_id: s.workspace.id, offer_id: offerId, ad_account_id: uuid.parse(str(fd, "ad_account_id")), campaign_filter: filter,
   });
-  back(`/ofertas/${offerId}/configurar`, error ? error.message : "Conta associada", error ? "error" : "ok");
+  back(`/ofertas/${offerId}/integracoes`, error ? error.message : "Conta associada", error ? "error" : "ok");
 }
 
 export async function unlinkAdAccount(fd: FormData) {
   const s = await writer();
   const offerId = uuid.parse(str(fd, "offer_id"));
   await s.sb.from("offer_ad_accounts").delete().eq("offer_id", offerId).eq("ad_account_id", uuid.parse(str(fd, "ad_account_id")));
-  back(`/ofertas/${offerId}/configurar`, "Conta desassociada");
+  back(`/ofertas/${offerId}/integracoes`, "Conta desassociada");
 }
 
 // --------------------------------------------------------------- pixels -----
@@ -174,13 +174,13 @@ export async function setPixelToken(fd: FormData) {
 export async function linkPixel(fd: FormData) {
   const s = await writer();
   const { error } = await s.sb.from("offer_pixels").upsert({ workspace_id: s.workspace.id, offer_id: uuid.parse(str(fd, "offer_id")), pixel_id: uuid.parse(str(fd, "pixel_id")), active: true });
-  back(str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/configurar` : "/pixels", error ? error.message : "Pixel associado", error ? "error" : "ok");
+  back(str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/integracoes` : "/pixels", error ? error.message : "Pixel associado", error ? "error" : "ok");
 }
 
 export async function unlinkPixel(fd: FormData) {
   const s = await writer();
   await s.sb.from("offer_pixels").delete().eq("offer_id", uuid.parse(str(fd, "offer_id"))).eq("pixel_id", uuid.parse(str(fd, "pixel_id")));
-  back(str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/configurar` : "/pixels", "Pixel desassociado");
+  back(str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/integracoes` : "/pixels", "Pixel desassociado");
 }
 
 // ---------------------------------------------------------------- meta ------
@@ -219,7 +219,8 @@ export async function syncMetaNow(fd: FormData) {
     since: isIsoDate(since) ? since : undefined,
     until: isIsoDate(until) ? until : undefined,
   });
-  const path = str(fd, "back") || "/meta";
+  const raw = str(fd, "back");
+  const path = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/meta";
   back(path, r.error ? `Falha: ${r.error}` : `Meta sincronizada: ${r.stats.insights} linhas, ${r.stats.ads} anúncios`, r.error ? "error" : "ok");
 }
 
