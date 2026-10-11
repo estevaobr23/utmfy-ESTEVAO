@@ -5,10 +5,89 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+:root {
+  color-scheme: dark;
+  --app-bg: #11192d;
+  --app-bg-deep: #0d1527;
+  --sidebar: #222d46;
+  --sidebar-deep: #172137;
+  --surface: #27334d;
+  --surface-raised: #2d3a56;
+  --surface-soft: #202b43;
+  --border: #394761;
+  --border-soft: #303d57;
+  --text: #eef2f8;
+  --text-soft: #c7cfdd;
+  --muted: #94a0b6;
+  --blue: #0874f9;
+  --blue-hover: #0865d8;
+  --green: #19c779;
+  --red: #ff4d5f;
+  --amber: #f5b942;
+}
+
+* {
+  scrollbar-color: #4a5872 var(--app-bg-deep);
+}
+
 body {
   font-family: var(--font-sans);
+  background: var(--app-bg);
+  color: var(--text);
 }
 
 details > summary::-webkit-details-marker {
   display: none;
 }
+
+::selection {
+  background: rgb(8 116 249 / 38%);
+  color: white;
+}
+
+input,
+select,
+textarea {
+  color-scheme: dark;
+}
+
+/* Compatibilidade dark para telas antigas enquanto os componentes centrais
+   usam os tokens diretamente. Mantém toda a administração no mesmo tema. */
+body .bg-white { background-color: var(--surface); }
+body .bg-slate-50 { background-color: var(--app-bg); }
+body .bg-slate-100 { background-color: var(--surface-soft); }
+body .bg-slate-200 { background-color: var(--surface-raised); }
+body .border-slate-100,
+body .border-slate-200,
+body .border-slate-300 { border-color: var(--border); }
+body .divide-slate-100 > :not(:last-child) { border-color: var(--border-soft); }
+body .text-slate-900,
+body .text-slate-800 { color: var(--text); }
+body .text-slate-700,
+body .text-slate-600 { color: var(--text-soft); }
+body .text-slate-500,
+body .text-slate-400 { color: var(--muted); }
+body .ring-slate-200,
+body .ring-slate-300 { --tw-ring-color: var(--border); }
+body .hover\:bg-slate-50:hover,
+body .hover\:bg-slate-100:hover,
+body .hover\:bg-slate-200:hover { background-color: var(--surface-raised); }
+
+body .bg-emerald-50,
+body .bg-emerald-100 { background-color: rgb(25 199 121 / 13%); }
+body .bg-amber-50,
+body .bg-amber-100 { background-color: rgb(245 185 66 / 12%); }
+body .bg-rose-50 { background-color: rgb(255 77 95 / 12%); }
+body .bg-sky-50 { background-color: rgb(8 116 249 / 12%); }
+body .text-emerald-700,
+body .text-emerald-800,
+body .text-emerald-900 { color: #35d991; }
+body .text-amber-700,
+body .text-amber-800,
+body .text-amber-900 { color: #f7c95f; }
+body .text-rose-600,
+body .text-rose-700,
+body .text-rose-800,
+body .text-rose-900 { color: #ff7180; }
+body .text-sky-700,
+body .text-sky-900 { color: #54a3ff; }

@@ -8,16 +8,16 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     : { data: [] };
   const offers = (data ?? []) as NavOffer[];
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#11192d]">
       <Sidebar offers={offers} workspaces={s.workspaces} workspaceId={s.workspace?.id ?? null} email={s.user.email ?? ""} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-[#11192d]">
         <MobileNav offers={offers} />
         {s.workspace?.is_demo && (
           <div className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-sm font-medium text-amber-900">
             MODO DEMO — dados fictícios, isolados em um workspace separado. Nada aqui é produção.
           </div>
         )}
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-6">{children}</main>
+        <main className="w-full flex-1 p-4 md:p-6">{children}</main>
       </div>
     </div>
   );

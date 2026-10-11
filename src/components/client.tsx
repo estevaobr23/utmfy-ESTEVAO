@@ -16,7 +16,7 @@ export function CopyButton({ text, label = "Copiar" }: { text: string; label?: s
           setDone(false);
         }
       }}
-      className="inline-flex items-center rounded-md bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"
+      className="inline-flex items-center rounded-md bg-[#34415e] px-2.5 py-1 text-xs font-medium text-[#dce2ec] ring-1 ring-[#4a5872] hover:bg-[#3d4b68]"
     >
       {done ? "Copiado ✓" : label}
     </button>
@@ -26,9 +26,9 @@ export function CopyButton({ text, label = "Copiar" }: { text: string; label?: s
 export function SubmitButton({ children, variant = "primary", pendingText = "Processando..." }: { children: React.ReactNode; variant?: "primary" | "secondary" | "danger"; pendingText?: string }) {
   const { pending } = useFormStatus();
   const cls =
-    variant === "primary" ? "bg-slate-900 text-white hover:bg-slate-700"
-    : variant === "danger" ? "bg-white text-rose-700 ring-1 ring-rose-300 hover:bg-rose-50"
-    : "bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50";
+    variant === "primary" ? "bg-[#0874f9] text-white hover:bg-[#0865d8]"
+    : variant === "danger" ? "bg-rose-400/10 text-rose-300 ring-1 ring-rose-400/30 hover:bg-rose-400/15"
+    : "bg-[#34415e] text-[#dce2ec] ring-1 ring-[#4a5872] hover:bg-[#3d4b68]";
   return (
     <button type="submit" disabled={pending} className={`inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${cls}`}>
       {pending ? pendingText : children}
@@ -39,7 +39,7 @@ export function SubmitButton({ children, variant = "primary", pendingText = "Pro
 export function CodeBlock({ code }: { code: string }) {
   return (
     <div className="relative">
-      <pre className="overflow-x-auto rounded-md bg-slate-900 p-3 pr-20 font-mono text-xs leading-relaxed text-slate-100">{code}</pre>
+      <pre className="overflow-x-auto rounded-md border border-[#394761] bg-[#121b2f] p-3 pr-20 font-mono text-xs leading-relaxed text-[#dce2ec]">{code}</pre>
       <div className="absolute right-2 top-2">
         <CopyButton text={code} />
       </div>

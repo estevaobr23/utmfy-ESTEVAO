@@ -83,7 +83,7 @@ export async function loadHealth(sb: Db, wsId: string, offerId?: string): Promis
 
 export function HealthList({ items }: { items: Item[] }) {
   return (
-    <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+    <ul className="divide-y divide-[#394761] rounded-md border border-[#394761] bg-[#27334d]">
       {items.map((i) => (
         <li key={i.name} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
           <div>

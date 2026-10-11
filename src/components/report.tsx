@@ -41,8 +41,8 @@ export function KpiGrid({ m, currency, untrackedHref, spend }: { m: Derived; cur
           {untrackedHref && <Link href={untrackedHref} className="underline">ver vendas</Link>}
         </p>
       )}
-      <details className="rounded-lg border border-slate-200 bg-white">
-        <summary className="cursor-pointer px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Mais métricas</summary>
+      <details className="rounded-md border border-[#384662] bg-[#27334d]">
+        <summary className="cursor-pointer px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-[#aab4c6]">Mais métricas</summary>
         <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3 xl:grid-cols-6">
           <Kpi label="Faturamento bruto" value={money(m.gross_revenue)} hint="Cakto (aprovadas)" />
           <Kpi label="Pix gerados" value={formatNumber(m.pix_generated)} hint={`${formatNumber(m.pix_paid)} pagos`} />
@@ -95,19 +95,19 @@ function Row({ node, currency, depth, filters, basePath }: { node: ReportNode; c
   );
   if (!node.children.length) {
     return (
-      <div className={`${GRID} border-b border-slate-100`}>
+      <div className={`${GRID} border-b border-[#394761]`}>
         {label}
         <Cells m={node.metrics} currency={currency} />
       </div>
     );
   }
   return (
-    <details className="border-b border-slate-100">
-      <summary className={`${GRID} cursor-pointer list-none hover:bg-slate-50 ${depth === 0 ? "font-medium" : ""}`}>
+    <details className="border-b border-[#394761]">
+      <summary className={`${GRID} cursor-pointer list-none hover:bg-[#2d3a56] ${depth === 0 ? "font-medium" : ""}`}>
         {label}
         <Cells m={node.metrics} currency={currency} />
       </summary>
-      <div className="bg-slate-50/50">
+      <div className="bg-[#202b43]">
         {node.children.map((c) => (
           <Row key={c.id} node={c} currency={currency} depth={depth + 1} filters={filters} basePath={basePath} />
         ))}
@@ -119,9 +119,9 @@ function Row({ node, currency, depth, filters, basePath }: { node: ReportNode; c
 export function CampaignTree({ tree, currency, filters, basePath = "/campanhas" }: { tree: ReportNode[]; currency: string; filters?: Filters; basePath?: string }) {
   if (!tree.length) return <p className="p-4 text-sm text-slate-500">Nenhum gasto ou venda atribuída no período.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-md border border-[#394761] bg-[#27334d]">
       <div className="min-w-[1100px]">
-        <div className={`${GRID} border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500`}>
+        <div className={`${GRID} border-b border-[#43516c] bg-[#34415e] text-[11px] font-semibold uppercase tracking-wide text-[#d4dbe7]`}>
           <span>Campanha → Conjunto → Anúncio</span>
           {COLS.map((c) => (
             <span key={c} className="text-right">

@@ -11,6 +11,7 @@ import type { Db } from "@/lib/supabase/types";
 
 const PRESETS: [string, string][] = [["today", "Hoje"], ["yesterday", "Ontem"], ["7d", "7 dias"], ["14d", "14 dias"], ["30d", "30 dias"], ["month", "Este mês"]];
 const UNIT: Record<Level, [string, string]> = { contas: ["conta", "contas"], campanhas: ["campanha", "campanhas"], conjuntos: ["conjunto", "conjuntos"], anuncios: ["anúncio", "anúncios"] };
+const LEVEL_ICON: Record<Level, string> = { contas: "▣", campanhas: "◫", conjuntos: "⊞", anuncios: "▯" };
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 const ID = /^[0-9]{1,30}$/;
 
@@ -92,44 +93,45 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   const [u1, uN] = UNIT[level];
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-slate-100">
-      <nav className="grid grid-cols-4 border-b border-slate-800">
+    <div className="overflow-hidden rounded-md border border-[#384662] bg-[#202b43] text-[#eef2f8] shadow-[0_14px_38px_rgba(4,9,20,0.18)]">
+      <nav className="grid grid-cols-4 gap-3 bg-[#11192d]">
         {LEVELS.map(([k, label]) => (
           <Link
             key={k}
             href={link({ nivel: k, ...(k === "contas" || k === "campanhas" ? { campaign: null, adset: null } : k === "conjuntos" ? { adset: null } : {}) })}
-            className={`px-4 py-3 text-sm font-medium ${k === level ? "border-b-2 border-blue-500 bg-slate-800/60 text-blue-400" : "text-slate-300 hover:bg-slate-800/40"}`}
+            className={`rounded-t-md border border-b-0 px-5 py-4 text-left text-sm font-semibold transition ${k === level ? "border-[#3b4964] bg-[#27334d] text-[#1681ff] shadow-[inset_0_-2px_0_#0874f9]" : "border-[#303d57] bg-[#27334d]/75 text-[#b3bdcd] hover:bg-[#2d3a56]"}`}
           >
-            {label}
+            <span className="mr-2 text-base" aria-hidden>{LEVEL_ICON[k]}</span>{label}
             {k === "conjuntos" && parentCampaign && level !== "campanhas" && <span className="ml-1 text-xs text-slate-400">de 1 campanha</span>}
           </Link>
         ))}
       </nav>
 
-      <div className="flex flex-wrap items-end gap-2 border-b border-slate-800 px-4 py-3">
+      <div className="flex flex-wrap items-end gap-3 border-b border-[#394761] bg-[#27334d] px-4 py-4">
+        <span className="mb-0.5 self-end rounded-full bg-[#19b972] px-2.5 py-1 text-[11px] font-semibold text-white">✓ Rastreio ativo</span>
         <form method="get" action={path} className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="nivel" value={level} />
           {campaign && <input type="hidden" name="campaign" value={campaign} />}
           {adset && <input type="hidden" name="adset" value={adset} />}
           <label className="text-[11px] text-slate-400">
             Nome
-            <input name="q" defaultValue={name} placeholder={`Filtrar ${uN}`} className="mt-0.5 block w-44 rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500" />
+            <input name="q" defaultValue={name} placeholder={`Filtrar ${uN}`} className="mt-0.5 block w-44 rounded border border-[#46546e] bg-[#27334d] px-3 py-2 text-sm text-[#eef2f8] outline-none placeholder:text-[#728097] focus:border-[#0874f9]" />
           </label>
           <label className="text-[11px] text-slate-400">
             Período
-            <select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-0.5 block rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100">
+            <select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-0.5 block rounded border border-[#46546e] bg-[#27334d] px-3 py-2 text-sm text-[#eef2f8] outline-none focus:border-[#0874f9]">
               {f.preset === "custom" && <option value="">{`${f.from} → ${f.to}`}</option>}
               {PRESETS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
           <label className="text-[11px] text-slate-400">
             Conta de anúncio
-            <select name="account" defaultValue={f.account ?? ""} className="mt-0.5 block max-w-52 rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100">
+            <select name="account" defaultValue={f.account ?? ""} className="mt-0.5 block max-w-52 rounded border border-[#46546e] bg-[#27334d] px-3 py-2 text-sm text-[#eef2f8] outline-none focus:border-[#0874f9]">
               <option value="">Qualquer</option>
               {accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.account_name ?? a.account_id}</option>)}
             </select>
           </label>
-          <button className="rounded-md bg-slate-700 px-3 py-1.5 text-sm font-medium hover:bg-slate-600">Filtrar</button>
+          <button className="rounded bg-[#0874f9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0865d8]">Filtrar</button>
         </form>
         <div className="ml-auto flex items-center gap-3 text-xs text-slate-400">
           <span>Atualizado {lastSync ? timeAgo(lastSync) : "— nunca sincronizado"}</span>
@@ -143,7 +145,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
       </div>
 
       {(campaign || adset || !ok) && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-4 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#394761] bg-[#222e47] px-4 py-2 text-xs">
           {campaign && (
             <Link href={link({ nivel: "campanhas", campaign: null, adset: null })} className="rounded-full bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700">
               Campanha: {parentCampaign ?? campaign} ✕
@@ -159,9 +161,9 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-sm">
+        <table className="w-full min-w-[1100px] text-[13px]">
           <thead>
-            <tr className="bg-slate-800/70 text-[11px] uppercase tracking-wide text-slate-400">
+            <tr className="bg-[#35425f] text-[10px] uppercase tracking-wide text-[#d4dbe7]">
               <th className="px-3 py-2 text-left font-semibold">Status</th>
               <th className="px-3 py-2 text-left font-semibold">{u1 === "anúncio" ? "Anúncio" : u1[0].toUpperCase() + u1.slice(1)}</th>
               <th className="px-3 py-2 text-left font-semibold">Últ. atualização</th>
@@ -175,7 +177,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
               const label = level === "contas" ? accountName.get(r.id) ?? r.name : r.name;
               const synced = r.accountId ? syncOf.get(r.accountId) : null;
               return (
-                <tr key={r.id} className="border-t border-slate-800 hover:bg-slate-800/40">
+                <tr key={r.id} className="border-t border-[#394761] bg-[#27334d] hover:bg-[#2d3a56]">
                   <td className="px-3 py-2"><StatusPill status={statusOf(level, r.id, catalog)} /></td>
                   <td className="max-w-80 px-3 py-2">
                     <div className="flex items-center gap-2">
@@ -204,7 +206,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           </tbody>
           {rows.length > 0 && (
             <tfoot>
-              <tr className="border-t-2 border-slate-700 bg-slate-800/70 text-xs font-semibold text-slate-200">
+              <tr className="border-t-2 border-[#50607e] bg-[#35425f] text-xs font-semibold text-[#eef2f8]">
                 <td className="px-3 py-2">—</td>
                 <td className="px-3 py-2">{rows.length} {rows.length === 1 ? u1 : uN}</td>
                 <td className="px-3 py-2">—</td>

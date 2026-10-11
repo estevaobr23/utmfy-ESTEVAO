@@ -52,7 +52,7 @@ export function FilterBar({
     </select>
   );
   return (
-    <form method="get" action={action} className="mb-4 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-3">
+    <form method="get" action={action} className="mb-4 flex flex-wrap items-end gap-2 rounded-md border border-[#384662] bg-[#27334d] p-4 shadow-[0_8px_24px_rgba(4,9,20,0.08)]">
       <select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className={inputCls}>
         {f.preset === "custom" && <option value="">Personalizado</option>}
         {PRESETS.map(([k, l]) => (
@@ -71,7 +71,7 @@ export function FilterBar({
       {catalog && sel("ad", f.ad, catalog.ads, "Anúncio")}
       {sel("status", f.status, STATUS_OPTIONS.map(([id, name]) => ({ id, name })), "Status do pedido")}
       {extra}
-      <button className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Filtrar</button>
+      <button className="rounded-md bg-[#0874f9] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#0865d8]">Filtrar</button>
     </form>
   );
 }
@@ -81,7 +81,7 @@ export function Flash({ sp }: { sp: Record<string, string | string[] | undefined
   const err = typeof sp.error === "string" ? sp.error : null;
   if (!ok && !err) return null;
   return (
-    <div className={`mb-4 rounded-md border px-3 py-2 text-sm ${err ? "border-rose-200 bg-rose-50 text-rose-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+    <div className={`mb-4 rounded-md border px-3 py-2 text-sm ${err ? "border-rose-400/30 bg-rose-400/10 text-rose-200" : "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"}`}>
       {err ?? ok}
     </div>
   );

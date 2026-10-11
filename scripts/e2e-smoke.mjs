@@ -49,7 +49,7 @@ async function createOffer(name) {
   await page.fill('input[name="name"]', name);
   await page.fill('input[name="slug"]', `${name.toLowerCase().replace(/[^a-z]+/g, "-")}-${run}`);
   await page.click("button:has-text('Criar oferta')");
-  await page.waitForURL(/\/ofertas\/[0-9a-f-]{36}\/configurar/);
+  await page.waitForURL(/\/ofertas\/[0-9a-f-]{36}\/integracoes/);
   return page.url().match(/ofertas\/([0-9a-f-]{36})/)[1];
 }
 const cesta = await createOffer("CestaVitrine");
@@ -57,7 +57,7 @@ const sofa = await createOffer("Projetos de Sofas");
 check("2 ofertas criadas", !!cesta && !!sofa);
 
 async function mapProduct(offerId, productId) {
-  await page.goto(`${BASE}/ofertas/${offerId}/configurar`);
+  await page.goto(`${BASE}/ofertas/${offerId}/integracoes`);
   await page.fill('input[name="cakto_product_id"]', productId);
   await page.click("button:has-text('Associar')");
   await page.waitForURL(/ok=/);
@@ -78,7 +78,7 @@ const CAMP = `12027${Date.now()}`.slice(0, 18);
 await db.from("meta_ad_accounts").insert({ workspace_id: ws.id, account_id: ACC, account_name: `Conta E2E ${run}`, currency: "BRL", timezone: "America/Sao_Paulo", active: true, last_sync_at: new Date().toISOString() });
 await db.from("meta_ads").insert({ workspace_id: ws.id, account_id: ACC, campaign_id: CAMP, campaign_name: "Campanha A", adset_id: ADSET, adset_name: "Adset A", ad_id: AD, ad_name: "Ad 123" });
 await db.from("meta_insights_daily").upsert({ workspace_id: ws.id, date: today, account_id: ACC, campaign_id: CAMP, campaign_name: "Campanha A", adset_id: ADSET, adset_name: "Adset A", ad_id: AD, ad_name: "Ad 123", spend: 10, impressions: 2000, clicks: 50, currency: "BRL" }, { onConflict: "workspace_id,account_id,ad_id,date" });
-await page.goto(`${BASE}/ofertas/${sofa}/configurar`);
+await page.goto(`${BASE}/ofertas/${sofa}/integracoes`);
 await page.selectOption('select[name="ad_account_id"]', { label: new RegExp(`Conta E2E ${run}`) }).catch(async () => {
   const opts = await page.$$eval('select[name="ad_account_id"] option', (o) => o.map((x) => ({ v: x.value, t: x.textContent })));
   await page.selectOption('select[name="ad_account_id"]', opts.find((o) => o.t.includes(run)).v);
@@ -152,16 +152,38 @@ const { data: disp } = await db.from("conversion_dispatches").select("pixel_id, 
 check("1 dispatch CAPI por pixel (2)", disp.length === 2);
 
 // ---- dashboard da oferta Sofás: Ad 123 → gasto 10, 1 venda, 32,90, CPA 10, ROAS 3,29
-await page.goto(`${BASE}/ofertas/${sofa}`);
+await page.goto(`${BASE}/ofertas/${sofa}/resumo`);
 const txt = (await page.innerText("main")).replace(/\s+/g, " ");
 check("dashboard da oferta: receita R$ 72,90 (32,90 do Ad 123 + 40 sem UTM), gasto R$ 10,00, 1 não rastreada", txt.includes("R$ 72,90") && txt.includes("R$ 10,00"), txt.slice(0, 300));
-await page.goto(`${BASE}/campanhas?offer=${sofa}&ad=${AD}`);
+await page.goto(`${BASE}/ofertas/${sofa}/meta?nivel=anuncios&adset=${ADSET}`);
 const camp = (await page.innerText("main")).replace(/\s+/g, " ");
 check("relatório Ad 123: gasto R$ 10,00 / receita R$ 32,90 / ROAS 3,29 / CPA R$ 10,00", camp.includes("R$ 10,00") && camp.includes("R$ 32,90") && camp.includes("3,29"), "");
 await page.screenshot({ path: join(OUT, "campanhas-ad123.png"), fullPage: true });
 
 // ---- todas as telas
-const screens = ["/", "/ofertas", `/ofertas/${sofa}`, `/ofertas/${sofa}/configurar`, `/ofertas/${sofa}/saude`, "/campanhas", "/pedidos", "/nao-rastreadas", "/pixels", "/meta", "/cakto", "/utms", "/diagnostico", "/eventos", "/configuracoes", "/saude"];
+const screens = [
+  "/",
+  "/ofertas",
+  `/ofertas/${sofa}/resumo`,
+  `/ofertas/${sofa}/meta`,
+  `/ofertas/${sofa}/pedidos`,
+  `/ofertas/${sofa}/integracoes`,
+  `/ofertas/${sofa}/tracking`,
+  `/ofertas/${sofa}/configuracoes`,
+  `/ofertas/${sofa}/configurar`, // legado → integrações
+  `/ofertas/${sofa}/saude`, // legado → tracking
+  "/campanhas",
+  "/pedidos",
+  "/nao-rastreadas",
+  "/pixels",
+  "/meta",
+  "/cakto",
+  "/utms",
+  "/diagnostico",
+  "/eventos",
+  "/configuracoes",
+  "/saude",
+];
 for (const s of screens) {
   const res = await page.goto(`${BASE}${s}`);
   const ok = res.status() === 200 && !(await page.content()).includes("Application error");
