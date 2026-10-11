@@ -2,32 +2,32 @@
 -- Nada é convertido automaticamente: sem fx_rate, o gasto de conta em outra
 -- moeda fica FORA dos relatórios (e o Health Check avisa).
 
-alter table public.meta_ad_accounts
+alter table utmfy.meta_ad_accounts
   add column fx_rate numeric(12, 6) check (fx_rate is null or fx_rate > 0),
   add column fx_note text;
 
-comment on column public.meta_ad_accounts.fx_rate is
+comment on column utmfy.meta_ad_accounts.fx_rate is
   'Multiplicador manual moeda-da-conta → moeda-do-workspace (ex.: 5.60 para USD→BRL, já com IOF se desejar).';
 
-create or replace function public.report_spend_rows(
+create or replace function utmfy.report_spend_rows(
   p_workspace uuid, p_offer_ids uuid[], p_from date, p_to date, p_currency text default null,
   p_account_id text default null, p_campaign_id text default null, p_adset_id text default null, p_ad_id text default null
 ) returns table (
   account_id text, campaign_id text, campaign_name text, adset_id text, adset_name text, ad_id text, ad_name text,
   currency text, impressions bigint, reach bigint, clicks bigint, link_clicks bigint, outbound_clicks bigint,
   spend numeric, meta_purchases numeric, meta_purchase_value numeric
-) language sql stable security invoker set search_path = public as $$
-  with scope as (select * from public.offer_spend_scope(p_workspace, p_offer_ids)),
+) language sql stable security invoker set search_path = utmfy as $$
+  with scope as (select * from utmfy.offer_spend_scope(p_workspace, p_offer_ids)),
   rows as (
     select distinct i.*,
            case
              when p_currency is null or i.currency is null or i.currency = p_currency then 1::numeric
              else a.fx_rate
            end as fx
-      from public.meta_insights_daily i
+      from utmfy.meta_insights_daily i
       join scope s on s.account_id = i.account_id
        and (s.campaign_filter is null or i.campaign_name ilike '%' || s.campaign_filter || '%')
-      left join public.meta_ad_accounts a on a.workspace_id = i.workspace_id and a.account_id = i.account_id
+      left join utmfy.meta_ad_accounts a on a.workspace_id = i.workspace_id and a.account_id = i.account_id
      where i.workspace_id = p_workspace
        and i.date between p_from and p_to
        and (p_account_id is null or i.account_id = p_account_id)
@@ -45,14 +45,14 @@ create or replace function public.report_spend_rows(
 $$;
 
 -- Gasto que ficou de fora por falta de câmbio (para alertas).
-create or replace function public.report_spend_excluded(p_workspace uuid, p_from date, p_to date, p_currency text)
+create or replace function utmfy.report_spend_excluded(p_workspace uuid, p_from date, p_to date, p_currency text)
 returns table (account_id text, currency text, spend numeric)
-language sql stable security invoker set search_path = public as $$
+language sql stable security invoker set search_path = utmfy as $$
   select i.account_id, i.currency, round(sum(i.spend), 2)
-    from public.meta_insights_daily i
-    join public.meta_ad_accounts a on a.workspace_id = i.workspace_id and a.account_id = i.account_id
+    from utmfy.meta_insights_daily i
+    join utmfy.meta_ad_accounts a on a.workspace_id = i.workspace_id and a.account_id = i.account_id
    where i.workspace_id = p_workspace and i.date between p_from and p_to
      and i.currency is not null and i.currency <> p_currency and a.fx_rate is null
    group by i.account_id, i.currency
 $$;
-grant execute on function public.report_spend_excluded(uuid, date, date, text) to authenticated;
+grant execute on function utmfy.report_spend_excluded(uuid, date, date, text) to authenticated;

@@ -3,14 +3,19 @@
 -- Receita/vendas/status = Cakto. Gasto/estrutura de anúncios = Meta (read-only).
 -- Tudo é escopado por workspace e protegido por RLS. Escritas de dados de
 -- integração (pedidos, eventos, insights) só acontecem com service_role.
+--
+-- Roda num schema próprio ("utmfy") dentro de um projeto Supabase que já
+-- hospeda outros sistemas (schema "public" da área de membros, schema
+-- "mineracao"), para caber no limite de projetos ativos do plano free.
 -- =============================================================================
 
-create extension if not exists pgcrypto;
+create schema if not exists utmfy;
+-- pgcrypto já está instalada (schema "extensions") neste projeto; gen_random_uuid() é global.
 
 -- ---------------------------------------------------------------------------
 -- Workspaces e membros
 -- ---------------------------------------------------------------------------
-create table public.workspaces (
+create table utmfy.workspaces (
   id          uuid primary key default gen_random_uuid(),
   name        text not null check (length(name) between 1 and 120),
   slug        text not null unique check (slug ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
@@ -21,29 +26,29 @@ create table public.workspaces (
   updated_at  timestamptz not null default now()
 );
 
-create table public.workspace_members (
-  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.workspace_members (
+  workspace_id uuid not null references utmfy.workspaces(id) on delete cascade,
   user_id      uuid not null references auth.users(id) on delete cascade,
   role         text not null default 'owner' check (role in ('owner', 'admin', 'viewer')),
   created_at   timestamptz not null default now(),
   primary key (workspace_id, user_id)
 );
-create index workspace_members_user_idx on public.workspace_members(user_id);
+create index workspace_members_user_idx on utmfy.workspace_members(user_id);
 
-create or replace function public.is_member(ws uuid)
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.workspace_members m where m.workspace_id = ws and m.user_id = auth.uid())
+create or replace function utmfy.is_member(ws uuid)
+returns boolean language sql stable security definer set search_path = utmfy as $$
+  select exists (select 1 from utmfy.workspace_members m where m.workspace_id = ws and m.user_id = auth.uid())
 $$;
 
-create or replace function public.can_write(ws uuid)
-returns boolean language sql stable security definer set search_path = public as $$
+create or replace function utmfy.can_write(ws uuid)
+returns boolean language sql stable security definer set search_path = utmfy as $$
   select exists (
-    select 1 from public.workspace_members m
+    select 1 from utmfy.workspace_members m
     where m.workspace_id = ws and m.user_id = auth.uid() and m.role in ('owner', 'admin')
   )
 $$;
 
-create or replace function public.touch_updated_at()
+create or replace function utmfy.touch_updated_at()
 returns trigger language plpgsql as $$
 begin
   new.updated_at := now();
@@ -53,9 +58,9 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- Ofertas e mapeamento Cakto (uma oferta interna pode ter N produtos/ofertas Cakto)
 -- ---------------------------------------------------------------------------
-create table public.offers (
+create table utmfy.offers (
   id            uuid primary key default gen_random_uuid(),
-  workspace_id  uuid not null references public.workspaces(id) on delete cascade,
+  workspace_id  uuid not null references utmfy.workspaces(id) on delete cascade,
   name          text not null check (length(name) between 1 and 120),
   slug          text not null check (slug ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
   status        text not null default 'active' check (status in ('active', 'paused', 'archived')),
@@ -69,30 +74,30 @@ create table public.offers (
   unique (workspace_id, slug),
   unique (workspace_id, id)
 );
-create trigger offers_touch before update on public.offers for each row execute function public.touch_updated_at();
+create trigger offers_touch before update on utmfy.offers for each row execute function utmfy.touch_updated_at();
 
-create table public.offer_cakto_items (
+create table utmfy.offer_cakto_items (
   id                uuid primary key default gen_random_uuid(),
-  workspace_id      uuid not null references public.workspaces(id) on delete cascade,
+  workspace_id      uuid not null references utmfy.workspaces(id) on delete cascade,
   offer_id          uuid not null,
   cakto_product_id  text not null check (length(cakto_product_id) between 1 and 255),
   cakto_offer_id    text check (cakto_offer_id is null or length(cakto_offer_id) between 1 and 255),
   checkout_id       text,
   label             text,
   created_at        timestamptz not null default now(),
-  foreign key (workspace_id, offer_id) references public.offers(workspace_id, id) on delete cascade
+  foreign key (workspace_id, offer_id) references utmfy.offers(workspace_id, id) on delete cascade
 );
 -- Um mesmo produto/oferta Cakto só pode apontar para UMA oferta interna.
 create unique index offer_cakto_items_unique
-  on public.offer_cakto_items(workspace_id, cakto_product_id, coalesce(cakto_offer_id, ''));
-create index offer_cakto_items_offer_idx on public.offer_cakto_items(offer_id);
+  on utmfy.offer_cakto_items(workspace_id, cakto_product_id, coalesce(cakto_offer_id, ''));
+create index offer_cakto_items_offer_idx on utmfy.offer_cakto_items(offer_id);
 
 -- ---------------------------------------------------------------------------
 -- Conexões (NUNCA guardam secrets; tokens vivem em env vars ou no Supabase Vault)
 -- ---------------------------------------------------------------------------
-create table public.cakto_connections (
+create table utmfy.cakto_connections (
   id               uuid primary key default gen_random_uuid(),
-  workspace_id     uuid not null references public.workspaces(id) on delete cascade,
+  workspace_id     uuid not null references utmfy.workspaces(id) on delete cascade,
   name             text not null default 'Cakto',
   status           text not null default 'pending' check (status in ('pending', 'active', 'error', 'disabled')),
   client_id_hint   text,
@@ -105,11 +110,11 @@ create table public.cakto_connections (
   updated_at       timestamptz not null default now(),
   unique (workspace_id)
 );
-create trigger cakto_connections_touch before update on public.cakto_connections for each row execute function public.touch_updated_at();
+create trigger cakto_connections_touch before update on utmfy.cakto_connections for each row execute function utmfy.touch_updated_at();
 
-create table public.meta_connections (
+create table utmfy.meta_connections (
   id               uuid primary key default gen_random_uuid(),
-  workspace_id     uuid not null references public.workspaces(id) on delete cascade,
+  workspace_id     uuid not null references utmfy.workspaces(id) on delete cascade,
   name             text not null default 'Meta',
   token_source     text not null default 'env' check (token_source in ('env', 'vault')),
   token_hint       text,
@@ -123,12 +128,12 @@ create table public.meta_connections (
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
-create trigger meta_connections_touch before update on public.meta_connections for each row execute function public.touch_updated_at();
+create trigger meta_connections_touch before update on utmfy.meta_connections for each row execute function utmfy.touch_updated_at();
 
-create table public.meta_ad_accounts (
+create table utmfy.meta_ad_accounts (
   id              uuid primary key default gen_random_uuid(),
-  workspace_id    uuid not null references public.workspaces(id) on delete cascade,
-  connection_id   uuid references public.meta_connections(id) on delete set null,
+  workspace_id    uuid not null references utmfy.workspaces(id) on delete cascade,
+  connection_id   uuid references utmfy.meta_connections(id) on delete set null,
   account_id      text not null check (account_id ~ '^[0-9]{1,30}$'), -- sem o prefixo act_
   account_name    text,
   currency        text,
@@ -142,25 +147,25 @@ create table public.meta_ad_accounts (
   unique (workspace_id, account_id),
   unique (workspace_id, id)
 );
-create trigger meta_ad_accounts_touch before update on public.meta_ad_accounts for each row execute function public.touch_updated_at();
+create trigger meta_ad_accounts_touch before update on utmfy.meta_ad_accounts for each row execute function utmfy.touch_updated_at();
 
 -- Uma conta pode servir várias ofertas. campaign_filter (opcional) restringe
 -- quais campanhas daquela conta contam gasto para a oferta (substring, sem
 -- distinção de maiúsculas, no nome da campanha).
-create table public.offer_ad_accounts (
-  workspace_id     uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.offer_ad_accounts (
+  workspace_id     uuid not null references utmfy.workspaces(id) on delete cascade,
   offer_id         uuid not null,
   ad_account_id    uuid not null,
   campaign_filter  text,
   created_at       timestamptz not null default now(),
   primary key (offer_id, ad_account_id),
-  foreign key (workspace_id, offer_id) references public.offers(workspace_id, id) on delete cascade,
-  foreign key (workspace_id, ad_account_id) references public.meta_ad_accounts(workspace_id, id) on delete cascade
+  foreign key (workspace_id, offer_id) references utmfy.offers(workspace_id, id) on delete cascade,
+  foreign key (workspace_id, ad_account_id) references utmfy.meta_ad_accounts(workspace_id, id) on delete cascade
 );
 
 -- Catálogo de anúncios (campanha → conjunto → anúncio) importado da Meta.
-create table public.meta_ads (
-  workspace_id   uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.meta_ads (
+  workspace_id   uuid not null references utmfy.workspaces(id) on delete cascade,
   account_id     text not null,
   campaign_id    text not null,
   campaign_name  text,
@@ -173,15 +178,15 @@ create table public.meta_ads (
   updated_at     timestamptz not null default now(),
   primary key (workspace_id, ad_id)
 );
-create index meta_ads_campaign_idx on public.meta_ads(workspace_id, campaign_id);
-create index meta_ads_adset_idx on public.meta_ads(workspace_id, adset_id);
+create index meta_ads_campaign_idx on utmfy.meta_ads(workspace_id, campaign_id);
+create index meta_ads_adset_idx on utmfy.meta_ads(workspace_id, adset_id);
 
 -- ---------------------------------------------------------------------------
 -- Pixels (N:N com ofertas)
 -- ---------------------------------------------------------------------------
-create table public.pixels (
+create table utmfy.pixels (
   id                       uuid primary key default gen_random_uuid(),
-  workspace_id             uuid not null references public.workspaces(id) on delete cascade,
+  workspace_id             uuid not null references utmfy.workspaces(id) on delete cascade,
   provider                 text not null default 'meta' check (provider in ('meta')),
   external_pixel_id        text not null check (external_pixel_id ~ '^[0-9]{5,30}$'),
   name                     text not null,
@@ -195,26 +200,26 @@ create table public.pixels (
   unique (workspace_id, provider, external_pixel_id),
   unique (workspace_id, id)
 );
-create trigger pixels_touch before update on public.pixels for each row execute function public.touch_updated_at();
+create trigger pixels_touch before update on utmfy.pixels for each row execute function utmfy.touch_updated_at();
 
-create table public.offer_pixels (
-  workspace_id  uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.offer_pixels (
+  workspace_id  uuid not null references utmfy.workspaces(id) on delete cascade,
   offer_id      uuid not null,
   pixel_id      uuid not null,
   active        boolean not null default true,
   created_at    timestamptz not null default now(),
   primary key (offer_id, pixel_id),
-  foreign key (workspace_id, offer_id) references public.offers(workspace_id, id) on delete cascade,
-  foreign key (workspace_id, pixel_id) references public.pixels(workspace_id, id) on delete cascade
+  foreign key (workspace_id, offer_id) references utmfy.offers(workspace_id, id) on delete cascade,
+  foreign key (workspace_id, pixel_id) references utmfy.pixels(workspace_id, id) on delete cascade
 );
 
 -- ---------------------------------------------------------------------------
 -- Pedidos (fonte da verdade financeira = Cakto)
 -- ---------------------------------------------------------------------------
-create table public.orders (
+create table utmfy.orders (
   id                    uuid primary key default gen_random_uuid(),
-  workspace_id          uuid not null references public.workspaces(id) on delete cascade,
-  offer_id              uuid references public.offers(id) on delete set null,
+  workspace_id          uuid not null references utmfy.workspaces(id) on delete cascade,
+  offer_id              uuid references utmfy.offers(id) on delete set null,
   provider              text not null default 'cakto',
   external_order_id     text not null,
   ref_id                text,
@@ -252,17 +257,17 @@ create table public.orders (
   updated_at            timestamptz not null default now(),
   unique (workspace_id, provider, external_order_id)
 );
-create trigger orders_touch before update on public.orders for each row execute function public.touch_updated_at();
-create index orders_ws_paid_idx on public.orders(workspace_id, paid_at);
-create index orders_ws_created_idx on public.orders(workspace_id, provider_created_at);
-create index orders_offer_paid_idx on public.orders(offer_id, paid_at);
-create index orders_ws_status_idx on public.orders(workspace_id, status);
-create index orders_ref_idx on public.orders(workspace_id, ref_id);
+create trigger orders_touch before update on utmfy.orders for each row execute function utmfy.touch_updated_at();
+create index orders_ws_paid_idx on utmfy.orders(workspace_id, paid_at);
+create index orders_ws_created_idx on utmfy.orders(workspace_id, provider_created_at);
+create index orders_offer_paid_idx on utmfy.orders(offer_id, paid_at);
+create index orders_ws_status_idx on utmfy.orders(workspace_id, status);
+create index orders_ref_idx on utmfy.orders(workspace_id, ref_id);
 
-create table public.order_status_history (
+create table utmfy.order_status_history (
   id            bigint generated always as identity primary key,
-  workspace_id  uuid not null references public.workspaces(id) on delete cascade,
-  order_id      uuid not null references public.orders(id) on delete cascade,
+  workspace_id  uuid not null references utmfy.workspaces(id) on delete cascade,
+  order_id      uuid not null references utmfy.orders(id) on delete cascade,
   from_status   text,
   to_status     text not null,
   raw_status    text,
@@ -272,11 +277,11 @@ create table public.order_status_history (
   event_at      timestamptz,
   created_at    timestamptz not null default now()
 );
-create index order_status_history_order_idx on public.order_status_history(order_id, created_at);
+create index order_status_history_order_idx on utmfy.order_status_history(order_id, created_at);
 
-create table public.order_attribution (
-  order_id            uuid primary key references public.orders(id) on delete cascade,
-  workspace_id        uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.order_attribution (
+  order_id            uuid primary key references utmfy.orders(id) on delete cascade,
+  workspace_id        uuid not null references utmfy.workspaces(id) on delete cascade,
   utm_source          text,
   utm_medium          text,
   utm_campaign        text,
@@ -302,16 +307,16 @@ create table public.order_attribution (
   raw_parameters      jsonb not null default '{}',
   attributed_at       timestamptz not null default now()
 );
-create index order_attribution_ad_idx on public.order_attribution(workspace_id, ad_id);
-create index order_attribution_campaign_idx on public.order_attribution(workspace_id, campaign_id);
-create index order_attribution_status_idx on public.order_attribution(workspace_id, attribution_status);
+create index order_attribution_ad_idx on utmfy.order_attribution(workspace_id, ad_id);
+create index order_attribution_campaign_idx on utmfy.order_attribution(workspace_id, campaign_id);
+create index order_attribution_status_idx on utmfy.order_attribution(workspace_id, attribution_status);
 
 -- ---------------------------------------------------------------------------
 -- Webhooks recebidos (auditoria + idempotência)
 -- ---------------------------------------------------------------------------
-create table public.webhook_events (
+create table utmfy.webhook_events (
   id                  uuid primary key default gen_random_uuid(),
-  workspace_id        uuid references public.workspaces(id) on delete cascade,
+  workspace_id        uuid references utmfy.workspaces(id) on delete cascade,
   provider            text not null default 'cakto',
   event_name          text,
   external_order_id   text,
@@ -328,14 +333,14 @@ create table public.webhook_events (
   attempts            integer not null default 0,
   unique (provider, dedupe_key)
 );
-create index webhook_events_ws_received_idx on public.webhook_events(workspace_id, received_at desc);
-create index webhook_events_order_idx on public.webhook_events(provider, external_order_id);
+create index webhook_events_ws_received_idx on utmfy.webhook_events(workspace_id, received_at desc);
+create index webhook_events_order_idx on utmfy.webhook_events(provider, external_order_id);
 
 -- ---------------------------------------------------------------------------
 -- Meta Insights (nível de anúncio, por dia na timezone da conta)
 -- ---------------------------------------------------------------------------
-create table public.meta_insights_daily (
-  workspace_id         uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.meta_insights_daily (
+  workspace_id         uuid not null references utmfy.workspaces(id) on delete cascade,
   date                 date not null,
   account_id           text not null,
   campaign_id          text not null,
@@ -356,16 +361,16 @@ create table public.meta_insights_daily (
   imported_at          timestamptz not null default now(),
   primary key (workspace_id, account_id, ad_id, date)
 );
-create index meta_insights_ws_date_idx on public.meta_insights_daily(workspace_id, date);
-create index meta_insights_campaign_idx on public.meta_insights_daily(workspace_id, campaign_id, date);
+create index meta_insights_ws_date_idx on utmfy.meta_insights_daily(workspace_id, date);
+create index meta_insights_campaign_idx on utmfy.meta_insights_daily(workspace_id, campaign_id, date);
 
 -- ---------------------------------------------------------------------------
 -- Tracker próprio (somente o necessário para atribuição)
 -- ---------------------------------------------------------------------------
-create table public.tracking_sessions (
+create table utmfy.tracking_sessions (
   id               uuid primary key default gen_random_uuid(),
-  workspace_id     uuid not null references public.workspaces(id) on delete cascade,
-  offer_id         uuid references public.offers(id) on delete set null,
+  workspace_id     uuid not null references utmfy.workspaces(id) on delete cascade,
+  offer_id         uuid references utmfy.offers(id) on delete set null,
   session_id       text not null check (session_id ~ '^[A-Za-z0-9._~-]{8,64}$'),
   first_seen_at    timestamptz not null default now(),
   last_seen_at     timestamptz not null default now(),
@@ -390,16 +395,16 @@ create table public.tracking_sessions (
   checkout_clicks  integer not null default 0,
   unique (workspace_id, session_id)
 );
-create index tracking_sessions_ws_seen_idx on public.tracking_sessions(workspace_id, last_seen_at desc);
+create index tracking_sessions_ws_seen_idx on utmfy.tracking_sessions(workspace_id, last_seen_at desc);
 
 -- ---------------------------------------------------------------------------
 -- CAPI (preparado): um dispatch por (pedido, pixel, evento)
 -- ---------------------------------------------------------------------------
-create table public.conversion_dispatches (
+create table utmfy.conversion_dispatches (
   id                uuid primary key default gen_random_uuid(),
-  workspace_id      uuid not null references public.workspaces(id) on delete cascade,
-  order_id          uuid not null references public.orders(id) on delete cascade,
-  pixel_id          uuid not null references public.pixels(id) on delete cascade,
+  workspace_id      uuid not null references utmfy.workspaces(id) on delete cascade,
+  order_id          uuid not null references utmfy.orders(id) on delete cascade,
+  pixel_id          uuid not null references utmfy.pixels(id) on delete cascade,
   event_name        text not null,
   event_id          text not null,
   status            text not null default 'pending'
@@ -414,15 +419,15 @@ create table public.conversion_dispatches (
   unique (order_id, pixel_id, event_name),
   unique (pixel_id, event_id)
 );
-create trigger conversion_dispatches_touch before update on public.conversion_dispatches for each row execute function public.touch_updated_at();
-create index conversion_dispatches_queue_idx on public.conversion_dispatches(status, next_attempt_at);
+create trigger conversion_dispatches_touch before update on utmfy.conversion_dispatches for each row execute function utmfy.touch_updated_at();
+create index conversion_dispatches_queue_idx on utmfy.conversion_dispatches(status, next_attempt_at);
 
 -- ---------------------------------------------------------------------------
 -- Observabilidade
 -- ---------------------------------------------------------------------------
-create table public.integration_logs (
+create table utmfy.integration_logs (
   id            bigint generated always as identity primary key,
-  workspace_id  uuid references public.workspaces(id) on delete cascade,
+  workspace_id  uuid references utmfy.workspaces(id) on delete cascade,
   level         text not null check (level in ('info', 'warn', 'error')),
   code          text not null,          -- ex.: META_SYNC_FAILED, ATTRIBUTION_FAILED
   provider      text,
@@ -430,12 +435,12 @@ create table public.integration_logs (
   context       jsonb not null default '{}',
   created_at    timestamptz not null default now()
 );
-create index integration_logs_ws_idx on public.integration_logs(workspace_id, created_at desc);
-create index integration_logs_code_idx on public.integration_logs(code, created_at desc);
+create index integration_logs_ws_idx on utmfy.integration_logs(workspace_id, created_at desc);
+create index integration_logs_code_idx on utmfy.integration_logs(code, created_at desc);
 
-create table public.sync_jobs (
+create table utmfy.sync_jobs (
   id            uuid primary key default gen_random_uuid(),
-  workspace_id  uuid references public.workspaces(id) on delete cascade,
+  workspace_id  uuid references utmfy.workspaces(id) on delete cascade,
   kind          text not null check (kind in
                   ('cakto_sync', 'cakto_reconcile', 'meta_accounts', 'meta_catalog', 'meta_insights', 'capi_dispatch', 'reattribute', 'demo_seed')),
   status        text not null default 'running' check (status in ('running', 'success', 'partial', 'failed')),
@@ -446,13 +451,13 @@ create table public.sync_jobs (
   started_at    timestamptz not null default now(),
   finished_at   timestamptz
 );
-create index sync_jobs_ws_idx on public.sync_jobs(workspace_id, started_at desc);
+create index sync_jobs_ws_idx on utmfy.sync_jobs(workspace_id, started_at desc);
 
-create table public.reconciliation_changes (
+create table utmfy.reconciliation_changes (
   id                 bigint generated always as identity primary key,
-  workspace_id       uuid not null references public.workspaces(id) on delete cascade,
-  sync_job_id        uuid references public.sync_jobs(id) on delete set null,
-  order_id           uuid references public.orders(id) on delete set null,
+  workspace_id       uuid not null references utmfy.workspaces(id) on delete cascade,
+  sync_job_id        uuid references utmfy.sync_jobs(id) on delete set null,
+  order_id           uuid references utmfy.orders(id) on delete set null,
   external_order_id  text not null,
   change_type        text not null check (change_type in
                        ('missing_order', 'status_changed', 'refund_applied', 'chargeback_applied', 'amount_changed')),
@@ -460,15 +465,15 @@ create table public.reconciliation_changes (
   after              jsonb,
   created_at         timestamptz not null default now()
 );
-create index reconciliation_changes_ws_idx on public.reconciliation_changes(workspace_id, created_at desc);
+create index reconciliation_changes_ws_idx on utmfy.reconciliation_changes(workspace_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- Custos (estrutura para o futuro; ainda não entra em nenhuma fórmula por padrão)
 -- ---------------------------------------------------------------------------
-create table public.cost_rules (
+create table utmfy.cost_rules (
   id            uuid primary key default gen_random_uuid(),
-  workspace_id  uuid not null references public.workspaces(id) on delete cascade,
-  offer_id      uuid references public.offers(id) on delete cascade,
+  workspace_id  uuid not null references utmfy.workspaces(id) on delete cascade,
+  offer_id      uuid references utmfy.offers(id) on delete cascade,
   kind          text not null check (kind in
                   ('gateway_fee_pct', 'tax_pct', 'product_cost_per_sale', 'fixed_monthly', 'variable_pct_of_revenue')),
   label         text,
@@ -482,65 +487,65 @@ create table public.cost_rules (
 -- =============================================================================
 -- RLS
 -- =============================================================================
-alter table public.workspaces enable row level security;
-alter table public.workspace_members enable row level security;
-alter table public.offers enable row level security;
-alter table public.offer_cakto_items enable row level security;
-alter table public.cakto_connections enable row level security;
-alter table public.meta_connections enable row level security;
-alter table public.meta_ad_accounts enable row level security;
-alter table public.offer_ad_accounts enable row level security;
-alter table public.meta_ads enable row level security;
-alter table public.pixels enable row level security;
-alter table public.offer_pixels enable row level security;
-alter table public.orders enable row level security;
-alter table public.order_status_history enable row level security;
-alter table public.order_attribution enable row level security;
-alter table public.webhook_events enable row level security;
-alter table public.meta_insights_daily enable row level security;
-alter table public.tracking_sessions enable row level security;
-alter table public.conversion_dispatches enable row level security;
-alter table public.integration_logs enable row level security;
-alter table public.sync_jobs enable row level security;
-alter table public.reconciliation_changes enable row level security;
-alter table public.cost_rules enable row level security;
+alter table utmfy.workspaces enable row level security;
+alter table utmfy.workspace_members enable row level security;
+alter table utmfy.offers enable row level security;
+alter table utmfy.offer_cakto_items enable row level security;
+alter table utmfy.cakto_connections enable row level security;
+alter table utmfy.meta_connections enable row level security;
+alter table utmfy.meta_ad_accounts enable row level security;
+alter table utmfy.offer_ad_accounts enable row level security;
+alter table utmfy.meta_ads enable row level security;
+alter table utmfy.pixels enable row level security;
+alter table utmfy.offer_pixels enable row level security;
+alter table utmfy.orders enable row level security;
+alter table utmfy.order_status_history enable row level security;
+alter table utmfy.order_attribution enable row level security;
+alter table utmfy.webhook_events enable row level security;
+alter table utmfy.meta_insights_daily enable row level security;
+alter table utmfy.tracking_sessions enable row level security;
+alter table utmfy.conversion_dispatches enable row level security;
+alter table utmfy.integration_logs enable row level security;
+alter table utmfy.sync_jobs enable row level security;
+alter table utmfy.reconciliation_changes enable row level security;
+alter table utmfy.cost_rules enable row level security;
 
-create policy ws_select on public.workspaces for select to authenticated using (public.is_member(id));
-create policy ws_update on public.workspaces for update to authenticated using (public.can_write(id)) with check (public.can_write(id));
-create policy wm_select on public.workspace_members for select to authenticated using (public.is_member(workspace_id));
+create policy ws_select on utmfy.workspaces for select to authenticated using (utmfy.is_member(id));
+create policy ws_update on utmfy.workspaces for update to authenticated using (utmfy.can_write(id)) with check (utmfy.can_write(id));
+create policy wm_select on utmfy.workspace_members for select to authenticated using (utmfy.is_member(workspace_id));
 
 -- Tabelas de configuração: membros leem, owner/admin escrevem.
 do $$
 declare t text;
 begin
   foreach t in array array['offers', 'offer_cakto_items', 'offer_ad_accounts', 'pixels', 'offer_pixels', 'cost_rules'] loop
-    execute format('create policy %1$s_select on public.%1$I for select to authenticated using (public.is_member(workspace_id))', t);
-    execute format('create policy %1$s_insert on public.%1$I for insert to authenticated with check (public.can_write(workspace_id))', t);
-    execute format('create policy %1$s_update on public.%1$I for update to authenticated using (public.can_write(workspace_id)) with check (public.can_write(workspace_id))', t);
-    execute format('create policy %1$s_delete on public.%1$I for delete to authenticated using (public.can_write(workspace_id))', t);
+    execute format('create policy %1$s_select on utmfy.%1$I for select to authenticated using (utmfy.is_member(workspace_id))', t);
+    execute format('create policy %1$s_insert on utmfy.%1$I for insert to authenticated with check (utmfy.can_write(workspace_id))', t);
+    execute format('create policy %1$s_update on utmfy.%1$I for update to authenticated using (utmfy.can_write(workspace_id)) with check (utmfy.can_write(workspace_id))', t);
+    execute format('create policy %1$s_delete on utmfy.%1$I for delete to authenticated using (utmfy.can_write(workspace_id))', t);
   end loop;
   -- meta_ad_accounts: só "active" é editável pelo painel (o resto vem da sincronização).
-  execute 'create policy meta_ad_accounts_select on public.meta_ad_accounts for select to authenticated using (public.is_member(workspace_id))';
-  execute 'create policy meta_ad_accounts_update on public.meta_ad_accounts for update to authenticated using (public.can_write(workspace_id)) with check (public.can_write(workspace_id))';
+  execute 'create policy meta_ad_accounts_select on utmfy.meta_ad_accounts for select to authenticated using (utmfy.is_member(workspace_id))';
+  execute 'create policy meta_ad_accounts_update on utmfy.meta_ad_accounts for update to authenticated using (utmfy.can_write(workspace_id)) with check (utmfy.can_write(workspace_id))';
   -- Dados de integração: somente leitura para membros; escrita só via service_role.
   foreach t in array array['cakto_connections', 'meta_connections', 'meta_ads', 'orders', 'order_status_history',
                            'order_attribution', 'webhook_events', 'meta_insights_daily', 'tracking_sessions',
                            'conversion_dispatches', 'integration_logs', 'sync_jobs', 'reconciliation_changes'] loop
-    execute format('create policy %1$s_select on public.%1$I for select to authenticated using (public.is_member(workspace_id))', t);
+    execute format('create policy %1$s_select on utmfy.%1$I for select to authenticated using (utmfy.is_member(workspace_id))', t);
   end loop;
 end $$;
 
 -- Referências a secrets do Vault ficam numa tabela SEM policy: só service_role lê.
-create table public.secret_refs (
-  workspace_id     uuid not null references public.workspaces(id) on delete cascade,
+create table utmfy.secret_refs (
+  workspace_id     uuid not null references utmfy.workspaces(id) on delete cascade,
   owner_type       text not null check (owner_type in ('meta_connection', 'pixel')),
   owner_id         uuid not null,
   vault_secret_id  uuid not null,
   created_at       timestamptz not null default now(),
   primary key (owner_type, owner_id)
 );
-alter table public.secret_refs enable row level security;
-revoke all on public.secret_refs from anon, authenticated;
+alter table utmfy.secret_refs enable row level security;
+revoke all on utmfy.secret_refs from anon, authenticated;
 
 -- anon não lê nada diretamente (o tracker público escreve via route handler com service_role).
-revoke all on all tables in schema public from anon;
+revoke all on all tables in schema utmfy from anon;

@@ -7,6 +7,7 @@ import { env } from "../env";
 export async function serverClient() {
   const store = await cookies();
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
+    db: { schema: "utmfy" },
     cookies: {
       getAll() {
         return store.getAll();

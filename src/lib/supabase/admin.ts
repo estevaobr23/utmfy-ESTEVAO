@@ -11,6 +11,7 @@ export function adminClient(): SupabaseClient {
   }
   admin ??= createClient(env.supabaseUrl, env.supabaseServiceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    db: { schema: "utmfy" },
   });
   return admin;
 }
