@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { addCaktoItem, checkOfferWebhook, linkAdAccount, linkPixel, removeCaktoItem, unlinkAdAccount, unlinkPixel } from "@/app/actions";
+import { addCaktoItem, checkOfferWebhook, linkPixel, removeCaktoItem, saveMetaBindings, unlinkAdAccount, unlinkPixel } from "@/app/actions";
 import { CodeBlock, SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
 import { Badge, Card, Code, Field, inputCls, Notice, SectionTitle } from "@/components/ui";
@@ -16,15 +16,26 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
   const sp = await searchParams;
   const { sb, workspace, offer, canWrite: w } = await requireOffer(id);
 
-  const [{ data: items }, { data: links }, { data: accounts }, { data: pixelLinks }, { data: pixels }, { data: ads }] = await Promise.all([
+  const [{ data: items }, { data: links }, { data: accounts }, { data: pixelLinks }, { data: pixels }, { data: ads }, bindingResult, adsetResult] = await Promise.all([
     sb.from("offer_cakto_items").select("*").eq("offer_id", id).order("created_at"),
     sb.from("offer_ad_accounts").select("ad_account_id, campaign_filter, meta_ad_accounts(account_id, account_name)").eq("offer_id", id),
     sb.from("meta_ad_accounts").select("id, account_id, account_name, active").eq("workspace_id", workspace.id).order("account_name"),
     sb.from("offer_pixels").select("pixel_id, active, pixels(name, external_pixel_id)").eq("offer_id", id),
     sb.from("pixels").select("id, name, external_pixel_id").eq("workspace_id", workspace.id),
     sb.from("meta_ads").select("account_id, campaign_id, campaign_name").eq("workspace_id", workspace.id).limit(5000),
+    sb.from("offer_meta_bindings").select("ad_account_id, level, object_id, status, source").eq("offer_id", id).eq("status", "confirmed"),
+    sb.from("meta_adsets").select("account_id, campaign_id, adset_id, name, promoted_object").eq("workspace_id", workspace.id).limit(5000),
   ]);
-  const campaigns = [...new Map((ads ?? []).map((ad) => [ad.campaign_id, ad])).values()].sort((a, b) => (a.campaign_name ?? a.campaign_id).localeCompare(b.campaign_name ?? b.campaign_id, "pt-BR"));
+  const campaigns = [...new Map((ads ?? []).map((ad) => [`${ad.account_id}:${ad.campaign_id}`, ad])).values()].sort((a, b) => (a.campaign_name ?? a.campaign_id).localeCompare(b.campaign_name ?? b.campaign_id, "pt-BR"));
+  const bindings = bindingResult.data ?? [];
+  const bindingsUnavailable = !!bindingResult.error;
+  const adsets = adsetResult.data ?? [];
+  const primaryPixelId = ((pixelLinks ?? [])[0]?.pixels as unknown as { external_pixel_id?: string } | null)?.external_pixel_id ?? null;
+  const promotedPixel = (value: unknown) => {
+    if (!value || typeof value !== "object") return null;
+    const pixel = (value as Record<string, unknown>).pixel_id;
+    return typeof pixel === "string" || typeof pixel === "number" ? String(pixel) : null;
+  };
 
   let products: CaktoProduct[] = [];
   let productsError: string | null = null;
@@ -112,45 +123,42 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
           )}
         </Card>
 
-        <Card title="Contas de anúncio (Meta)">
-          <ul className="mb-3 space-y-1 text-sm">
-            {(links ?? []).map((l) => {
-              const a = l.meta_ad_accounts as unknown as { account_id: string; account_name: string | null } | null;
-              return (
-                <li key={l.ad_account_id} className="flex items-center justify-between gap-2 rounded border border-slate-100 px-2 py-1">
-                  <span>{a?.account_name ?? "?"} <Code>act_{a?.account_id}</Code>{l.campaign_filter ? <> · campanhas <Code>{l.campaign_filter}</Code></> : <> · <Badge tone="warn">associação pendente · gasto excluído</Badge></>}</span>
-                  {w && (
-                    <form action={unlinkAdAccount}>
-                      <input type="hidden" name="offer_id" value={id} /><input type="hidden" name="ad_account_id" value={l.ad_account_id} />
-                      <button className="text-xs text-rose-700">remover</button>
-                    </form>
-                  )}
-                </li>
-              );
+        <Card title="Contas, campanhas e conjuntos (Meta)">
+          <p className="mb-3 text-sm text-[#aeb8c9]">Confirme exatamente quais objetos pertencem a esta oferta. O pixel destaca sugestões, mas não atribui gasto sozinho.</p>
+          {bindingsUnavailable && <div className="mb-3"><Notice tone="warn">A migration de associações explícitas ainda não foi aplicada. Os vínculos legados continuam preservados.</Notice></div>}
+          {accounts?.length ? <div className="space-y-3">
+            {accounts.map((account) => {
+              const linked = (links ?? []).find((item) => item.ad_account_id === account.id);
+              const confirmedCampaigns = new Set(bindings.filter((item) => item.ad_account_id === account.id && item.level === "campaign").map((item) => item.object_id));
+              const confirmedAdsets = new Set(bindings.filter((item) => item.ad_account_id === account.id && item.level === "adset").map((item) => item.object_id));
+              if (bindingsUnavailable && linked?.campaign_filter) linked.campaign_filter.split(",").forEach((campaignId: string) => confirmedCampaigns.add(campaignId.trim()));
+              const accountCampaigns = campaigns.filter((campaign) => campaign.account_id === account.account_id);
+              const accountAdsets = adsets.filter((adset) => adset.account_id === account.account_id);
+              const suggestedAdsets = new Set(accountAdsets.filter((adset) => primaryPixelId && promotedPixel(adset.promoted_object) === primaryPixelId).map((adset) => adset.adset_id));
+              const suggestedCampaigns = new Set(accountAdsets.filter((adset) => suggestedAdsets.has(adset.adset_id)).map((adset) => adset.campaign_id));
+              return <details key={account.id} open={!!linked} className="rounded-md border border-[#3d4a65] bg-[#202b43]">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <span><b>{account.account_name ?? account.account_id}</b> <Code>act_{account.account_id}</Code></span>
+                  <span className="flex items-center gap-2">{linked ? <Badge tone={confirmedCampaigns.size || confirmedAdsets.size ? "ok" : "warn"}>{confirmedCampaigns.size + confirmedAdsets.size || "pendente"}</Badge> : <Badge>não vinculada</Badge>}</span>
+                </summary>
+                <form action={saveMetaBindings} className="border-t border-[#3d4a65] p-3">
+                  <input type="hidden" name="offer_id" value={id} /><input type="hidden" name="ad_account_id" value={account.id} />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <fieldset><legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9ca8bb]">Campanhas</legend><div className="max-h-56 space-y-1 overflow-y-auto">
+                      {accountCampaigns.map((campaign) => <label key={campaign.campaign_id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs hover:bg-[#2b3853]"><input type="checkbox" name="campaign_ids" value={campaign.campaign_id} defaultChecked={confirmedCampaigns.has(campaign.campaign_id)} className="mt-0.5" /><span className="min-w-0"><span className="block truncate text-[#e2e7ef]">{campaign.campaign_name ?? "Sem nome"}</span><Code>{campaign.campaign_id}</Code>{suggestedCampaigns.has(campaign.campaign_id) && <span className="ml-2 text-emerald-300">sugerida pelo pixel</span>}</span></label>)}
+                      {!accountCampaigns.length && <p className="text-xs text-[#8f9bb1]">Nenhuma campanha sincronizada.</p>}
+                    </div></fieldset>
+                    <fieldset><legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9ca8bb]">Conjuntos (mais específico)</legend><div className="max-h-56 space-y-1 overflow-y-auto">
+                      {accountAdsets.map((adset) => <label key={adset.adset_id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs hover:bg-[#2b3853]"><input type="checkbox" name="adset_ids" value={adset.adset_id} defaultChecked={confirmedAdsets.has(adset.adset_id)} className="mt-0.5" /><span className="min-w-0"><span className="block truncate text-[#e2e7ef]">{adset.name ?? "Sem nome"}</span><Code>{adset.adset_id}</Code>{suggestedAdsets.has(adset.adset_id) && <span className="ml-2 text-emerald-300">pixel {primaryPixelId}</span>}</span></label>)}
+                      {!accountAdsets.length && <p className="text-xs text-[#8f9bb1]">Nenhum conjunto sincronizado.</p>}
+                    </div></fieldset>
+                  </div>
+                  <details className="mt-3 rounded border border-[#3d4a65] p-2 text-xs text-[#aeb8c9]"><summary className="cursor-pointer">Associação manual por ID</summary><div className="mt-2 grid gap-2 md:grid-cols-2"><label>IDs de campanhas<input name="campaign_ids" inputMode="numeric" placeholder="IDs separados por vírgula" className={`${inputCls} mt-1 w-full`} /></label><label>IDs de conjuntos<input name="adset_ids" inputMode="numeric" placeholder="IDs separados por vírgula" className={`${inputCls} mt-1 w-full`} /></label></div></details>
+                  {w && <div className="mt-3 flex items-center justify-between gap-2"><SubmitButton pendingText="Salvando vínculos…">Salvar vínculos</SubmitButton>{linked && <button formAction={unlinkAdAccount} className="text-xs text-rose-300">Desassociar conta</button>}</div>}
+                </form>
+              </details>;
             })}
-            {!links?.length && <li className="text-slate-400">Nenhuma conta vinculada — o gasto desta oferta fica desconhecido.</li>}
-          </ul>
-          {w && (accounts?.length ? (
-            <form action={linkAdAccount} className="grid gap-2">
-              <input type="hidden" name="offer_id" value={id} />
-              <Field label="Conta">
-                <select name="ad_account_id" className={inputCls}>
-                  {accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name ?? a.account_id} (act_{a.account_id}){a.active ? "" : " — não monitorada"}</option>)}
-                </select>
-              </Field>
-              <Field label="IDs das campanhas" hint="Separe IDs por vírgula. Se ficar vazio, a conta será salva como pendente e nenhum gasto entrará na oferta.">
-                <input name="campaign_filter" inputMode="numeric" placeholder="120249039838020650, 120249040128310650" className={inputCls} />
-              </Field>
-              <details className="rounded border border-[#394761] bg-[#202b43] p-2 text-xs">
-                <summary className="cursor-pointer text-[#aab4c6]">Ver campanhas descobertas e seus IDs</summary>
-                <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-                  {campaigns.map((campaign) => <div key={campaign.campaign_id} className="flex items-center justify-between gap-3 border-b border-[#34415d] py-1"><span className="truncate">{campaign.campaign_name ?? "Sem nome"}</span><Code>{campaign.campaign_id}</Code></div>)}
-                  {!campaigns.length && <p className="text-[#8f9bb1]">Nenhuma campanha sincronizada.</p>}
-                </div>
-              </details>
-              <div><SubmitButton>Vincular conta</SubmitButton></div>
-            </form>
-          ) : <Notice tone="warn">Nenhuma conta importada. Em <Link className="underline" href="/meta">Conexão Meta</Link>, clique em Descobrir contas.</Notice>)}
+          </div> : <Notice tone="warn">Nenhuma conta importada. Em <Link className="underline" href="/meta">Conexão Meta</Link>, clique em Descobrir contas.</Notice>}
         </Card>
 
         <Card title="Pixel principal">

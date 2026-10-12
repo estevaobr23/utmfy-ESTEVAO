@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { OfferHeaderSkeleton } from "@/components/loading-skeletons";
 import { requireOffer } from "@/lib/offer-context";
 
 const STATUS: Record<string, [string, string]> = {
@@ -8,13 +10,12 @@ const STATUS: Record<string, [string, string]> = {
 };
 
 /** Faixa de contexto: todas as páginas da oferta mostram de onde vêm os números. */
-export default async function OfferLayout({ children, params }: LayoutProps<"/ofertas/[id]">) {
+async function OfferContextHeader({ params }: { params: LayoutProps<"/ofertas/[id]">["params"] }) {
   const { id } = await params;
   const { offer, accounts, pixels } = await requireOffer(id);
   const [label, cls] = STATUS[offer.status] ?? [offer.status, "bg-slate-400/10 text-slate-300"];
   const pending = <Link href={`/ofertas/${id}/integracoes`} className="text-amber-300 underline decoration-dotted">não vinculado</Link>;
   return (
-    <>
       <div className="mb-5 rounded-md border border-[#34415d] bg-[#27334d] px-5 py-4 shadow-[0_10px_30px_rgba(4,9,20,0.12)]">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8491a8]">Dashboard</span>
@@ -33,6 +34,13 @@ export default async function OfferLayout({ children, params }: LayoutProps<"/of
           </div>
         </dl>
       </div>
+  );
+}
+
+export default function OfferLayout({ children, params }: LayoutProps<"/ofertas/[id]">) {
+  return (
+    <>
+      <Suspense fallback={<OfferHeaderSkeleton />}><OfferContextHeader params={params} /></Suspense>
       {children}
     </>
   );

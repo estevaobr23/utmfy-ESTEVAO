@@ -29,6 +29,8 @@ describe("analytics do resumo", () => {
     expect(data.pendingCount).toBe(1);
     expect(data.pendingAmount).toBe(30);
     expect(data.salesBySource.value?.map((item) => item.label)).toEqual(["Meta Ads", "Sem identificação"]);
+    expect(data.salesBySource.value?.map((item) => item.amount)).toEqual([30, 30]);
+    expect(data.salesByPayment.value?.reduce((sum, item) => sum + item.amount, 0)).toBe(60);
     expect(data.funnel.state).toBe("partial");
     expect(data.funnel.stages.find((stage) => stage.key === "pageviews")?.value).toBeNull();
   });

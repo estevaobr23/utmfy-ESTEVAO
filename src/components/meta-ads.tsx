@@ -10,6 +10,7 @@ import { buildAdvancedIndex, scopeFromSpend } from "@/lib/core/meta-advanced";
 import { listAccounts, listOfferAccounts, loadMetaAdvanced, loadReport, parseFilters } from "@/lib/queries";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
+import { timed } from "@/lib/perf";
 
 const PRESETS: [string, string][] = [
   ["today", "Hoje"], ["yesterday", "Ontem"], ["7d", "7 dias"], ["14d", "14 dias"], ["30d", "30 dias"], ["month", "Este mês"],
@@ -57,6 +58,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   path: string;
   canWrite: boolean;
 }) {
+  return timed("meta_ads.view", { offerScoped: !!offerId }, async () => {
   const level = (LEVELS.find(([key]) => key === one(sp.nivel))?.[0] ?? "campanhas") as Level;
   const campaign = ID.test(one(sp.campaign)) ? one(sp.campaign) : null;
   const adset = ID.test(one(sp.adset)) ? one(sp.adset) : null;
@@ -229,4 +231,5 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
       />
     </div>
   );
+  });
 }

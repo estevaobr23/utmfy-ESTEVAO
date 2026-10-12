@@ -3,13 +3,14 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { serverClient } from "./supabase/server";
+import { timed } from "./perf";
 
 export type Workspace = { id: string; name: string; slug: string; is_demo: boolean; timezone: string; currency: string };
 
 export const WS_COOKIE = "utmfy_ws";
 
 /** Usuário logado + workspace atual (cookie) — tudo lido com RLS. */
-export const requireSession = cache(async () => {
+export const requireSession = cache(async () => timed("session.require", {}, async () => {
   const sb = await serverClient();
   const {
     data: { user },
@@ -38,7 +39,7 @@ export const requireSession = cache(async () => {
     workspaces: memberships.map((m) => m.ws),
     canWrite: current?.role === "owner" || current?.role === "admin",
   };
-});
+}));
 
 export async function requireWorkspace() {
   const s = await requireSession();

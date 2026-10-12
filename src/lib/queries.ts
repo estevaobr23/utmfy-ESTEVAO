@@ -3,10 +3,11 @@ import type { Db } from "./supabase/types";
 import { dayRangeUtc, resolveRange, todayIn } from "./core/dates";
 import { spendStatus } from "./core/spend-status";
 import { buildTree, totals, type OrderRow, type SpendRow } from "./core/report";
-import { parseCampaignScope, scopeOfferSpendRows, type OfferSpendLink } from "./core/offer-spend-scope";
+import { parseCampaignScope, scopeOfferSpendRows, scopeOfferSpendRowsByBindings, type OfferMetaBinding, type OfferSpendLink } from "./core/offer-spend-scope";
 import type { Workspace } from "./session";
 import type { AdsetConfig, CampaignConfig, ReachLevel, VideoRow } from "./core/meta-advanced";
 import { buildSummaryAnalytics, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
+import { timed } from "./perf";
 
 // Consultas da interface. Toda métrica passa por core/metrics.ts (via report.ts).
 
@@ -46,58 +47,80 @@ export function parseFilters(sp: SP, tz: string, fixedOffer?: string): Filters {
   };
 }
 
-export async function loadReport(sb: Db, ws: Workspace, f: Filters) {
+export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { includeTree?: boolean } = {}) {
+  return timed("report.load", { offerScoped: !!f.offer, includeTree: options.includeTree !== false }, async () => {
   const offers = f.offer ? [f.offer] : null;
-  const [spend, orders, offerLinks] = await Promise.all([
-    sb.rpc("report_spend_rows", {
+  const [spend, orders, offerLinks, bindingResult, excluded] = await Promise.all([
+    timed("report.spend", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_rows", {
       // O escopo de oferta é aplicado abaixo por IDs persistentes. A RPC legada
       // tratava filtro vazio como conta inteira, o que misturava ofertas.
       p_workspace: ws.id, p_offer_ids: null, p_from: f.from, p_to: f.to, p_currency: ws.currency,
       p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad,
-    }),
-    sb.rpc("report_order_rows", {
+    })),
+    timed("report.orders", { offerScoped: !!f.offer }, () => sb.rpc("report_order_rows", {
       p_workspace: ws.id, p_offer_ids: offers, p_from: f.from, p_to: f.to, p_tz: ws.timezone, p_currency: ws.currency,
       p_source: f.source, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad, p_status: f.status, p_account_id: f.account,
-    }),
+    })),
     f.offer
       ? sb.from("offer_ad_accounts").select("campaign_filter, meta_ad_accounts(account_id)").eq("offer_id", f.offer)
       : Promise.resolve({ data: [], error: null }),
+    f.offer
+      ? sb.from("offer_meta_bindings").select("offer_id, level, object_id, meta_ad_accounts(account_id)").eq("workspace_id", ws.id).eq("status", "confirmed")
+      : Promise.resolve({ data: [], error: null }),
+    timed("report.excluded", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_excluded", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_currency: ws.currency })),
   ]);
   if (spend.error) throw new Error(`report_spend_rows: ${spend.error.message}`);
   if (orders.error) throw new Error(`report_order_rows: ${orders.error.message}`);
   if (offerLinks.error) throw new Error(`offer_ad_accounts: ${offerLinks.error.message}`);
+  if (excluded.error) throw new Error(`report_spend_excluded: ${excluded.error.message}`);
   const rawSpendRows = (spend.data ?? []) as SpendRow[];
   const links = (offerLinks.data ?? []).map((row) => ({
     accountId: (row.meta_ad_accounts as unknown as { account_id: string } | null)?.account_id ?? "",
     campaignFilter: row.campaign_filter as string | null,
   })).filter((row): row is OfferSpendLink => !!row.accountId);
-  const scoped = f.offer ? scopeOfferSpendRows(rawSpendRows, links) : { rows: rawSpendRows, pendingAccounts: [] as string[] };
+  const bindings = (bindingResult.data ?? []).map((row) => ({
+    offerId: row.offer_id as string,
+    accountId: (row.meta_ad_accounts as unknown as { account_id: string } | null)?.account_id ?? "",
+    level: row.level as "campaign" | "adset",
+    objectId: row.object_id as string,
+  })).filter((row): row is OfferMetaBinding => !!row.accountId);
+  const scoped = f.offer
+    ? bindingResult.error
+      ? scopeOfferSpendRows(rawSpendRows, links)
+      : scopeOfferSpendRowsByBindings(rawSpendRows, f.offer, links.map((link) => link.accountId), bindings)
+    : { rows: rawSpendRows, pendingAccounts: [] as string[], confirmedAccounts: [] as string[] };
   const spendRows = scoped.rows;
   const orderRows = (orders.data ?? []) as OrderRow[];
   const pre = totals(spendRows, orderRows);
-  const { data: other } = await sb.rpc("report_other_costs", {
-    p_workspace: ws.id, p_offer_ids: offers, p_from: f.from, p_to: f.to, p_gross: pre.gross_revenue, p_sales: pre.approved_count,
-  });
-  const summary = totals(spendRows, orderRows, Number(other ?? 0));
-  const { data: excluded } = await sb.rpc("report_spend_excluded", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_currency: ws.currency });
-  const safeAccounts = new Set(links.filter((link) => parseCampaignScope(link.campaignFilter).mode !== "pending").map((link) => link.accountId));
-  const excludedSpend = ((excluded ?? []) as { account_id: string; currency: string; spend: number }[])
+  const safeAccounts = new Set("confirmedAccounts" in scoped
+    ? scoped.confirmedAccounts
+    : links.filter((link) => parseCampaignScope(link.campaignFilter).mode !== "pending").map((link) => link.accountId));
+  const excludedSpend = ((excluded.data ?? []) as { account_id: string; currency: string; spend: number }[])
     .filter((row) => !f.offer || safeAccounts.has(row.account_id));
+  const [other, resolvedSpendStatus] = await Promise.all([
+    timed("report.other_costs", { offerScoped: !!f.offer }, () => sb.rpc("report_other_costs", {
+      p_workspace: ws.id, p_offer_ids: offers, p_from: f.from, p_to: f.to, p_gross: pre.gross_revenue, p_sales: pre.approved_count,
+    })),
+    timed("report.spend_status", { offerScoped: !!f.offer }, () => loadSpendStatus(sb, ws, f, excludedSpend, scoped.pendingAccounts)),
+  ]);
+  const summary = totals(spendRows, orderRows, Number(other.data ?? 0));
   return {
     summary,
-    tree: buildTree(spendRows, orderRows),
+    tree: options.includeTree === false ? [] : buildTree(spendRows, orderRows),
     spendRows,
     orderRows,
     excludedSpend,
-    spendStatus: await loadSpendStatus(sb, ws, f, excludedSpend, scoped.pendingAccounts),
+    spendStatus: resolvedSpendStatus,
     scopeStatus: {
       pendingAccounts: scoped.pendingAccounts,
       includedCampaigns: [...new Set(spendRows.map((row) => row.campaign_id))],
     },
   };
+  });
 }
 
 export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true) {
+  return timed("summary.analytics", { offerScoped: !!f.offer }, async () => {
   const { start, end } = dayRangeUtc(f.from, f.to, ws.timezone);
   const fields = "id,status,gross_amount,base_amount,payment_method,product_name,offer_type,paid_at,provider_created_at";
   let paidQuery = sb.from("orders").select(fields)
@@ -149,6 +172,7 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     sessions: (sessionsResult.data ?? []) as SummarySession[],
     clicks: spendReliable ? summary.clicks : null,
     approvedCount: summary.approved_count,
+  });
   });
 }
 
@@ -216,6 +240,7 @@ export async function listOfferAccounts(sb: Db, offerId: string) {
 
 /** Opções dos filtros de campanha/conjunto/anúncio a partir do catálogo. */
 export async function catalogOptions(sb: Db, wsId: string, f: Filters) {
+  return timed("catalog.options", { accountScoped: !!f.account }, async () => {
   let q = sb.from("meta_ads").select("campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name").eq("workspace_id", wsId).limit(2000);
   if (f.account) q = q.eq("account_id", f.account);
   const { data } = await q;
@@ -227,6 +252,7 @@ export async function catalogOptions(sb: Db, wsId: string, f: Filters) {
     adsets: uniq("adset", (r) => !f.campaign || r.campaign_id === f.campaign),
     ads: uniq("ad", (r) => (!f.campaign || r.campaign_id === f.campaign) && (!f.adset || r.adset_id === f.adset)),
   };
+  });
 }
 
 export function filtersToQuery(f: Partial<Filters>, extra: Record<string, string | null | undefined> = {}) {

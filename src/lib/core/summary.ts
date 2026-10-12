@@ -21,7 +21,7 @@ export type ConversionFunnel = {
   note: string | null;
 };
 
-export type DistributionItem = { key: string; label: string; count: number; share: number };
+export type DistributionItem = { key: string; label: string; count: number; share: number; amount: number };
 export type ApprovalItem = { key: string; label: string; attempts: number; approved: number; rate: number | null; state: DataState };
 export type HourlyPoint = { hour: number; revenue: number | null; investment: number | null; profit: number | null };
 
@@ -67,16 +67,17 @@ function paymentLabel(value: string | null) {
   return ["other", "Outros"] as const;
 }
 
-function distribution(entries: readonly (readonly [string, string])[]) {
-  const counts = new Map<string, { label: string; count: number }>();
-  for (const [key, label] of entries) {
-    const current = counts.get(key) ?? { label, count: 0 };
+function distribution(entries: readonly (readonly [string, string, number])[]) {
+  const counts = new Map<string, { label: string; count: number; amount: number }>();
+  for (const [key, label, amount] of entries) {
+    const current = counts.get(key) ?? { label, count: 0, amount: 0 };
     current.count++;
+    current.amount += amount;
     counts.set(key, current);
   }
   const total = entries.length;
   return [...counts.entries()]
-    .map(([key, item]) => ({ key, label: item.label, count: item.count, share: total ? item.count / total : 0 }))
+    .map(([key, item]) => ({ key, label: item.label, count: item.count, share: total ? item.count / total : 0, amount: Math.round(item.amount * 100) / 100 }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
 }
 
@@ -114,9 +115,9 @@ export function buildSummaryAnalytics(input: {
   const attributionByOrder = new Map(input.attributions.map((item) => [item.order_id, item]));
   const pending = input.attempts.filter((order) => order.status === "pending" && mainOrder(order));
   const pendingAmount = pending.reduce((sum, order) => sum + number(order.gross_amount ?? order.base_amount), 0);
-  const payment = distribution(paidMain.map((order) => paymentLabel(order.payment_method)));
-  const products = distribution(paidMain.map((order) => [order.product_name ?? "Produto não identificado", order.product_name ?? "Produto não identificado"]));
-  const sources = distribution(paidMain.map((order) => sourceLabel(attributionByOrder.get(order.id))));
+  const payment = distribution(paidMain.map((order) => [...paymentLabel(order.payment_method), number(order.gross_amount ?? order.base_amount)]));
+  const products = distribution(paidMain.map((order) => [order.product_name ?? "Produto não identificado", order.product_name ?? "Produto não identificado", number(order.gross_amount ?? order.base_amount)]));
+  const sources = distribution(paidMain.map((order) => [...sourceLabel(attributionByOrder.get(order.id)), number(order.gross_amount ?? order.base_amount)]));
 
   const byPayment = new Map<string, { label: string; attempts: number; approved: number }>();
   for (const order of input.attempts.filter(mainOrder)) {

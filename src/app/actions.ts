@@ -78,6 +78,33 @@ export async function updateOffer(fd: FormData) {
   back(`/ofertas/${id}/configuracoes`, error ? error.message : "Oferta salva", error ? "error" : "ok");
 }
 
+export async function archiveOffer(fd: FormData) {
+  const s = await writer();
+  const id = uuid.parse(str(fd, "offer_id"));
+  const confirmation = str(fd, "confirmation");
+  const { data: offer } = await s.sb.from("offers").select("name").eq("id", id).eq("workspace_id", s.workspace.id).maybeSingle();
+  if (!offer || confirmation !== offer.name) return back(`/ofertas/${id}/configuracoes`, "O nome digitado não confere.", "error");
+  const { error } = await s.sb.from("offers").update({ status: "archived" }).eq("id", id).eq("workspace_id", s.workspace.id);
+  if (error) return back(`/ofertas/${id}/configuracoes`, error.message, "error");
+  revalidatePath("/", "layout");
+  redirect("/ofertas?ok=Oferta%20arquivada%20sem%20apagar%20o%20histórico");
+}
+
+export async function deleteOffer(fd: FormData) {
+  const s = await writer();
+  const id = uuid.parse(str(fd, "offer_id"));
+  const confirmation = str(fd, "confirmation");
+  const { error } = await s.sb.rpc("delete_empty_offer", { p_offer: id, p_confirmation: confirmation });
+  if (error) {
+    const message = error.message.includes("offer_has_history")
+      ? "A oferta ganhou histórico e não pode mais ser excluída. Arquive-a para preservar os dados."
+      : error.message.includes("confirmation") ? "O nome digitado não confere." : `Não foi possível excluir: ${error.message}`;
+    return back(`/ofertas/${id}/configuracoes`, message, "error");
+  }
+  revalidatePath("/", "layout");
+  redirect("/ofertas?ok=Oferta%20vazia%20excluída%20com%20segurança");
+}
+
 export async function addCaktoItem(fd: FormData) {
   const s = await writer();
   const offerId = uuid.parse(str(fd, "offer_id"));
@@ -127,6 +154,31 @@ export async function linkAdAccount(fd: FormData) {
     workspace_id: s.workspace.id, offer_id: offerId, ad_account_id: uuid.parse(str(fd, "ad_account_id")), campaign_filter: filter,
   });
   back(`/ofertas/${offerId}/integracoes`, error ? error.message : filter ? "Conta e campanhas associadas" : "Conta salva como associação pendente; nenhum gasto será atribuído até informar campanhas.", error ? "error" : "ok");
+}
+
+export async function saveMetaBindings(fd: FormData) {
+  const s = await writer();
+  const offerId = uuid.parse(str(fd, "offer_id"));
+  const accountId = uuid.parse(str(fd, "ad_account_id"));
+  const ids = (name: string) => fd.getAll(name).flatMap((value) => String(value).split(/[\s,;]+/)).map((value) => value.trim()).filter(Boolean);
+  const campaignIds = [...new Set(ids("campaign_ids"))];
+  const adsetIds = [...new Set(ids("adset_ids"))];
+  if ([...campaignIds, ...adsetIds].some((id) => !/^\d{1,30}$/.test(id))) {
+    return back(`/ofertas/${offerId}/integracoes`, "Há um ID Meta inválido na seleção.", "error");
+  }
+  const { error } = await s.sb.rpc("replace_offer_meta_bindings", {
+    p_offer: offerId,
+    p_ad_account: accountId,
+    p_campaign_ids: campaignIds,
+    p_adset_ids: adsetIds,
+  });
+  if (error) {
+    const message = error.message.includes("meta_binding_conflict")
+      ? "Uma campanha ou conjunto selecionado já pertence a outra oferta. Remova o vínculo conflitante antes de continuar."
+      : error.message.includes("replace_offer_meta_bindings") ? "A migration de associações Meta ainda não foi aplicada." : error.message;
+    return back(`/ofertas/${offerId}/integracoes`, message, "error");
+  }
+  back(`/ofertas/${offerId}/integracoes`, campaignIds.length || adsetIds.length ? "Associações Meta confirmadas" : "Conta salva como pendente; nenhum gasto será atribuído");
 }
 
 export async function unlinkAdAccount(fd: FormData) {

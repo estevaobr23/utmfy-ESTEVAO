@@ -1,7 +1,7 @@
 "use client";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { signOut, switchWorkspace } from "@/app/actions";
 import { offerContextFromPath, offerSectionLinks, offerSwitchHref } from "@/lib/core/offer-navigation";
 
@@ -37,6 +37,7 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [isPending, startTransition] = useTransition();
   const box = useRef<HTMLDivElement>(null);
   const current = offers.find((o) => o.id === offerId);
 
@@ -57,7 +58,7 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
   const go = (href: string) => {
     setOpen(false);
     setQ("");
-    router.push(href);
+    startTransition(() => router.push(href));
   };
   // Arquivadas saem do seletor (continuam em Gerenciar ofertas).
   const visible = offers.filter((o) => (o.status !== "archived" || o.id === offerId) && o.name.toLowerCase().includes(q.trim().toLowerCase()));
@@ -77,7 +78,7 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
       >
         <span className="min-w-0">
           {!compact && <span className="block text-[10px] font-semibold uppercase tracking-wider text-[#7f8ca4]">Minhas ofertas</span>}
-          <span className="block truncate text-sm font-semibold text-[#f3f6fb]">{current ? current.name : compact ? "Todas as ofertas · consolidado" : "Todas as ofertas"}</span>
+          <span className="block truncate text-sm font-semibold text-[#f3f6fb]">{isPending ? "Abrindo…" : current ? current.name : compact ? "Todas as ofertas · consolidado" : "Todas as ofertas"}</span>
         </span>
         <span className="text-[#8794aa]">{open ? "▴" : "▾"}</span>
       </button>
@@ -86,7 +87,7 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
           {offers.length > 6 && (
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar oferta..." className="mb-1 w-full rounded border border-[#46546e] bg-[#172137] px-2 py-1 text-sm text-white outline-none placeholder:text-[#728097] focus:border-[#0874f9]" />
           )}
-          <button type="button" onClick={() => go("/")} className={`w-full rounded px-2 py-1.5 text-left text-sm text-[#dce2ec] hover:bg-[#2f3d59] ${!current ? "bg-[#2f3d59] font-semibold" : ""}`}>
+          <button type="button" onPointerEnter={() => router.prefetch("/")} onFocus={() => router.prefetch("/")} onClick={() => go("/")} className={`w-full rounded px-2 py-1.5 text-left text-sm text-[#dce2ec] hover:bg-[#2f3d59] ${!current ? "bg-[#2f3d59] font-semibold" : ""}`}>
             Todas as ofertas <span className="text-xs text-[#8e9bb0]">· consolidado</span>
           </button>
           <div className="my-1 border-t border-[#35435e]" />
@@ -96,6 +97,8 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
               type="button"
               role="option"
               aria-selected={o.id === offerId}
+              onPointerEnter={() => router.prefetch(target(o.id))}
+              onFocus={() => router.prefetch(target(o.id))}
               onClick={() => go(target(o.id))}
               className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-[#dce2ec] hover:bg-[#2f3d59] ${o.id === offerId ? "bg-[#12386a] font-semibold text-white" : ""}`}
             >
@@ -106,7 +109,7 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
           {!offers.length && <p className="px-2 py-2 text-xs text-[#8e9bb0]">Nenhuma oferta cadastrada.</p>}
           {offers.length > 0 && !visible.length && <p className="px-2 py-2 text-xs text-[#8e9bb0]">Nada encontrado.</p>}
           <div className="my-1 border-t border-[#35435e]" />
-          <button type="button" onClick={() => go("/ofertas#nova")} className="w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#58a8ff] hover:bg-[#2f3d59]">
+          <button type="button" onPointerEnter={() => router.prefetch("/ofertas")} onFocus={() => router.prefetch("/ofertas")} onClick={() => go("/ofertas#nova")} className="w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#58a8ff] hover:bg-[#2f3d59]">
             + Nova oferta
           </button>
         </div>
@@ -116,15 +119,23 @@ function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?
 }
 
 function NavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
+  const router = useRouter();
   return (
     <Link
       href={href}
+      onPointerEnter={() => router.prefetch(href)}
+      onFocus={() => router.prefetch(href)}
       aria-current={active ? "page" : undefined}
       className={`my-0.5 block rounded-md px-3 py-2 text-sm transition ${active ? "bg-[#0874f9] font-semibold text-white shadow-[0_0_18px_rgba(8,116,249,0.28)]" : "text-[#d3dae6] hover:bg-[#2d3a55] hover:text-white"}`}
     >
-      {label}
+      <NavLinkContent label={label} />
     </Link>
   );
+}
+
+function NavLinkContent({ label }: { label: string }) {
+  const { pending } = useLinkStatus();
+  return <span className="flex items-center justify-between gap-2"><span>{label}</span><span className={`h-2 w-2 rounded-full bg-white ${pending ? "animate-pulse opacity-100" : "opacity-0"}`} aria-hidden />{pending && <span className="sr-only">Carregando</span>}</span>;
 }
 
 function AdminMenu({ path, mobile = false }: { path: string; mobile?: boolean }) {
@@ -229,6 +240,7 @@ export function Sidebar({ offers, workspaces, workspaceId, email }: { offers: Na
 /** Navegação compacta para telas pequenas (mesmo contexto da lateral). */
 export function MobileNav({ offers }: { offers: NavOffer[] }) {
   const { path, offerId, section } = useOfferContext(offers);
+  const router = useRouter();
   const inAdmin = ADMIN.some(([href]) => path === href || path.startsWith(`${href}/`));
   return (
     <div className="border-b border-[#34415d] bg-[#222d46] px-3 py-2 md:hidden">
@@ -238,14 +250,21 @@ export function MobileNav({ offers }: { offers: NavOffer[] }) {
           <Link
             key={href}
             href={href}
+            onPointerEnter={() => router.prefetch(href)}
+            onFocus={() => router.prefetch(href)}
             aria-current={!inAdmin && isActive(path, href, offerId, section) ? "page" : undefined}
             className={`whitespace-nowrap rounded px-2 py-1.5 ${!inAdmin && isActive(path, href, offerId, section) ? "bg-[#0874f9] font-medium text-white" : "text-[#cbd3df]"}`}
           >
-            {label}
+            <MobileLinkContent label={label} />
           </Link>
         ))}
       </nav>
       <AdminMenu path={path} mobile />
     </div>
   );
+}
+
+function MobileLinkContent({ label }: { label: string }) {
+  const { pending } = useLinkStatus();
+  return <span className="inline-flex items-center gap-1.5">{label}<span className={`h-1.5 w-1.5 rounded-full bg-white ${pending ? "animate-pulse opacity-100" : "opacity-0"}`} aria-hidden /></span>;
 }

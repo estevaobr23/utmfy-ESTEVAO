@@ -5,6 +5,13 @@ export type OfferSpendLink = {
   campaignFilter: string | null;
 };
 
+export type OfferMetaBinding = {
+  offerId: string;
+  accountId: string;
+  level: "campaign" | "adset";
+  objectId: string;
+};
+
 export type CampaignScope =
   | { mode: "pending" }
   | { mode: "ids"; campaignIds: Set<string> }
@@ -39,4 +46,29 @@ export function scopeOfferSpendRows(rows: SpendRow[], links: OfferSpendLink[]) {
   });
 
   return { rows: scopedRows, pendingAccounts };
+}
+
+/**
+ * Atribui cada linha no nível mais específico. Um conjunto confirmado vence a
+ * associação da campanha e impede que o mesmo gasto entre em duas ofertas.
+ */
+export function scopeOfferSpendRowsByBindings(rows: SpendRow[], offerId: string, linkedAccounts: string[], bindings: OfferMetaBinding[]) {
+  const adsetOwner = new Map<string, string>();
+  const campaignOwner = new Map<string, string>();
+  const key = (accountId: string, objectId: string) => `${accountId}:${objectId}`;
+  for (const binding of bindings) {
+    const target = binding.level === "adset" ? adsetOwner : campaignOwner;
+    target.set(key(binding.accountId, binding.objectId), binding.offerId);
+  }
+  const rowsForOffer = rows.filter((row) => {
+    const specific = adsetOwner.get(key(row.account_id, row.adset_id));
+    if (specific) return specific === offerId;
+    return campaignOwner.get(key(row.account_id, row.campaign_id)) === offerId;
+  });
+  const accountsWithBinding = new Set(bindings.filter((binding) => binding.offerId === offerId).map((binding) => binding.accountId));
+  return {
+    rows: rowsForOffer,
+    pendingAccounts: linkedAccounts.filter((accountId) => !accountsWithBinding.has(accountId)),
+    confirmedAccounts: [...accountsWithBinding],
+  };
 }

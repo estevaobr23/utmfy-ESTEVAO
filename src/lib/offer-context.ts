@@ -2,6 +2,7 @@ import "server-only";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { requireWorkspace } from "./session";
+import { timed } from "./perf";
 
 export type OfferContext = Awaited<ReturnType<typeof requireOffer>>;
 
@@ -12,7 +13,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * dentro de /ofertas/[id] parte daqui: o id da rota é a única fonte da oferta,
  * então nenhum filtro na query string tira a página desse contexto.
  */
-export const requireOffer = cache(async (id: string) => {
+export const requireOffer = cache(async (id: string) => timed("offer.require", { offerId: id }, async () => {
   const s = await requireWorkspace();
   if (!UUID.test(id)) notFound();
   const { data: offer } = await s.sb.from("offers").select("*").eq("id", id).eq("workspace_id", s.workspace.id).maybeSingle();
@@ -29,4 +30,4 @@ export const requireOffer = cache(async (id: string) => {
     accounts: (accounts.data ?? []).map((r) => r.meta_ad_accounts as unknown as Acc | null).filter((a): a is Acc => !!a),
     pixels: (pixels.data ?? []).map((r) => r.pixels as unknown as Px | null).filter((p): p is Px => !!p),
   };
-});
+}));

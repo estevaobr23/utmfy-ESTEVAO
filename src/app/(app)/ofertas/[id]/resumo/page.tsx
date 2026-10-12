@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { DashboardView } from "@/components/dashboard";
 import { Flash } from "@/components/filters";
+import { SummarySkeleton } from "@/components/loading-skeletons";
 import { SectionTitle } from "@/components/ui";
 import { requireOffer } from "@/lib/offer-context";
 
-export default async function OfferSummary({ params, searchParams }: PageProps<"/ofertas/[id]/resumo">) {
+async function SummaryContent({ params, searchParams }: PageProps<"/ofertas/[id]/resumo">) {
   const { id } = await params;
   const sp = await searchParams;
   const { sb, workspace, accounts, pixels, canWrite } = await requireOffer(id);
@@ -23,7 +25,6 @@ export default async function OfferSummary({ params, searchParams }: PageProps<"
   const missing = steps.filter(([, ok]) => !ok);
   return (
     <>
-      <SectionTitle title="Resumo" subtitle="Quanto gastei, quanto vendi, quanto sobrou e quais campanhas trazem resultado — só desta oferta." />
       <Flash sp={sp} />
       {missing.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
@@ -41,10 +42,18 @@ export default async function OfferSummary({ params, searchParams }: PageProps<"
         sp={sp}
         offerId={id}
         basePath={`/ofertas/${id}/resumo`}
-        metaPath={`/ofertas/${id}/meta`}
         untrackedPath={`/ofertas/${id}/pedidos`}
         canWrite={canWrite}
       />
+    </>
+  );
+}
+
+export default function OfferSummary(props: PageProps<"/ofertas/[id]/resumo">) {
+  return (
+    <>
+      <SectionTitle title="Resumo" subtitle="Quanto gastei, quanto vendi e quanto sobrou — somente desta oferta." />
+      <Suspense fallback={<SummarySkeleton />}><SummaryContent {...props} /></Suspense>
     </>
   );
 }

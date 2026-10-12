@@ -1,13 +1,16 @@
 import { updateOffer } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
+import { OfferDangerZone } from "@/components/offers/danger-zone";
 import { Card, Field, inputCls, SectionTitle } from "@/components/ui";
 import { requireOffer } from "@/lib/offer-context";
+import { loadOfferDeletionPreview } from "@/lib/offer-deletion";
 
 export default async function OfferSettings({ params, searchParams }: PageProps<"/ofertas/[id]/configuracoes">) {
   const { id } = await params;
   const sp = await searchParams;
-  const { offer, canWrite } = await requireOffer(id);
+  const { sb, offer, canWrite } = await requireOffer(id);
+  const deletionPreview = canWrite ? await loadOfferDeletionPreview(sb, id) : null;
   const v = (k: string) => (offer[k] as string | null) ?? "";
   return (
     <>
@@ -29,6 +32,7 @@ export default async function OfferSettings({ params, searchParams }: PageProps<
           {canWrite && <div><SubmitButton>Salvar</SubmitButton></div>}
         </form>
       </Card>
+      {canWrite && deletionPreview && <OfferDangerZone offerId={id} offerName={offer.name} preview={deletionPreview} />}
     </>
   );
 }
