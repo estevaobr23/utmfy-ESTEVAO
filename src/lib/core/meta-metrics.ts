@@ -41,7 +41,7 @@ export const META_METRICS: MetaMetricDefinition[] = [
   { id: "roas", label: "ROAS", source: "Cakto + Meta", formula: "Faturamento líquido ÷ gasto", format: "ratio", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "margin", label: "Margem", source: "Cakto + Meta", formula: "Lucro ÷ faturamento líquido", format: "percent", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "roi", label: "ROI", source: "Cakto + Meta", formula: "Lucro ÷ investimento total", format: "ratio", availability: "available", aggregation: "recalculate", sortable: true },
-  { id: "clicks", label: "Cliques", source: "Meta Insights (cliques totais)", format: "integer", availability: "available", aggregation: "sum", sortable: true },
+  { id: "clicks", label: "Cliques", source: "Meta Insights (cliques no link)", format: "integer", availability: "available", aggregation: "sum", sortable: true },
   { id: "page_views", label: "Vis. de pág.", source: "Tracker", format: "integer", availability: "unavailable", aggregation: "unavailable", sortable: false },
   { id: "cpc", label: "CPC", source: "Meta Insights", formula: "Gasto ÷ cliques", format: "currency", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "cpv", label: "CPV", source: "Tracker + Meta", format: "currency", availability: "unavailable", aggregation: "unavailable", sortable: false },

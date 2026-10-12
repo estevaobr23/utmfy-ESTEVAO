@@ -93,6 +93,11 @@ export class MetaClient {
     return this.request<T>("GET", path, params);
   }
 
+  /** Escrita na Graph (ex.: orçamento). Só use a partir de ação explícita do usuário. */
+  post<T>(path: string, params: Record<string, string | number | undefined> = {}) {
+    return this.request<T>("POST", path, params);
+  }
+
   /** Percorre `paging.next` (URLs absolutas da Graph) com teto de páginas. */
   async getAll<T>(path: string, params: Record<string, string | number | undefined>, maxPages = 100): Promise<T[]> {
     const out: T[] = [];

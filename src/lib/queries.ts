@@ -224,14 +224,27 @@ async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { ac
  * interface mostra N/D — nunca derruba gasto/vendas.
  */
 export async function loadMetaAdvanced(sb: Db, ws: Workspace, f: Filters) {
-  const [campaigns, adsets, video, reach] = await Promise.all([
+  const [campaigns, adsets, video, reach, fxRows, fxAccounts] = await Promise.all([
     sb.from("meta_campaigns").select("account_id, campaign_id, name, effective_status, daily_budget_minor, lifetime_budget_minor, bid_strategy, currency, meta_updated_time").eq("workspace_id", ws.id).limit(5000),
     sb.from("meta_adsets").select("account_id, campaign_id, adset_id, name, effective_status, daily_budget_minor, lifetime_budget_minor, bid_strategy, bid_amount_minor, bid_constraints, optimization_goal, billing_event, promoted_object, currency, meta_updated_time").eq("workspace_id", ws.id).limit(5000),
     sb.rpc("report_video_rows", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_account_id: f.account }),
     sb.from("meta_reach_period").select("level, object_id, reach, frequency").eq("workspace_id", ws.id).eq("since", f.from).eq("until", f.to).limit(10000),
+    sb.from("fx_rates").select("currency, rate").order("date", { ascending: false }).limit(60),
+    sb.from("meta_ad_accounts").select("currency, fx_rate").eq("workspace_id", ws.id),
   ]);
   const errors = [campaigns.error, adsets.error, video.error, reach.error].filter(Boolean).map((e) => e!.message);
+  // Orçamento e lance aparecem na moeda do workspace: PTAX mais recente (a mesma do gasto); câmbio manual da conta se não houver.
+  const rates: Record<string, number> = {};
+  for (const row of fxAccounts.data ?? []) if (row.currency && Number(row.fx_rate) > 0) rates[row.currency as string] = Number(row.fx_rate);
+  const seen = new Set<string>();
+  for (const row of fxRows.data ?? []) {
+    const currency = row.currency as string;
+    if (seen.has(currency) || !(Number(row.rate) > 0)) continue;
+    seen.add(currency);
+    rates[currency] = Number(row.rate);
+  }
   return {
+    fx: { target: ws.currency, rates },
     campaigns: (campaigns.data ?? []) as CampaignConfig[],
     adsets: (adsets.data ?? []) as AdsetConfig[],
     video: (video.data ?? []) as VideoRow[],

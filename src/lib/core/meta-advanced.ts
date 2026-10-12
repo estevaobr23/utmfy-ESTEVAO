@@ -88,6 +88,8 @@ export type BudgetInfo = {
   currency: string | null;
   /** Texto quando o orçamento mora em outro nível (igual ao Gerenciador). */
   note: string | null;
+  /** Valor/moeda originais da conta e a cotação usada quando `amount` foi convertido para a moeda do workspace. */
+  source?: { amount: number; currency: string; rate: number } | null;
 };
 
 export type BidInfo = { amount: number | null; currency: string | null; note: string | null; strategy: string | null };
@@ -362,7 +364,41 @@ export function scopeFromSpend(rows: { account_id: string; campaign_id: string; 
   };
 }
 
-export function buildAdvancedIndex(data: AdvancedData, scope: AdvancedScope | null, opts: { offerScoped: boolean }) {
+/** Câmbio para exibir orçamento e lance na moeda do workspace (ex.: USD → BRL). */
+export type FxMap = { target: string; rates: Record<string, number> };
+
+function toTarget(amount: number | null, currency: string | null, fx?: FxMap): { amount: number | null; currency: string | null; source: BudgetInfo["source"] } {
+  const rate = fx && currency && currency !== fx.target ? fx.rates[currency] : null;
+  if (amount == null || !currency || !rate || !(rate > 0)) return { amount, currency, source: null };
+  return { amount: Math.round(amount * rate * 100) / 100, currency: fx!.target, source: { amount, currency, rate } };
+}
+
+export function majorToMinor(value: number, currency: string | null | undefined): number {
+  return ZERO_DECIMAL.has((currency ?? "").toUpperCase()) ? Math.round(value) : Math.round(value * 100);
+}
+
+/** Maior aumento aceito de uma vez (a Meta reinicia o aprendizado em mudanças grandes; evita erro de digitação). */
+export const MAX_BUDGET_INCREASE = 5;
+
+export type BudgetChangePlan = { ok: true; newMinor: number; newMajor: number } | { ok: false; reason: string };
+
+/**
+ * Novo orçamento diário digitado na moeda do workspace → valor na moeda da conta (unidade menor da Meta).
+ * `rate` = 1 unidade da moeda da conta em moeda do workspace (ex.: 4,9892 BRL por USD).
+ */
+export function planBudgetChange(input: { requested: number; currentMinor: number; currency: string; targetCurrency: string; rate: number | null }): BudgetChangePlan {
+  const { requested, currentMinor, currency, targetCurrency } = input;
+  if (!Number.isFinite(requested) || requested <= 0) return { ok: false, reason: "Informe um valor maior que zero." };
+  const rate = currency === targetCurrency ? 1 : input.rate;
+  if (!rate || !(rate > 0)) return { ok: false, reason: `Sem cotação ${currency} → ${targetCurrency}. Defina o câmbio da conta antes de editar.` };
+  const newMajor = requested / rate;
+  const newMinor = majorToMinor(newMajor, currency);
+  if (newMinor < 1) return { ok: false, reason: "Valor abaixo do mínimo da Meta." };
+  if (newMinor > currentMinor * MAX_BUDGET_INCREASE) return { ok: false, reason: `Aumento maior que ${MAX_BUDGET_INCREASE}× o orçamento atual. Faça em etapas.` };
+  return { ok: true, newMinor, newMajor: Math.round(newMajor * 100) / 100 };
+}
+
+export function buildAdvancedIndex(data: AdvancedData, scope: AdvancedScope | null, opts: { offerScoped: boolean; fx?: FxMap }) {
   const adsInScope = scope?.ad ?? null;
   const campaigns = new Map(data.campaigns.map((c) => [c.campaign_id, c]));
   const adsets = new Map(data.adsets.map((a) => [a.adset_id, a]));
@@ -391,6 +427,11 @@ export function buildAdvancedIndex(data: AdvancedData, scope: AdvancedScope | nu
       const c = a ? campaigns.get(a.campaign_id) : undefined;
       budget = adsetBudget(a, c);
       bidCap = adsetBidCap(a, c);
+    }
+    if (budget) budget = { ...budget, ...toTarget(budget.amount, budget.currency, opts.fx) };
+    if (bidCap) {
+      const { amount, currency } = toTarget(bidCap.amount, bidCap.currency, opts.fx);
+      bidCap = { ...bidCap, amount, currency };
     }
     return { budget, bidCap, ...reachOf(level, id), video: video[level].get(id) ?? null };
   };

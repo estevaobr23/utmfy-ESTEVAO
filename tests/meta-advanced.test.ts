@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  adsetBidCap, adsetBudget, buildAdvancedIndex, campaignBidCap, campaignBudget, deriveVideo, indexVideo, minorToMajor,
+  adsetBidCap, adsetBudget, buildAdvancedIndex, campaignBidCap, campaignBudget, deriveVideo, indexVideo, minorToMajor, planBudgetChange,
   normalizeAdset, normalizeCampaign, normalizeReach, normalizeVideoInsight, reachWindows, rejectedField, scopeFromSpend,
   type AdsetConfig, type CampaignConfig, type RawVideoInsight, type VideoRow,
 } from "@/lib/core/meta-advanced";
@@ -197,6 +197,34 @@ describe("alcance e frequência", () => {
   it("sem linha de período (personalizado) → N/D", () => {
     const idx = buildAdvancedIndex({ campaigns: [], adsets: [], video: [], reach: [] }, null, { offerScoped: false });
     expect(idx.extras("campaign", "C1")).toMatchObject({ reach: null, frequency: null, video: null, budget: null });
+  });
+});
+
+describe("orçamento e lance exibidos em reais", () => {
+  const data = { campaigns: [camp({ daily_budget_minor: 401 }), camp({ campaign_id: "C2", daily_budget_minor: 200 })], adsets: [], video: [], reach: [] };
+  it("converte pela PTAX: US$ 4,01 → R$ 20,01 e US$ 2,00 → R$ 9,98 (igual à UTMify)", () => {
+    const idx = buildAdvancedIndex(data, null, { offerScoped: false, fx: { target: "BRL", rates: { USD: 4.9892 } } });
+    expect(idx.extras("campaign", "C1").budget).toMatchObject({ amount: 20.01, currency: "BRL", period: "daily" });
+    expect(idx.extras("campaign", "C2").budget).toMatchObject({ amount: 9.98, currency: "BRL" });
+  });
+  it("sem cotação, mantém a moeda da conta em vez de inventar valor", () => {
+    const idx = buildAdvancedIndex(data, null, { offerScoped: false, fx: { target: "BRL", rates: {} } });
+    expect(idx.extras("campaign", "C1").budget).toMatchObject({ amount: 4.01, currency: "USD" });
+  });
+});
+
+describe("troca de orçamento diário em reais", () => {
+  const base = { currentMinor: 401, currency: "USD", targetCurrency: "BRL", rate: 4.9892 };
+  it("R$ 25,00 a 4,9892 → US$ 5,01 (501 centavos)", () => {
+    expect(planBudgetChange({ ...base, requested: 25 })).toEqual({ ok: true, newMinor: 501, newMajor: 5.01 });
+  });
+  it("recusa valor inválido, sem cotação e aumento acima de 5×", () => {
+    expect(planBudgetChange({ ...base, requested: 0 }).ok).toBe(false);
+    expect(planBudgetChange({ ...base, requested: 25, rate: null }).ok).toBe(false);
+    expect(planBudgetChange({ ...base, requested: 500 })).toMatchObject({ ok: false });
+  });
+  it("conta já em reais não precisa de cotação", () => {
+    expect(planBudgetChange({ currentMinor: 2000, currency: "BRL", targetCurrency: "BRL", rate: null, requested: 25 })).toMatchObject({ ok: true, newMinor: 2500 });
   });
 });
 

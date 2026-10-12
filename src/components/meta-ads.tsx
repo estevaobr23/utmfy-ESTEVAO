@@ -70,7 +70,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
     sb.from("meta_ads").select("account_id, campaign_id, adset_id, ad_id, effective_status").eq("workspace_id", ws.id).limit(5000),
     loadMetaAdvanced(sb, ws, f),
   ]);
-  const advanced = buildAdvancedIndex(advancedData, scopeFromSpend(report.spendRows), { offerScoped: !!offerId });
+  const advanced = buildAdvancedIndex(advancedData, scopeFromSpend(report.spendRows), { offerScoped: !!offerId, fx: advancedData.fx });
   if (adsResult.error) throw new Error(`meta_ads: ${adsResult.error.message}`);
   const catalog = (adsResult.data ?? []) as CatalogRow[];
   const accountName = new Map(accounts.map((account) => [account.account_id, account.account_name ?? `act_${account.account_id}`]));
@@ -176,7 +176,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           <span className={`rounded-full px-2.5 py-1 font-semibold ${report.spendStatus.reliable ? "bg-[#19b972] text-white" : "bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/30"}`}>
             {report.spendStatus.reliable ? "✓ Dados financeiros completos" : "⚠ Qualidade de dados pendente"}
           </span>
-          <span className="text-[#9aa6bb]">Meta somente leitura · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
+          <span className="text-[#9aa6bb]">Dados da Meta somente leitura (orçamento editável pelo lápis) · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
         </div>
         {canWrite && (
           <form action={refreshNow}>
@@ -228,6 +228,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         spendReliable={report.spendStatus.reliable}
         totalReach={advanced.totalReach({ campaign, adset, accountIds: [...new Set(levelRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
         initial={{ query: name, status: one(sp.meta_status), sort, direction, page, pageSize }}
+        canWrite={canWrite}
       />
     </div>
   );

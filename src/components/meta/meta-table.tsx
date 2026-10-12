@@ -15,6 +15,7 @@ import {
 } from "@/lib/core/meta-metrics";
 import { formatMoney, formatNumber, formatPct } from "@/lib/core/money";
 import { formatBudgetPeriod } from "@/lib/core/meta-advanced";
+import { BudgetEditor } from "@/components/meta/budget-editor";
 
 type Props = {
   rows: MetaTableRow[];
@@ -25,6 +26,8 @@ type Props = {
   /** Alcance/frequência exatos do conjunto inteiro (válidos só sem filtro de nome/status). */
   totalReach: { reach: number | null; frequency: number | null };
   initial: { query: string; status: string; sort: MetaColumnId; direction: "asc" | "desc"; page: number; pageSize: number };
+  /** Mostra o lápis de orçamento (grava na Meta). */
+  canWrite?: boolean;
 };
 
 const SPEND_DEPENDENT = new Set<MetaColumnId>(["spend", "cpa", "profit", "roas", "margin", "roi", "cpc", "cpm"]);
@@ -124,9 +127,16 @@ function cellTitle(row: MetaTableRow, metric: MetaMetricDefinition) {
   return undefined;
 }
 
-export function MetaTable({ rows, level, currency, path, spendReliable, totalReach, initial }: Props) {
+export function MetaTable({ rows, level, currency, path, spendReliable, totalReach, initial, canWrite = false }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const backUrl = (() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("ok");
+    params.delete("error");
+    const qs = params.toString();
+    return qs ? `${path}?${qs}` : path;
+  })();
   const queryInUrl = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initial.query);
   const [status, setStatus] = useState(initial.status);
@@ -286,7 +296,8 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                   const badge = metric.format === "budget" && row.budget?.amount != null
                     ? <span className="mr-1.5 rounded bg-[#34415e] px-1 py-0.5 text-[9px] font-semibold text-[#9fb3d1]">{row.budget.mode}</span>
                     : null;
-                  return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}</td>;
+                  const editable = canWrite && metric.format === "budget" && row.budget?.amount != null && row.budget.period === "daily";
+                  return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}{editable && <BudgetEditor row={row} back={backUrl} currency={currency} />}</td>;
                 })}
               </tr>
             ))}

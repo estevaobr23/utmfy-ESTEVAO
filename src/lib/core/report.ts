@@ -61,7 +61,8 @@ export function spendToSums(r: SpendRow): Partial<BaseSums> {
     spend: N(r.spend),
     impressions: N(r.impressions),
     reach: N(r.reach),
-    clicks: N(r.clicks),
+    // "Cliques" = cliques no link (igual ao Gerenciador e à UTMify); sem esse campo, cai nos cliques totais.
+    clicks: r.link_clicks != null ? N(r.link_clicks) : N(r.clicks),
     link_clicks: N(r.link_clicks),
     outbound_clicks: N(r.outbound_clicks),
     meta_purchases: N(r.meta_purchases),

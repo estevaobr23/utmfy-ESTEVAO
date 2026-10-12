@@ -12,6 +12,7 @@ import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { discoverAccounts, syncMeta } from "@/lib/services/meta-sync";
 import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
 import { autoLinkOfferAccounts } from "@/lib/services/offer-auto-link";
+import { updateMetaDailyBudget } from "@/lib/services/meta-budget";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
 import { seedDemo } from "@/lib/services/demo";
 import { logEvent } from "@/lib/services/logs";
@@ -272,6 +273,20 @@ export async function discoverMetaAccounts() {
   const s = await writer();
   const r = await discoverAccounts(adminClient(), s.workspace.id, "manual");
   back("/meta", r.error ? `Falha: ${r.error}` : `${r.stats.accounts} conta(s) encontrada(s)`, r.error ? "error" : "ok");
+}
+
+/** Lápis do orçamento na tabela Meta Ads: valor em reais → Meta (moeda da conta, mesma PTAX do relatório). */
+export async function updateMetaBudget(fd: FormData) {
+  const s = await writer();
+  const raw = str(fd, "back");
+  const path = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/meta-ads";
+  const level = str(fd, "level");
+  if (level !== "campaign" && level !== "adset") return back(path, "Nível inválido.", "error");
+  const requested = Number(str(fd, "amount").replace(/\./g, "").replace(",", "."));
+  const r = await updateMetaDailyBudget(adminClient(), s.workspace.id, { level, objectId: str(fd, "object_id"), requested, workspaceCurrency: s.workspace.currency });
+  if (!r.ok) return back(path, r.error, "error");
+  const unit = (minor: number) => (minor / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  back(path, `Orçamento de “${r.update.name}” atualizado na Meta: ${r.update.currency} ${unit(r.update.beforeMinor)} → ${unit(r.update.afterMinor)}/dia`);
 }
 
 export async function syncMetaNow(fd: FormData) {
