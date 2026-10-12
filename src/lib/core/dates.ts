@@ -16,7 +16,7 @@ export function isIsoDate(v: unknown): v is string {
   return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(`${v}T00:00:00Z`).getTime());
 }
 
-export type DatePreset = "today" | "yesterday" | "7d" | "14d" | "30d" | "month" | "custom";
+export type DatePreset = "today" | "yesterday" | "7d" | "14d" | "30d" | "month" | "last_month" | "custom";
 
 export function resolveRange(
   params: { preset?: string; from?: string; to?: string },
@@ -33,6 +33,11 @@ export function resolveRange(
     case "14d": return { from: addDays(today, -13), to: today, preset: "14d" };
     case "30d": return { from: addDays(today, -29), to: today, preset: "30d" };
     case "month": return { from: `${today.slice(0, 8)}01`, to: today, preset: "month" };
+    case "last_month": {
+      const firstThisMonth = `${today.slice(0, 8)}01`;
+      const lastPreviousMonth = addDays(firstThisMonth, -1);
+      return { from: `${lastPreviousMonth.slice(0, 8)}01`, to: lastPreviousMonth, preset: "last_month" };
+    }
     default: return { from: today, to: today, preset: "today" };
   }
 }

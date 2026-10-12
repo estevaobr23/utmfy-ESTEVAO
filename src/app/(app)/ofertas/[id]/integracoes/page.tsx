@@ -16,13 +16,15 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
   const sp = await searchParams;
   const { sb, workspace, offer, canWrite: w } = await requireOffer(id);
 
-  const [{ data: items }, { data: links }, { data: accounts }, { data: pixelLinks }, { data: pixels }] = await Promise.all([
+  const [{ data: items }, { data: links }, { data: accounts }, { data: pixelLinks }, { data: pixels }, { data: ads }] = await Promise.all([
     sb.from("offer_cakto_items").select("*").eq("offer_id", id).order("created_at"),
     sb.from("offer_ad_accounts").select("ad_account_id, campaign_filter, meta_ad_accounts(account_id, account_name)").eq("offer_id", id),
     sb.from("meta_ad_accounts").select("id, account_id, account_name, active").eq("workspace_id", workspace.id).order("account_name"),
     sb.from("offer_pixels").select("pixel_id, active, pixels(name, external_pixel_id)").eq("offer_id", id),
     sb.from("pixels").select("id, name, external_pixel_id").eq("workspace_id", workspace.id),
+    sb.from("meta_ads").select("account_id, campaign_id, campaign_name").eq("workspace_id", workspace.id).limit(5000),
   ]);
+  const campaigns = [...new Map((ads ?? []).map((ad) => [ad.campaign_id, ad])).values()].sort((a, b) => (a.campaign_name ?? a.campaign_id).localeCompare(b.campaign_name ?? b.campaign_id, "pt-BR"));
 
   let products: CaktoProduct[] = [];
   let productsError: string | null = null;
@@ -116,7 +118,7 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
               const a = l.meta_ad_accounts as unknown as { account_id: string; account_name: string | null } | null;
               return (
                 <li key={l.ad_account_id} className="flex items-center justify-between gap-2 rounded border border-slate-100 px-2 py-1">
-                  <span>{a?.account_name ?? "?"} <Code>act_{a?.account_id}</Code>{l.campaign_filter && <> · campanhas contendo <Code>{l.campaign_filter}</Code></>}</span>
+                  <span>{a?.account_name ?? "?"} <Code>act_{a?.account_id}</Code>{l.campaign_filter ? <> · campanhas <Code>{l.campaign_filter}</Code></> : <> · <Badge tone="warn">associação pendente · gasto excluído</Badge></>}</span>
                   {w && (
                     <form action={unlinkAdAccount}>
                       <input type="hidden" name="offer_id" value={id} /><input type="hidden" name="ad_account_id" value={l.ad_account_id} />
@@ -136,9 +138,16 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
                   {accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name ?? a.account_id} (act_{a.account_id}){a.active ? "" : " — não monitorada"}</option>)}
                 </select>
               </Field>
-              <Field label="Filtro de campanha (provisório)" hint="Enquanto a escolha de campanhas por ID não chega: só campanhas cujo NOME contém este texto contam gasto aqui.">
-                <input name="campaign_filter" className={inputCls} />
+              <Field label="IDs das campanhas" hint="Separe IDs por vírgula. Se ficar vazio, a conta será salva como pendente e nenhum gasto entrará na oferta.">
+                <input name="campaign_filter" inputMode="numeric" placeholder="120249039838020650, 120249040128310650" className={inputCls} />
               </Field>
+              <details className="rounded border border-[#394761] bg-[#202b43] p-2 text-xs">
+                <summary className="cursor-pointer text-[#aab4c6]">Ver campanhas descobertas e seus IDs</summary>
+                <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                  {campaigns.map((campaign) => <div key={campaign.campaign_id} className="flex items-center justify-between gap-3 border-b border-[#34415d] py-1"><span className="truncate">{campaign.campaign_name ?? "Sem nome"}</span><Code>{campaign.campaign_id}</Code></div>)}
+                  {!campaigns.length && <p className="text-[#8f9bb1]">Nenhuma campanha sincronizada.</p>}
+                </div>
+              </details>
               <div><SubmitButton>Vincular conta</SubmitButton></div>
             </form>
           ) : <Notice tone="warn">Nenhuma conta importada. Em <Link className="underline" href="/meta">Conexão Meta</Link>, clique em Descobrir contas.</Notice>)}

@@ -14,7 +14,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         subtitle="Soma das ofertas e dos dados ainda não associados. Para analisar uma operação isolada, escolha uma oferta em Minhas ofertas."
       />
       <Flash sp={sp} />
-      <DashboardView sb={s.sb} ws={s.workspace} sp={sp} basePath="/" />
+      <DashboardView sb={s.sb} ws={s.workspace} sp={sp} basePath="/" canWrite={s.canWrite} />
     </>
   );
 }

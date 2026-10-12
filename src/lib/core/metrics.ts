@@ -28,7 +28,9 @@
 export type BaseSums = {
   spend: number;
   impressions: number;
+  reach: number;
   clicks: number;
+  link_clicks: number;
   outbound_clicks: number;
   meta_purchases: number;
   gross_revenue: number;
@@ -58,12 +60,18 @@ export type Derived = BaseSums & {
   ctr: number | null;
   cpc: number | null;
   refund_rate: number | null;
+  margin: number | null;
+  roi: number | null;
+  cpm: number | null;
+  frequency: number | null;
 };
 
 export const emptySums = (): BaseSums => ({
   spend: 0,
   impressions: 0,
+  reach: 0,
   clicks: 0,
+  link_clicks: 0,
   outbound_clicks: 0,
   meta_purchases: 0,
   gross_revenue: 0,
@@ -96,10 +104,12 @@ const ratio = (num: number, den: number) => (den > 0 ? num / den : null);
 
 export function derive(s: BaseSums): Derived {
   const net_revenue = round2(s.gross_revenue - s.refunded_amount - s.chargeback_amount - s.fees);
+  const profit = round2(net_revenue - s.spend - s.other_costs);
+  const investment = s.spend + s.other_costs;
   return {
     ...s,
     net_revenue,
-    profit: round2(net_revenue - s.spend - s.other_costs),
+    profit,
     roas: ratio(net_revenue, s.spend),
     gross_roas: ratio(s.gross_revenue, s.spend),
     cpa: ratio(s.spend, s.approved_count),
@@ -108,6 +118,10 @@ export function derive(s: BaseSums): Derived {
     ctr: ratio(s.clicks, s.impressions),
     cpc: ratio(s.spend, s.clicks),
     refund_rate: ratio(s.refunded_count, s.approved_items),
+    margin: ratio(profit, net_revenue),
+    roi: ratio(profit, investment),
+    cpm: ratio(s.spend * 1000, s.impressions),
+    frequency: ratio(s.impressions, s.reach),
   };
 }
 

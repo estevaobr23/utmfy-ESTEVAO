@@ -117,11 +117,16 @@ export async function removeCaktoItem(fd: FormData) {
 export async function linkAdAccount(fd: FormData) {
   const s = await writer();
   const offerId = uuid.parse(str(fd, "offer_id"));
-  const filter = str(fd, "campaign_filter").slice(0, 100) || null;
+  const rawCampaignIds = str(fd, "campaign_filter").trim();
+  const campaignIds = rawCampaignIds ? rawCampaignIds.split(/[\s,;]+/).filter(Boolean) : [];
+  if (campaignIds.some((id) => !/^\d{1,30}$/.test(id))) {
+    return back(`/ofertas/${offerId}/integracoes`, "Use somente IDs numéricos de campanhas, separados por vírgula.", "error");
+  }
+  const filter = campaignIds.length ? [...new Set(campaignIds)].join(",") : null;
   const { error } = await s.sb.from("offer_ad_accounts").upsert({
     workspace_id: s.workspace.id, offer_id: offerId, ad_account_id: uuid.parse(str(fd, "ad_account_id")), campaign_filter: filter,
   });
-  back(`/ofertas/${offerId}/integracoes`, error ? error.message : "Conta associada", error ? "error" : "ok");
+  back(`/ofertas/${offerId}/integracoes`, error ? error.message : filter ? "Conta e campanhas associadas" : "Conta salva como associação pendente; nenhum gasto será atribuído até informar campanhas.", error ? "error" : "ok");
 }
 
 export async function unlinkAdAccount(fd: FormData) {

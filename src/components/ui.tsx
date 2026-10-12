@@ -41,12 +41,20 @@ export function Card({ title, children, actions, className = "" }: { title?: Rea
 }
 
 export function Kpi({
-  label, value, hint, tone = "default", size = "md",
-}: { label: string; value: ReactNode; hint?: ReactNode; tone?: "default" | "good" | "bad" | "warn"; size?: "md" | "lg" }) {
+  label, value, hint, definition, tone = "default", size = "md",
+}: { label: string; value: ReactNode; hint?: ReactNode; definition?: ReactNode; tone?: "default" | "good" | "bad" | "warn"; size?: "md" | "lg" }) {
   const color = tone === "good" ? "text-[#25d17f]" : tone === "bad" ? "text-[#ff5b6b]" : tone === "warn" ? "text-[#f5b942]" : "text-[#eef2f8]";
   return (
     <div className={`rounded-md border border-[#384662] bg-[#27334d] px-4 shadow-[0_8px_24px_rgba(4,9,20,0.08)] ${size === "lg" ? "py-4" : "py-3"}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#aab4c6]">{label}</div>
+      <div className="flex items-start justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#aab4c6]">
+        <span>{label}</span>
+        {definition && (
+          <details className="group relative normal-case">
+            <summary className="grid h-4 w-4 cursor-help list-none place-items-center rounded-full border border-[#69758b] text-[10px] text-[#aab4c6] focus:outline-none focus:ring-1 focus:ring-[#1681ff]" aria-label={`Definição de ${label}`}>i</summary>
+            <div role="tooltip" className="absolute right-0 z-40 mt-1 w-64 rounded border border-[#4a5872] bg-[#172137] p-2 text-left text-xs font-normal leading-relaxed text-[#dce2ec] shadow-xl shadow-black/30">{definition}</div>
+          </details>
+        )}
+      </div>
       <div className={`mt-1 font-semibold tabular-nums ${size === "lg" ? "text-2xl" : "text-xl"} ${color}`}>{value}</div>
       {hint && <div className="mt-0.5 text-xs text-[#8f9bb1]">{hint}</div>}
     </div>

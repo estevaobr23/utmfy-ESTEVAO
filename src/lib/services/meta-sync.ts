@@ -3,6 +3,11 @@ import type { Db } from "../supabase/types";
 import { hint } from "../core/hash";
 import { chunkRange, INSIGHTS_FIELDS, normalizeAccountId, normalizeInsight, type RawInsight } from "../core/meta";
 import { addDays, todayIn } from "../core/dates";
+import {
+  ADSET_FIELDS, CAMPAIGN_FIELDS, REACH_LEVELS, VIDEO_INSIGHTS_FIELDS, creativeHasVideo, hasVideoData, normalizeAdset,
+  normalizeCampaign, normalizeReach, normalizeVideoInsight, reachCutoff, reachWindows, rejectedField,
+  type AdsetConfig, type CampaignConfig, type RawAdset, type RawCampaign, type RawReach, type RawVideoInsight, type VideoDailyRow,
+} from "../core/meta-advanced";
 import { env } from "../env";
 import { ensureFxRates } from "./fx";
 import { finishJob, logEvent, startJob } from "./logs";
@@ -97,7 +102,7 @@ export async function discoverAccounts(db: Db, workspaceId: string, trigger: "ma
   return { stats };
 }
 
-type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null; currency: string | null };
+export type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null; currency: string | null };
 
 async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string) {
   const stats = { ads: 0, insights: 0 };
@@ -153,6 +158,126 @@ async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc:
   return stats;
 }
 
+type AdvancedStats = {
+  campaigns: number; adsets: number; creatives: number; video_rows: number; video_saved: number;
+  video_not_applicable: number; reach_rows: number; failures: { step: string; reason: string; message: string }[];
+};
+
+async function upsertChunks(db: Db, table: string, rows: Record<string, unknown>[], onConflict: string) {
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await db.from(table).upsert(rows.slice(i, i + 500), { onConflict });
+    if (error) throw new Error(`${table}: ${error.message}`);
+  }
+}
+
+/** Insights com remoção de campo rejeitado pela Graph (código 100), até 3 tentativas. */
+async function insightsWithFallback<T>(client: MetaClient, acc: AccountRow, fields: string[], params: Record<string, string | number>, days: number) {
+  let current = [...fields];
+  const dropped: string[] = [];
+  for (let attempt = 0; ; attempt++) {
+    const p = { ...params, fields: current.join(",") };
+    try {
+      const rows = days > 7 ? await client.insightsAsync<T>(acc.account_id, p) : await client.getAll<T>(`act_${acc.account_id}/insights`, p);
+      return { rows, dropped };
+    } catch (e) {
+      const field = e instanceof MetaApiError && e.kind === "invalid_request" ? rejectedField(e.message, current) : null;
+      if (!field || attempt >= 3) throw e;
+      dropped.push(field);
+      current = current.filter((f) => f !== field);
+    }
+  }
+}
+
+/**
+ * Coletas opcionais (orçamento, lance, criativo, vídeo, alcance por período).
+ * Cada etapa é isolada: falha vira aviso e NÃO afeta gasto/vendas já salvos.
+ */
+export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, tz: string): Promise<AdvancedStats> {
+  const stats: AdvancedStats = { campaigns: 0, adsets: 0, creatives: 0, video_rows: 0, video_saved: 0, video_not_applicable: 0, reach_rows: 0, failures: [] };
+  const now = () => new Date().toISOString();
+  const step = async (name: string, fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      const reason = e instanceof MetaApiError ? e.kind : "exception";
+      stats.failures.push({ step: name, reason, message: (e as Error).message.slice(0, 200) });
+      await logEvent(db, { workspaceId, level: "warn", code: "META_ADVANCED_SYNC_FAILED", provider: "meta", message: (e as Error).message, context: { account_id: acc.account_id, step: name, reason } });
+    }
+  };
+
+  await step("campaigns", async () => {
+    const raw = await client.getAll<RawCampaign>(`act_${acc.account_id}/campaigns`, { fields: CAMPAIGN_FIELDS, limit: 500 }, 50);
+    const rows = raw.map((r) => normalizeCampaign(r, acc.account_id, acc.currency)).filter((r): r is CampaignConfig => !!r)
+      .map((r) => ({ ...r, workspace_id: workspaceId, synced_at: now() }));
+    await upsertChunks(db, "meta_campaigns", rows, "workspace_id,campaign_id");
+    stats.campaigns = rows.length;
+  });
+
+  await step("adsets", async () => {
+    const raw = await client.getAll<RawAdset>(`act_${acc.account_id}/adsets`, { fields: ADSET_FIELDS, limit: 500 }, 50);
+    const rows = raw.map((r) => normalizeAdset(r, acc.account_id, acc.currency)).filter((r): r is AdsetConfig => !!r)
+      .map((r) => ({ ...r, workspace_id: workspaceId, synced_at: now() }));
+    await upsertChunks(db, "meta_adsets", rows, "workspace_id,adset_id");
+    stats.adsets = rows.length;
+  });
+
+  await step("creatives", async () => {
+    const raw = await client.getAll<{ id: string; campaign?: { id: string }; adset?: { id: string }; creative?: { object_type?: string; video_id?: string } }>(
+      `act_${acc.account_id}/ads`, { fields: "id,campaign{id},adset{id},creative{object_type,video_id}", limit: 500 }, 50);
+    const rows = raw.filter((a) => a.campaign?.id && a.adset?.id).map((a) => ({
+      workspace_id: workspaceId, account_id: acc.account_id, campaign_id: a.campaign!.id, adset_id: a.adset!.id, ad_id: a.id,
+      creative_type: a.creative?.object_type ?? null, has_video: creativeHasVideo(a.creative),
+    }));
+    await upsertChunks(db, "meta_ads", rows, "workspace_id,ad_id");
+    stats.creatives = rows.length;
+  });
+
+  await step("video", async () => {
+    for (const win of chunkRange(since, until, 31)) {
+      const days = Math.round((new Date(win.until).getTime() - new Date(win.since).getTime()) / 864e5) + 1;
+      const { rows: raw, dropped } = await insightsWithFallback<RawVideoInsight>(client, acc, VIDEO_INSIGHTS_FIELDS, {
+        level: "ad", time_increment: 1, limit: 500, time_range: JSON.stringify({ since: win.since, until: win.until }),
+      }, days);
+      if (dropped.length) stats.failures.push({ step: "video", reason: "field_rejected", message: dropped.join(",") });
+      const rows = raw.map(normalizeVideoInsight).filter((r): r is VideoDailyRow => !!r);
+      const withVideo = rows.filter(hasVideoData);
+      stats.video_rows += rows.length;
+      stats.video_not_applicable += rows.length - withVideo.length;
+      await upsertChunks(db, "meta_video_daily", withVideo.map((r) => ({ ...r, workspace_id: workspaceId, imported_at: now() })), "workspace_id,account_id,ad_id,date");
+      stats.video_saved += withVideo.length;
+    }
+  });
+
+  await step("reach", async () => {
+    const today = todayIn(tz);
+    const { data: known } = await db.from("meta_reach_period").select("since, until").eq("workspace_id", workspaceId).eq("account_id", acc.account_id).eq("level", "account");
+    const have = new Set((known ?? []).map((k) => `${k.since}|${k.until}`));
+    // Período já encerrado antes da janela desta sincronização e já salvo não muda mais.
+    const windows = reachWindows(tz).filter((w) => !(w.until < since && have.has(`${w.since}|${w.until}`)));
+    for (const w of windows) {
+      for (const level of REACH_LEVELS) {
+        const idField = level === "account" ? "account_id" : `${level}_id`;
+        const raw = await client.getAll<RawReach>(`act_${acc.account_id}/insights`, {
+          level, fields: [...new Set(["account_id", idField, "impressions", "reach", "frequency"])].join(","),
+          time_range: JSON.stringify({ since: w.since, until: w.until }), limit: 500,
+        }, 20);
+        const rows = raw.map((r) => normalizeReach(r, level, w.since, w.until)).filter((r): r is NonNullable<typeof r> => !!r)
+          .map((r) => ({ ...r, workspace_id: workspaceId, fetched_at: now() }));
+        await upsertChunks(db, "meta_reach_period", rows, "workspace_id,level,object_id,since,until");
+        stats.reach_rows += rows.length;
+      }
+    }
+    await db.from("meta_reach_period").delete().eq("workspace_id", workspaceId).eq("account_id", acc.account_id).lt("until", reachCutoff(today));
+  });
+
+  await logEvent(db, {
+    workspaceId, level: stats.failures.length ? "warn" : "info", code: "META_ADVANCED_SYNC", provider: "meta",
+    message: `campanhas ${stats.campaigns} · conjuntos ${stats.adsets} · vídeo ${stats.video_saved}/${stats.video_rows} · alcance ${stats.reach_rows}`,
+    context: { account_id: acc.account_id, since, until, ...stats },
+  });
+  return stats;
+}
+
 /** Sincroniza todas as contas monitoradas (active=true) do workspace. */
 export async function syncMeta(
   db: Db,
@@ -168,7 +293,7 @@ export async function syncMeta(
   const discovered = await discoverAccounts(db, workspaceId, opts.trigger);
 
   const jobId = await startJob(db, workspaceId, "meta_insights", opts.trigger, { since, until });
-  const stats: Record<string, unknown> = { accounts: 0, ads: 0, insights: 0, failed: [] as string[], discovered: discovered.stats };
+  const stats: Record<string, unknown> = { accounts: 0, ads: 0, insights: 0, failed: [] as string[], discovered: discovered.stats, advanced: {} };
 
   const conns = await ensureEnvConnection(db, workspaceId);
   let q = db.from("meta_ad_accounts").select("id, account_id, connection_id, timezone, currency").eq("workspace_id", workspaceId).eq("active", true);
@@ -199,6 +324,8 @@ export async function syncMeta(
       stats.accounts = (stats.accounts as number) + 1;
       stats.ads = (stats.ads as number) + s.ads;
       stats.insights = (stats.insights as number) + s.insights;
+      const adv = await syncAdvanced(db, workspaceId, client, acc, since, until, ws?.timezone ?? "America/Sao_Paulo");
+      (stats.advanced as Record<string, AdvancedStats>)[acc.account_id] = adv;
       await db.from("meta_ad_accounts").update({ last_sync_at: new Date().toISOString(), last_error: null }).eq("id", acc.id);
       await db.from("meta_connections").update({ status: "active", last_sync_at: new Date().toISOString(), last_error: null }).eq("id", conn.id);
     } catch (e) {

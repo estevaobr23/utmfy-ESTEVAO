@@ -2,7 +2,7 @@
 // viraria R$ 0 e o lucro/ROAS/CPA pareceriam reais. Função pura (testável).
 import { addDays } from "./dates";
 
-export type SpendState = "ok" | "no_accounts" | "error" | "not_synced" | "fx_missing";
+export type SpendState = "ok" | "no_accounts" | "association_pending" | "error" | "not_synced" | "fx_missing";
 
 export type SpendStatus = { state: SpendState; reliable: boolean; message: string | null };
 
@@ -13,6 +13,7 @@ export type SpendStatusInput = {
   syncedWindows: { since: string; until: string }[];
   /** Gasto deixado de fora por falta de câmbio no período. */
   excluded: { account_id: string; currency: string; spend: number }[];
+  pendingAssociations?: string[];
   from: string;
   to: string;
   today: string;
@@ -29,6 +30,13 @@ function missingDays(from: string, to: string, windows: SpendStatusInput["synced
 export function spendStatus(i: SpendStatusInput): SpendStatus {
   if (!i.accounts.length) {
     return { state: "no_accounts", reliable: false, message: "Nenhuma conta Meta vinculada: o gasto é desconhecido, então lucro, ROAS e CPA não são calculados." };
+  }
+  if (i.pendingAssociations?.length) {
+    return {
+      state: "association_pending",
+      reliable: false,
+      message: `Associação de campanhas pendente em ${i.pendingAssociations.map((id) => `act_${id}`).join(", ")}. O gasto dessa conta foi excluído para evitar mistura entre ofertas.`,
+    };
   }
   const failing = i.accounts.filter((a) => a.last_error);
   if (failing.length) {

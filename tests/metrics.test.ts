@@ -32,10 +32,18 @@ describe("fórmulas centralizadas", () => {
     expect(m.gross_roas).toBeCloseTo(4);
   });
   it("conversão Pix, CTR, CPC", () => {
-    const m = derive({ ...emptySums(), pix_generated: 10, pix_paid: 7, impressions: 1000, clicks: 25, spend: 50 });
+    const m = derive({ ...emptySums(), pix_generated: 10, pix_paid: 7, impressions: 1000, reach: 800, clicks: 25, spend: 50 });
     expect(m.pix_conversion).toBe(0.7);
     expect(m.ctr).toBe(0.025);
     expect(m.cpc).toBe(2);
+    expect(m.cpm).toBe(50);
+    expect(m.frequency).toBe(1.25);
+  });
+  it("ROI usa investimento total e margem usa receita líquida", () => {
+    const m = derive({ ...emptySums(), spend: 100, other_costs: 20, gross_revenue: 300 });
+    expect(m.profit).toBe(180);
+    expect(m.roi).toBe(1.5);
+    expect(m.margin).toBe(0.6);
   });
 });
 

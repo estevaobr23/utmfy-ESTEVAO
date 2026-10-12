@@ -7,7 +7,7 @@ import { requireOffer } from "@/lib/offer-context";
 export default async function OfferSummary({ params, searchParams }: PageProps<"/ofertas/[id]/resumo">) {
   const { id } = await params;
   const sp = await searchParams;
-  const { sb, workspace, accounts, pixels } = await requireOffer(id);
+  const { sb, workspace, accounts, pixels, canWrite } = await requireOffer(id);
   const [items, sessions, orders] = await Promise.all([
     sb.from("offer_cakto_items").select("id", { count: "exact", head: true }).eq("offer_id", id),
     sb.from("tracking_sessions").select("id", { count: "exact", head: true }).eq("offer_id", id),
@@ -43,6 +43,7 @@ export default async function OfferSummary({ params, searchParams }: PageProps<"
         basePath={`/ofertas/${id}/resumo`}
         metaPath={`/ofertas/${id}/meta`}
         untrackedPath={`/ofertas/${id}/pedidos`}
+        canWrite={canWrite}
       />
     </>
   );

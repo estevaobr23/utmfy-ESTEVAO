@@ -1,9 +1,12 @@
 import "server-only";
 import type { Db } from "./supabase/types";
-import { resolveRange, todayIn } from "./core/dates";
+import { dayRangeUtc, resolveRange, todayIn } from "./core/dates";
 import { spendStatus } from "./core/spend-status";
 import { buildTree, totals, type OrderRow, type SpendRow } from "./core/report";
+import { parseCampaignScope, scopeOfferSpendRows, type OfferSpendLink } from "./core/offer-spend-scope";
 import type { Workspace } from "./session";
+import type { AdsetConfig, CampaignConfig, ReachLevel, VideoRow } from "./core/meta-advanced";
+import { buildSummaryAnalytics, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
 
 // Consultas da interface. Toda métrica passa por core/metrics.ts (via report.ts).
 
@@ -45,19 +48,31 @@ export function parseFilters(sp: SP, tz: string, fixedOffer?: string): Filters {
 
 export async function loadReport(sb: Db, ws: Workspace, f: Filters) {
   const offers = f.offer ? [f.offer] : null;
-  const [spend, orders] = await Promise.all([
+  const [spend, orders, offerLinks] = await Promise.all([
     sb.rpc("report_spend_rows", {
-      p_workspace: ws.id, p_offer_ids: offers, p_from: f.from, p_to: f.to, p_currency: ws.currency,
+      // O escopo de oferta é aplicado abaixo por IDs persistentes. A RPC legada
+      // tratava filtro vazio como conta inteira, o que misturava ofertas.
+      p_workspace: ws.id, p_offer_ids: null, p_from: f.from, p_to: f.to, p_currency: ws.currency,
       p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad,
     }),
     sb.rpc("report_order_rows", {
       p_workspace: ws.id, p_offer_ids: offers, p_from: f.from, p_to: f.to, p_tz: ws.timezone, p_currency: ws.currency,
       p_source: f.source, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad, p_status: f.status, p_account_id: f.account,
     }),
+    f.offer
+      ? sb.from("offer_ad_accounts").select("campaign_filter, meta_ad_accounts(account_id)").eq("offer_id", f.offer)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   if (spend.error) throw new Error(`report_spend_rows: ${spend.error.message}`);
   if (orders.error) throw new Error(`report_order_rows: ${orders.error.message}`);
-  const spendRows = (spend.data ?? []) as SpendRow[];
+  if (offerLinks.error) throw new Error(`offer_ad_accounts: ${offerLinks.error.message}`);
+  const rawSpendRows = (spend.data ?? []) as SpendRow[];
+  const links = (offerLinks.data ?? []).map((row) => ({
+    accountId: (row.meta_ad_accounts as unknown as { account_id: string } | null)?.account_id ?? "",
+    campaignFilter: row.campaign_filter as string | null,
+  })).filter((row): row is OfferSpendLink => !!row.accountId);
+  const scoped = f.offer ? scopeOfferSpendRows(rawSpendRows, links) : { rows: rawSpendRows, pendingAccounts: [] as string[] };
+  const spendRows = scoped.rows;
   const orderRows = (orders.data ?? []) as OrderRow[];
   const pre = totals(spendRows, orderRows);
   const { data: other } = await sb.rpc("report_other_costs", {
@@ -65,18 +80,79 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters) {
   });
   const summary = totals(spendRows, orderRows, Number(other ?? 0));
   const { data: excluded } = await sb.rpc("report_spend_excluded", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_currency: ws.currency });
-  const excludedSpend = (excluded ?? []) as { account_id: string; currency: string; spend: number }[];
+  const safeAccounts = new Set(links.filter((link) => parseCampaignScope(link.campaignFilter).mode !== "pending").map((link) => link.accountId));
+  const excludedSpend = ((excluded ?? []) as { account_id: string; currency: string; spend: number }[])
+    .filter((row) => !f.offer || safeAccounts.has(row.account_id));
   return {
     summary,
     tree: buildTree(spendRows, orderRows),
     spendRows,
     orderRows,
     excludedSpend,
-    spendStatus: await loadSpendStatus(sb, ws, f, excludedSpend),
+    spendStatus: await loadSpendStatus(sb, ws, f, excludedSpend, scoped.pendingAccounts),
+    scopeStatus: {
+      pendingAccounts: scoped.pendingAccounts,
+      includedCampaigns: [...new Set(spendRows.map((row) => row.campaign_id))],
+    },
   };
 }
 
-async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { account_id: string; currency: string; spend: number }[]) {
+export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true) {
+  const { start, end } = dayRangeUtc(f.from, f.to, ws.timezone);
+  const fields = "id,status,gross_amount,base_amount,payment_method,product_name,offer_type,paid_at,provider_created_at";
+  let paidQuery = sb.from("orders").select(fields)
+    .eq("workspace_id", ws.id)
+    .neq("source", "test")
+    .in("status", ["paid", "refund_requested", "disputed", "refunded", "chargedback"])
+    .gte("paid_at", start).lt("paid_at", end)
+    .limit(5000);
+  let attemptsQuery = sb.from("orders").select(fields)
+    .eq("workspace_id", ws.id)
+    .neq("source", "test")
+    .gte("provider_created_at", start).lt("provider_created_at", end)
+    .limit(5000);
+  let sessionsQuery = sb.from("tracking_sessions").select("pageviews,checkout_clicks")
+    .eq("workspace_id", ws.id)
+    .gte("first_seen_at", start).lt("first_seen_at", end)
+    .limit(5000);
+  if (f.offer) {
+    paidQuery = paidQuery.eq("offer_id", f.offer);
+    attemptsQuery = attemptsQuery.eq("offer_id", f.offer);
+    sessionsQuery = sessionsQuery.eq("offer_id", f.offer);
+  }
+  const [paidResult, attemptsResult, sessionsResult] = await Promise.all([paidQuery, attemptsQuery, sessionsQuery]);
+  if (paidResult.error) throw new Error(`summary paid orders: ${paidResult.error.message}`);
+  if (attemptsResult.error) throw new Error(`summary attempts: ${attemptsResult.error.message}`);
+  if (sessionsResult.error) throw new Error(`summary sessions: ${sessionsResult.error.message}`);
+  const paidOrders = (paidResult.data ?? []) as unknown as SummaryOrder[];
+  const attempts = (attemptsResult.data ?? []) as unknown as SummaryOrder[];
+  const ids = [...new Set([...paidOrders, ...attempts].map((order) => order.id))];
+  const attributionResult = ids.length
+    ? await sb.from("order_attribution").select("order_id,utm_source,attribution_status,account_id").in("order_id", ids)
+    : { data: [], error: null };
+  if (attributionResult.error) throw new Error(`summary attribution: ${attributionResult.error.message}`);
+  const attributions = (attributionResult.data ?? []) as SummaryAttribution[];
+  const attributionByOrder = new Map(attributions.map((item) => [item.order_id, item]));
+  const orderMatches = (order: SummaryOrder) => {
+    const attribution = attributionByOrder.get(order.id);
+    if (f.account && attribution?.account_id !== f.account) return false;
+    if (f.source && attribution?.utm_source?.toLocaleLowerCase("pt-BR") !== f.source.toLocaleLowerCase("pt-BR")) return false;
+    return true;
+  };
+  const scopedPaid = paidOrders.filter(orderMatches);
+  const scopedAttempts = attempts.filter(orderMatches);
+  const scopedIds = new Set([...scopedPaid, ...scopedAttempts].map((order) => order.id));
+  return buildSummaryAnalytics({
+    paidOrders: scopedPaid,
+    attempts: scopedAttempts,
+    attributions: attributions.filter((item) => scopedIds.has(item.order_id)),
+    sessions: (sessionsResult.data ?? []) as SummarySession[],
+    clicks: spendReliable ? summary.clicks : null,
+    approvedCount: summary.approved_count,
+  });
+}
+
+async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { account_id: string; currency: string; spend: number }[], pendingAssociations: string[]) {
   const accountsQ = f.offer
     ? sb.from("offer_ad_accounts").select("meta_ad_accounts(account_id, last_error)").eq("offer_id", f.offer)
     : sb.from("meta_ad_accounts").select("account_id, last_error").eq("workspace_id", ws.id).eq("active", true);
@@ -91,7 +167,29 @@ async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { ac
   const windows = (jobs.data ?? [])
     .map((j) => j.params as { since?: string; until?: string } | null)
     .filter((p): p is { since: string; until: string } => !!p?.since && !!p?.until);
-  return spendStatus({ accounts: scoped, syncedWindows: windows, excluded, from: f.from, to: f.to, today: todayIn(ws.timezone) });
+  return spendStatus({ accounts: scoped, syncedWindows: windows, excluded, pendingAssociations, from: f.from, to: f.to, today: todayIn(ws.timezone) });
+}
+
+/**
+ * Orçamento/lance, vídeo e alcance deduplicado. Opcional: se as tabelas ainda
+ * não existirem (migration pendente) ou a consulta falhar, volta vazio e a
+ * interface mostra N/D — nunca derruba gasto/vendas.
+ */
+export async function loadMetaAdvanced(sb: Db, ws: Workspace, f: Filters) {
+  const [campaigns, adsets, video, reach] = await Promise.all([
+    sb.from("meta_campaigns").select("account_id, campaign_id, name, effective_status, daily_budget_minor, lifetime_budget_minor, bid_strategy, currency, meta_updated_time").eq("workspace_id", ws.id).limit(5000),
+    sb.from("meta_adsets").select("account_id, campaign_id, adset_id, name, effective_status, daily_budget_minor, lifetime_budget_minor, bid_strategy, bid_amount_minor, bid_constraints, optimization_goal, billing_event, promoted_object, currency, meta_updated_time").eq("workspace_id", ws.id).limit(5000),
+    sb.rpc("report_video_rows", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_account_id: f.account }),
+    sb.from("meta_reach_period").select("level, object_id, reach, frequency").eq("workspace_id", ws.id).eq("since", f.from).eq("until", f.to).limit(10000),
+  ]);
+  const errors = [campaigns.error, adsets.error, video.error, reach.error].filter(Boolean).map((e) => e!.message);
+  return {
+    campaigns: (campaigns.data ?? []) as CampaignConfig[],
+    adsets: (adsets.data ?? []) as AdsetConfig[],
+    video: (video.data ?? []) as VideoRow[],
+    reach: (reach.data ?? []) as { level: ReachLevel; object_id: string; reach: number | null; frequency: number | string | null }[],
+    errors,
+  };
 }
 
 export async function listOffers(sb: Db, wsId: string) {
@@ -102,6 +200,18 @@ export async function listOffers(sb: Db, wsId: string) {
 export async function listAccounts(sb: Db, wsId: string) {
   const { data } = await sb.from("meta_ad_accounts").select("id, account_id, account_name, currency, timezone, active, last_sync_at, last_error").eq("workspace_id", wsId).order("account_name");
   return data ?? [];
+}
+
+export async function listOfferAccounts(sb: Db, offerId: string) {
+  const { data, error } = await sb
+    .from("offer_ad_accounts")
+    .select("campaign_filter, meta_ad_accounts(id, account_id, account_name, currency, timezone, active, last_sync_at, last_error)")
+    .eq("offer_id", offerId);
+  if (error) throw new Error(`offer_ad_accounts: ${error.message}`);
+  type Account = Awaited<ReturnType<typeof listAccounts>>[number] & { campaign_filter: string | null };
+  return (data ?? [])
+    .map((row) => ({ ...(row.meta_ad_accounts as unknown as Omit<Account, "campaign_filter">), campaign_filter: row.campaign_filter as string | null }))
+    .filter((row): row is Account => !!row.account_id);
 }
 
 /** Opções dos filtros de campanha/conjunto/anúncio a partir do catálogo. */

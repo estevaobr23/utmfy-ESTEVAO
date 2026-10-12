@@ -12,7 +12,9 @@ export type SpendRow = {
   ad_name: string | null;
   currency: string | null;
   impressions: number | string | null;
+  reach?: number | string | null;
   clicks: number | string | null;
+  link_clicks?: number | string | null;
   outbound_clicks: number | string | null;
   spend: number | string | null;
   meta_purchases: number | string | null;
@@ -58,7 +60,9 @@ export function spendToSums(r: SpendRow): Partial<BaseSums> {
   return {
     spend: N(r.spend),
     impressions: N(r.impressions),
+    reach: N(r.reach),
     clicks: N(r.clicks),
+    link_clicks: N(r.link_clicks),
     outbound_clicks: N(r.outbound_clicks),
     meta_purchases: N(r.meta_purchases),
   };

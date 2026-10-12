@@ -1,223 +1,232 @@
 import Link from "next/link";
 import { syncMetaNow } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
+import { MetaTable } from "@/components/meta/meta-table";
 import { timeAgo } from "@/lib/core/dates";
 import { aggregateLevel, LEVELS, type Level, type LevelRow } from "@/lib/core/meta-levels";
-import type { Derived } from "@/lib/core/metrics";
-import { formatMoney, formatNumber, formatPct } from "@/lib/core/money";
-import { listAccounts, loadReport, parseFilters } from "@/lib/queries";
+import { META_METRICS, type MetaColumnId, type MetaTableRow } from "@/lib/core/meta-metrics";
+import type { ReportNode } from "@/lib/core/report";
+import { buildAdvancedIndex, scopeFromSpend } from "@/lib/core/meta-advanced";
+import { listAccounts, listOfferAccounts, loadMetaAdvanced, loadReport, parseFilters } from "@/lib/queries";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 
-const PRESETS: [string, string][] = [["today", "Hoje"], ["yesterday", "Ontem"], ["7d", "7 dias"], ["14d", "14 dias"], ["30d", "30 dias"], ["month", "Este mês"]];
-const UNIT: Record<Level, [string, string]> = { contas: ["conta", "contas"], campanhas: ["campanha", "campanhas"], conjuntos: ["conjunto", "conjuntos"], anuncios: ["anúncio", "anúncios"] };
+const PRESETS: [string, string][] = [
+  ["today", "Hoje"], ["yesterday", "Ontem"], ["7d", "7 dias"], ["14d", "14 dias"], ["30d", "30 dias"], ["month", "Este mês"],
+];
 const LEVEL_ICON: Record<Level, string> = { contas: "▣", campanhas: "◫", conjuntos: "⊞", anuncios: "▯" };
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
+const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? "";
 const ID = /^[0-9]{1,30}$/;
 
-/** Status do nível a partir dos anúncios: ativo se algum anúncio filho estiver ativo. */
-function statusOf(level: Level, id: string, ads: { campaign_id: string; adset_id: string; ad_id: string; account_id: string; effective_status: string | null }[]) {
-  const key = level === "contas" ? "account_id" : level === "campanhas" ? "campaign_id" : level === "conjuntos" ? "adset_id" : "ad_id";
-  const st = ads.filter((a) => a[key] === id).map((a) => a.effective_status ?? "");
-  if (!st.length) return null;
-  return st.includes("ACTIVE") ? "ACTIVE" : st[0];
+type CatalogRow = {
+  account_id: string;
+  campaign_id: string;
+  adset_id: string;
+  ad_id: string;
+  effective_status: string | null;
+};
+
+function statusOf(level: MetaTableRow["level"], id: string, ads: CatalogRow[]) {
+  const key = level === "account" ? "account_id" : level === "campaign" ? "campaign_id" : level === "adset" ? "adset_id" : "ad_id";
+  const statuses = ads.filter((ad) => ad[key] === id).map((ad) => ad.effective_status).filter((status): status is string => !!status);
+  if (!statuses.length) return null;
+  return statuses.includes("ACTIVE") ? "ACTIVE" : statuses[0];
 }
 
-function StatusPill({ status }: { status: string | null }) {
-  if (!status) return <span className="text-xs text-slate-500">—</span>;
-  const on = status === "ACTIVE";
-  return (
-    <span title={`Meta: ${status} (somente leitura)`} className={`inline-flex h-5 w-9 items-center rounded-full px-0.5 ${on ? "justify-end bg-blue-600" : "justify-start bg-slate-600"}`}>
-      <span className="h-4 w-4 rounded-full bg-white" />
-    </span>
-  );
+function managerUrl(level: MetaTableRow["level"], row: { id: string; accountId: string | null }) {
+  if (!row.accountId || row.id.startsWith("__") || level === "account") return null;
+  const tab = level === "campaign" ? "campaigns" : level === "adset" ? "adsets" : "ads";
+  const selected = level === "campaign" ? `&selected_campaign_ids=${row.id}` : level === "adset" ? `&selected_adset_ids=${row.id}` : `&selected_ad_ids=${row.id}`;
+  return `https://adsmanager.facebook.com/adsmanager/manage/${tab}?act=${row.accountId}${selected}`;
+}
+
+function findNode(tree: ReportNode[], level: ReportNode["level"], id: string): ReportNode | null {
+  for (const node of tree) {
+    if (node.level === level && node.id === id) return node;
+    const nested = findNode(node.children, level, id);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
-  sb: Db; ws: Workspace; sp: Record<string, string | string[] | undefined>; offerId?: string; path: string; canWrite: boolean;
+  sb: Db;
+  ws: Workspace;
+  sp: Record<string, string | string[] | undefined>;
+  offerId?: string;
+  path: string;
+  canWrite: boolean;
 }) {
-  const level = (LEVELS.find(([k]) => k === one(sp.nivel))?.[0] ?? "campanhas") as Level;
+  const level = (LEVELS.find(([key]) => key === one(sp.nivel))?.[0] ?? "campanhas") as Level;
   const campaign = ID.test(one(sp.campaign)) ? one(sp.campaign) : null;
   const adset = ID.test(one(sp.adset)) ? one(sp.adset) : null;
   const name = one(sp.q).slice(0, 80);
   const f = parseFilters({ ...sp, campaign: undefined, adset: undefined, ad: undefined }, ws.timezone, offerId);
-  const [report, accounts, ads] = await Promise.all([
+  const [report, accounts, adsResult, advancedData] = await Promise.all([
     loadReport(sb, ws, f),
-    listAccounts(sb, ws.id),
+    offerId ? listOfferAccounts(sb, offerId) : listAccounts(sb, ws.id),
     sb.from("meta_ads").select("account_id, campaign_id, adset_id, ad_id, effective_status").eq("workspace_id", ws.id).limit(5000),
+    loadMetaAdvanced(sb, ws, f),
   ]);
-  const catalog = (ads.data ?? []) as { account_id: string; campaign_id: string; adset_id: string; ad_id: string; effective_status: string | null }[];
-  const { rows, total } = aggregateLevel(level, report.spendRows, report.orderRows, { campaign, adset, name });
-  const ok = report.spendStatus.reliable;
-  const accountName = new Map(accounts.map((a) => [a.account_id, a.account_name ?? `act_${a.account_id}`]));
-  const syncOf = new Map(accounts.map((a) => [a.account_id, a.last_sync_at as string | null]));
-  const lastSync = accounts.map((a) => a.last_sync_at as string | null).filter(Boolean).sort().pop() ?? null;
-  const parentCampaign = campaign ? aggregateLevel("campanhas", report.spendRows, report.orderRows, { campaign }).rows[0]?.name : null;
-  const parentAdset = adset ? aggregateLevel("conjuntos", report.spendRows, report.orderRows, { adset }).rows[0]?.name : null;
+  const advanced = buildAdvancedIndex(advancedData, scopeFromSpend(report.spendRows), { offerScoped: !!offerId });
+  if (adsResult.error) throw new Error(`meta_ads: ${adsResult.error.message}`);
+  const catalog = (adsResult.data ?? []) as CatalogRow[];
+  const accountName = new Map(accounts.map((account) => [account.account_id, account.account_name ?? `act_${account.account_id}`]));
+  const syncOf = new Map(accounts.map((account) => [account.account_id, account.last_sync_at as string | null]));
+  const accountOfCampaign = new Map<string, string>();
+  for (const row of catalog) accountOfCampaign.set(row.campaign_id, row.account_id);
+  for (const row of report.spendRows) accountOfCampaign.set(row.campaign_id, row.account_id);
+  const lastSync = accounts.map((account) => account.last_sync_at as string | null).filter((value): value is string => !!value).sort().pop() ?? null;
 
   const link = (patch: Record<string, string | null>) => {
-    const q = new URLSearchParams();
+    const query = new URLSearchParams();
     const base: Record<string, string | null> = {
-      nivel: level, campaign, adset, q: name || null,
-      preset: f.preset === "custom" ? null : f.preset, from: f.preset === "custom" ? f.from : null, to: f.preset === "custom" ? f.to : null,
+      nivel: level,
+      campaign,
+      adset,
+      q: name || null,
+      preset: f.preset === "custom" ? null : f.preset,
+      from: f.preset === "custom" ? f.from : null,
+      to: f.preset === "custom" ? f.to : null,
       account: f.account,
+      meta_status: one(sp.meta_status) || null,
+      sort: one(sp.sort) || null,
+      dir: one(sp.dir) || null,
+      page_size: one(sp.page_size) || null,
     };
-    for (const [k, v] of Object.entries({ ...base, ...patch })) if (v) q.set(k, v);
-    return `${path}?${q.toString()}`;
+    for (const [key, value] of Object.entries({ ...base, ...patch })) if (value) query.set(key, value);
+    return `${path}?${query.toString()}`;
   };
-  const drill = (r: LevelRow) =>
-    level === "contas" ? link({ nivel: "campanhas", account: r.id, campaign: null, adset: null })
-    : level === "campanhas" ? link({ nivel: "conjuntos", campaign: r.id, adset: null })
-    : level === "conjuntos" ? link({ nivel: "anuncios", campaign: r.campaignId, adset: r.id })
-    : null;
-  const manager = (r: LevelRow) => {
-    const acc = r.accountId ?? f.account;
-    if (!acc || r.id.startsWith("__")) return null;
-    const tab = level === "campanhas" ? "campaigns" : level === "conjuntos" ? "adsets" : level === "anuncios" ? "ads" : "campaigns";
-    const sel = level === "campanhas" ? `&selected_campaign_ids=${r.id}` : level === "conjuntos" ? `&selected_adset_ids=${r.id}` : level === "anuncios" ? `&selected_ad_ids=${r.id}` : "";
-    return `https://adsmanager.facebook.com/adsmanager/manage/${tab}?act=${acc}${sel}`;
+
+  const drill = (row: LevelRow) =>
+    level === "contas" ? link({ nivel: "campanhas", account: row.id, campaign: null, adset: null, page: null })
+      : level === "campanhas" ? link({ nivel: "conjuntos", campaign: row.id, adset: null, page: null })
+        : level === "conjuntos" ? link({ nivel: "anuncios", campaign: row.campaignId, adset: row.id, page: null })
+          : null;
+
+  const makeTreeRow = (node: ReportNode, accountId: string | null, campaignId: string | null, adsetId: string | null): MetaTableRow => {
+    const nodeLevel = node.level === "campaign" ? "campaign" : node.level === "adset" ? "adset" : "ad";
+    const currentCampaign = nodeLevel === "campaign" ? node.id : campaignId;
+    const currentAdset = nodeLevel === "adset" ? node.id : adsetId;
+    const acc = accountId ?? (currentCampaign ? accountOfCampaign.get(currentCampaign) ?? null : null);
+    const row = { id: node.id, accountId: acc };
+    const drillUrl = nodeLevel === "campaign"
+      ? link({ nivel: "conjuntos", campaign: node.id, adset: null, page: null })
+      : nodeLevel === "adset"
+        ? link({ nivel: "anuncios", campaign: currentCampaign, adset: node.id, page: null })
+        : null;
+    return {
+      id: node.id,
+      level: nodeLevel,
+      name: node.name,
+      accountId: acc,
+      campaignId: currentCampaign,
+      adsetId: currentAdset,
+      status: statusOf(nodeLevel, node.id, catalog),
+      lastSync: acc ? syncOf.get(acc) ?? null : null,
+      ...advanced.extras(nodeLevel, node.id),
+      metrics: node.metrics,
+      drillUrl,
+      managerUrl: managerUrl(nodeLevel, row),
+      children: node.children.map((child) => makeTreeRow(child, acc, currentCampaign, currentAdset)),
+    };
   };
-  const money = (v: number | null) => formatMoney(v, ws.currency);
-  const cells = (m: Derived) => [
-    formatNumber(m.approved_count),
-    ok ? money(m.cpa) : "—",
-    money(m.spend),
-    ok ? money(m.profit) : "—",
-    money(m.net_revenue),
-    ok && m.roas != null ? formatNumber(m.roas, 2) : "—",
-    formatPct(m.ctr, 2),
-    money(m.cpc),
-  ];
-  const profitCls = (m: Derived) => (!ok ? "text-slate-400" : m.profit > 0 ? "text-emerald-400" : m.profit < 0 ? "text-rose-400" : "text-slate-300");
-  const COLS = ["Vendas", "CPA", "Gasto", "Lucro", "Faturamento", "ROAS", "CTR", "CPC"];
-  const [u1, uN] = UNIT[level];
+
+  const aggregated = aggregateLevel(level, report.spendRows, report.orderRows, { campaign, adset });
+  const levelRows: MetaTableRow[] = aggregated.rows.map((row) => {
+    const mappedLevel: MetaTableRow["level"] = level === "contas" ? "account" : level === "campanhas" ? "campaign" : level === "conjuntos" ? "adset" : "ad";
+    const accountId = level === "contas" ? row.id : row.accountId ?? (row.campaignId ? accountOfCampaign.get(row.campaignId) ?? null : null);
+    const treeLevel = mappedLevel === "campaign" ? "campaign" : mappedLevel === "adset" ? "adset" : "ad";
+    const treeNode = mappedLevel === "account" ? null : findNode(report.tree, treeLevel, row.id);
+    const base = treeNode
+      ? makeTreeRow(treeNode, accountId, row.campaignId, row.adsetId)
+      : {
+          id: row.id,
+          level: mappedLevel,
+          name: level === "contas" ? accountName.get(row.id) ?? row.name : row.name,
+          accountId,
+          campaignId: row.campaignId,
+          adsetId: row.adsetId,
+          status: statusOf(mappedLevel, row.id, catalog),
+          lastSync: accountId ? syncOf.get(accountId) ?? null : null,
+          ...advanced.extras(mappedLevel, row.id),
+          metrics: row.metrics,
+          drillUrl: drill(row),
+          managerUrl: managerUrl(mappedLevel, { id: row.id, accountId }),
+          children: [],
+        };
+    return { ...base, metrics: row.metrics, name: level === "contas" ? accountName.get(row.id) ?? base.name : base.name, drillUrl: drill(row) };
+  });
+
+  const parentCampaign = campaign ? aggregateLevel("campanhas", report.spendRows, report.orderRows, { campaign }).rows[0]?.name : null;
+  const parentAdset = adset ? aggregateLevel("conjuntos", report.spendRows, report.orderRows, { adset }).rows[0]?.name : null;
+  const sortCandidate = one(sp.sort) as MetaColumnId;
+  const sort = META_METRICS.some((metric) => metric.id === sortCandidate && metric.sortable) ? sortCandidate : "spend";
+  const direction = one(sp.dir) === "asc" ? "asc" : "desc";
+  const page = Math.max(1, Number.parseInt(one(sp.page), 10) || 1);
+  const requestedSize = Number.parseInt(one(sp.page_size), 10);
+  const pageSize = [10, 25, 50].includes(requestedSize) ? requestedSize : 25;
 
   return (
     <div className="overflow-hidden rounded-md border border-[#384662] bg-[#202b43] text-[#eef2f8] shadow-[0_14px_38px_rgba(4,9,20,0.18)]">
-      <nav className="grid grid-cols-4 gap-3 bg-[#11192d]">
-        {LEVELS.map(([k, label]) => (
-          <Link
-            key={k}
-            href={link({ nivel: k, ...(k === "contas" || k === "campanhas" ? { campaign: null, adset: null } : k === "conjuntos" ? { adset: null } : {}) })}
-            className={`rounded-t-md border border-b-0 px-5 py-4 text-left text-sm font-semibold transition ${k === level ? "border-[#3b4964] bg-[#27334d] text-[#1681ff] shadow-[inset_0_-2px_0_#0874f9]" : "border-[#303d57] bg-[#27334d]/75 text-[#b3bdcd] hover:bg-[#2d3a56]"}`}
-          >
-            <span className="mr-2 text-base" aria-hidden>{LEVEL_ICON[k]}</span>{label}
-            {k === "conjuntos" && parentCampaign && level !== "campanhas" && <span className="ml-1 text-xs text-slate-400">de 1 campanha</span>}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#394761] bg-[#27334d] px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={`rounded-full px-2.5 py-1 font-semibold ${report.spendStatus.reliable ? "bg-[#19b972] text-white" : "bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/30"}`}>
+            {report.spendStatus.reliable ? "✓ Dados financeiros completos" : "⚠ Qualidade de dados pendente"}
+          </span>
+          <span className="text-[#9aa6bb]">Meta somente leitura · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
+        </div>
+        {canWrite && (
+          <form action={syncMetaNow}>
+            <input type="hidden" name="back" value={link({})} />
+            <SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton>
+          </form>
+        )}
+      </div>
+
+      <form method="get" action={path} className="flex flex-wrap items-end gap-2 border-b border-[#394761] bg-[#27334d] px-4 py-3">
+        <input type="hidden" name="nivel" value={level} />
+        {campaign && <input type="hidden" name="campaign" value={campaign} />}
+        {adset && <input type="hidden" name="adset" value={adset} />}
+        <label className="text-[11px] text-[#9aa6bb]">Período<select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-1 block rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-white">{f.preset === "custom" && <option value="">{f.from} → {f.to}</option>}{PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label className="text-[11px] text-[#9aa6bb]">Conta de anúncio<select name="account" defaultValue={f.account ?? ""} className="mt-1 block max-w-56 rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-white"><option value="">Qualquer</option>{accounts.map((account) => <option key={account.account_id} value={account.account_id}>{account.account_name ?? account.account_id}</option>)}</select></label>
+        <label className="text-[11px] text-[#9aa6bb]">Fonte<select disabled className="mt-1 block rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-[#9aa6bb]"><option>Meta Ads</option></select></label>
+        <label className="text-[11px] text-[#9aa6bb]">Produto<select disabled className="mt-1 block max-w-48 rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-[#9aa6bb]"><option>Oferta selecionada</option></select></label>
+        <button className="rounded bg-[#0874f9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0865d8]">Filtrar</button>
+      </form>
+
+      <nav className="grid grid-cols-4 gap-3 bg-[#11192d] pt-3">
+        {LEVELS.map(([key, label]) => (
+          <Link key={key} href={link({ nivel: key, campaign: key === "conjuntos" || key === "anuncios" ? campaign : null, adset: key === "anuncios" ? adset : null, page: null })} className={`rounded-t-md border border-b-0 px-5 py-3 text-left text-sm font-semibold transition ${key === level ? "border-[#3b4964] bg-[#27334d] text-[#1681ff] shadow-[inset_0_-2px_0_#0874f9]" : "border-[#303d57] bg-[#27334d]/75 text-[#b3bdcd] hover:bg-[#2d3a56]"}`}>
+            <span className="mr-2 text-base" aria-hidden>{LEVEL_ICON[key]}</span>{label}
           </Link>
         ))}
       </nav>
 
-      <div className="flex flex-wrap items-end gap-3 border-b border-[#394761] bg-[#27334d] px-4 py-4">
-        <span className="mb-0.5 self-end rounded-full bg-[#19b972] px-2.5 py-1 text-[11px] font-semibold text-white">✓ Rastreio ativo</span>
-        <form method="get" action={path} className="flex flex-wrap items-end gap-2">
-          <input type="hidden" name="nivel" value={level} />
-          {campaign && <input type="hidden" name="campaign" value={campaign} />}
-          {adset && <input type="hidden" name="adset" value={adset} />}
-          <label className="text-[11px] text-slate-400">
-            Nome
-            <input name="q" defaultValue={name} placeholder={`Filtrar ${uN}`} className="mt-0.5 block w-44 rounded border border-[#46546e] bg-[#27334d] px-3 py-2 text-sm text-[#eef2f8] outline-none placeholder:text-[#728097] focus:border-[#0874f9]" />
-          </label>
-          <label className="text-[11px] text-slate-400">
-            Período
-            <select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-0.5 block rounded border border-[#46546e] bg-[#27334d] px-3 py-2 text-sm text-[#eef2f8] outline-none focus:border-[#0874f9]">
-              {f.preset === "custom" && <option value="">{`${f.from} → ${f.to}`}</option>}
-              {PRESETS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-            </select>
-          </label>
-          <label className="text-[11px] text-slate-400">
-            Conta de anúncio
-            <select name="account" defaultValue={f.account ?? ""} className="mt-0.5 block max-w-52 rounded border border-[#46546e] bg-[#27334d] px-3 py-2 text-sm text-[#eef2f8] outline-none focus:border-[#0874f9]">
-              <option value="">Qualquer</option>
-              {accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.account_name ?? a.account_id}</option>)}
-            </select>
-          </label>
-          <button className="rounded bg-[#0874f9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0865d8]">Filtrar</button>
-        </form>
-        <div className="ml-auto flex items-center gap-3 text-xs text-slate-400">
-          <span>Atualizado {lastSync ? timeAgo(lastSync) : "— nunca sincronizado"}</span>
-          {canWrite && (
-            <form action={syncMetaNow}>
-              <input type="hidden" name="back" value={link({})} />
-              <SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton>
-            </form>
-          )}
+      {(advancedData.errors.length > 0 || f.preset === "custom") && (
+        <div className="border-b border-[#394761] bg-[#222e47] px-4 py-2 text-xs text-[#9aa6bb]">
+          {advancedData.errors.length > 0
+            ? "ⓘ Orçamento, lance, vídeo e frequência ainda não estão disponíveis (dados avançados não sincronizados). Gasto e vendas não são afetados."
+            : "ⓘ Alcance e frequência exatos só existem nos períodos predefinidos (o alcance não pode ser somado entre dias). Em período personalizado eles aparecem como N/D."}
         </div>
-      </div>
-
-      {(campaign || adset || !ok) && (
+      )}
+      {(campaign || adset || !report.spendStatus.reliable) && (
         <div className="flex flex-wrap items-center gap-2 border-b border-[#394761] bg-[#222e47] px-4 py-2 text-xs">
-          {campaign && (
-            <Link href={link({ nivel: "campanhas", campaign: null, adset: null })} className="rounded-full bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700">
-              Campanha: {parentCampaign ?? campaign} ✕
-            </Link>
-          )}
-          {adset && (
-            <Link href={link({ nivel: "conjuntos", adset: null })} className="rounded-full bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700">
-              Conjunto: {parentAdset ?? adset} ✕
-            </Link>
-          )}
-          {!ok && <span className="text-amber-300">⚠ {report.spendStatus.message} Lucro, CPA e ROAS ocultos.</span>}
+          {campaign && <Link href={link({ nivel: "campanhas", campaign: null, adset: null, page: null })} className="rounded-full bg-[#34415e] px-2 py-1 text-[#dce2ec]">Campanha: {parentCampaign ?? campaign} ×</Link>}
+          {adset && <Link href={link({ nivel: "conjuntos", adset: null, page: null })} className="rounded-full bg-[#34415e] px-2 py-1 text-[#dce2ec]">Conjunto: {parentAdset ?? adset} ×</Link>}
+          {!report.spendStatus.reliable && <span className="text-amber-200">⚠ {report.spendStatus.message}</span>}
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-[13px]">
-          <thead>
-            <tr className="bg-[#35425f] text-[10px] uppercase tracking-wide text-[#d4dbe7]">
-              <th className="px-3 py-2 text-left font-semibold">Status</th>
-              <th className="px-3 py-2 text-left font-semibold">{u1 === "anúncio" ? "Anúncio" : u1[0].toUpperCase() + u1.slice(1)}</th>
-              <th className="px-3 py-2 text-left font-semibold">Últ. atualização</th>
-              {COLS.map((c) => <th key={c} className="px-3 py-2 text-right font-semibold">{c}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const href = drill(r);
-              const mgr = manager(r);
-              const label = level === "contas" ? accountName.get(r.id) ?? r.name : r.name;
-              const synced = r.accountId ? syncOf.get(r.accountId) : null;
-              return (
-                <tr key={r.id} className="border-t border-[#394761] bg-[#27334d] hover:bg-[#2d3a56]">
-                  <td className="px-3 py-2"><StatusPill status={statusOf(level, r.id, catalog)} /></td>
-                  <td className="max-w-80 px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      {href ? (
-                        <Link href={href} title={`ID ${r.id}`} className="truncate font-medium text-slate-100 hover:text-blue-400">{label}</Link>
-                      ) : (
-                        <span title={`ID ${r.id}`} className="truncate font-medium">{label}</span>
-                      )}
-                      {mgr && <a href={mgr} target="_blank" rel="noreferrer" title="Abrir no Gerenciador de Anúncios" className="shrink-0 text-xs text-slate-500 hover:text-blue-400">↗</a>}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{synced ? timeAgo(synced) : "—"}</td>
-                  {cells(r.metrics).map((v, i) => (
-                    <td key={i} className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${i === 3 ? profitCls(r.metrics) : "text-slate-200"}`}>{v}</td>
-                  ))}
-                </tr>
-              );
-            })}
-            {!rows.length && (
-              <tr>
-                <td colSpan={3 + COLS.length} className="px-4 py-10 text-center text-sm text-slate-400">
-                  {offerId ? `Nenhum(a) ${u1} com gasto ou venda nesta oferta no período. Confira em Integrações se a conta Meta está vinculada.` : `Nenhum(a) ${u1} com gasto ou venda no período.`}
-                </td>
-              </tr>
-            )}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr className="border-t-2 border-[#50607e] bg-[#35425f] text-xs font-semibold text-[#eef2f8]">
-                <td className="px-3 py-2">—</td>
-                <td className="px-3 py-2">{rows.length} {rows.length === 1 ? u1 : uN}</td>
-                <td className="px-3 py-2">—</td>
-                {cells(total).map((v, i) => (
-                  <td key={i} className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${i === 3 ? profitCls(total) : ""}`}>{v}</td>
-                ))}
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+      <MetaTable
+        rows={levelRows}
+        level={level}
+        currency={ws.currency}
+        path={path}
+        spendReliable={report.spendStatus.reliable}
+        totalReach={advanced.totalReach({ campaign, adset, accountIds: [...new Set(levelRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
+        initial={{ query: name, status: one(sp.meta_status), sort, direction, page, pageSize }}
+      />
     </div>
   );
 }

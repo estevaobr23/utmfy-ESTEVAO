@@ -36,4 +36,9 @@ describe("confiabilidade do gasto", () => {
     expect(s.state).toBe("fx_missing");
     expect(s.message).toContain("USD 51.92");
   });
+  it("conta compartilhada sem campanhas confirmadas não entra como gasto da oferta", () => {
+    const s = spendStatus({ ...base, pendingAssociations: ["123"] });
+    expect(s).toMatchObject({ state: "association_pending", reliable: false });
+    expect(s.message).toContain("excluído");
+  });
 });
