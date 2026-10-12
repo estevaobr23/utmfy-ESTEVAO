@@ -5,6 +5,9 @@
  *   data-checkout-domains="pay.cakto.com.br"     (lista separada por vírgula)
  *   data-callback="false"                        (não enviar ?callback=<sessão> ao checkout)
  *   data-beacon="false"                          (não enviar sessão ao servidor)
+ *   data-pixel="<ID_DO_PIXEL_META>"              (carrega o pixel da Meta: PageView + InitiateCheckout no clique do
+ *                                                 checkout. Use SÓ em páginas sem outro pixel da Meta instalado;
+ *                                                 se a página já tiver `fbq`, o t.js não mexe no pixel)
  * API: window.UtmfyTracker.decorate(url) → url com os parâmetros de atribuição.
  */
 (function (w, d) {
@@ -29,6 +32,7 @@
     domains: String(attr("data-checkout-domains", "pay.cakto.com.br")).split(",").map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean),
     callback: attr("data-callback", "true") !== "false",
     beacon: attr("data-beacon", "true") !== "false",
+    pixel: /^\d{5,30}$/.test(attr("data-pixel", "")) ? attr("data-pixel", "") : "",
   };
 
   function now() { return new Date().getTime(); }
@@ -110,6 +114,35 @@
     return p;
   }
 
+  // ---- Pixel da Meta (opcional) ---------------------------------------------
+  // Base code padrão da Meta. Só assume o pixel se a página ainda não tem `fbq`
+  // (outro dono do pixel → não dobra PageView/InitiateCheckout).
+  var pixelOwned = false;
+  function loadPixel(id) {
+    if (!id || w.fbq) return;
+    try {
+      var n = (w.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); });
+      if (!w._fbq) w._fbq = n;
+      n.push = n; n.loaded = true; n.version = "2.0"; n.queue = []; n._utmfy = true;
+      var s = d.createElement("script");
+      s.async = true;
+      s.src = "https://connect.facebook.net/en_US/fbevents.js";
+      var first = d.getElementsByTagName("script")[0];
+      if (first && first.parentNode) first.parentNode.insertBefore(s, first); else (d.head || d.documentElement).appendChild(s);
+      n("init", id);
+      n("track", "PageView");
+      pixelOwned = true;
+    } catch (e) { /* nunca quebra a página */ }
+  }
+  var lastIC = 0;
+  function trackInitiateCheckout() {
+    if (!pixelOwned || !w.fbq) return;
+    var t = now();
+    if (t - lastIC < 1500) return; // clique duplo / bolha de evento
+    lastIC = t;
+    try { w.fbq("track", "InitiateCheckout"); } catch (e) { /* ignore */ }
+  }
+
   function isCheckout(host) {
     host = String(host || "").toLowerCase();
     for (var i = 0; i < cfg.domains.length; i++) {
@@ -189,6 +222,11 @@
     var n = decorate(el.href);
     if (n !== el.href) el.href = n;
     try { if (isCheckout(new URL(el.href).hostname)) beacon("checkout_click"); } catch (e) { /* ignore */ }
+    // InitiateCheckout: link para o domínio do checkout OU marcado com data-checkout (mesma regra que a UTMify usava).
+    try {
+      var marked = el.hasAttribute ? el.hasAttribute("data-checkout") : false;
+      if (marked || isCheckout(new URL(el.href).hostname)) trackInitiateCheckout();
+    } catch (e) { /* ignore */ }
   }
 
   w.UtmfyTracker = {
@@ -199,6 +237,7 @@
     _isCheckout: isCheckout,
   };
 
+  loadPixel(cfg.pixel);
   if (d.addEventListener) d.addEventListener("click", onClick, true);
   if (d.readyState === "loading" && d.addEventListener) {
     d.addEventListener("DOMContentLoaded", decorateAll);

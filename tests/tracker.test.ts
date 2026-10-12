@@ -9,7 +9,7 @@ import { diagnoseUrl } from "@/lib/core/diagnostic";
 const SRC = readFileSync(join(__dirname, "..", "public", "t.js"), "utf8");
 
 
-function makeEnv(href: string, opts: { storage?: Map<string, string>; cookie?: string; attrs?: Record<string, string>; links?: { href: string }[] } = {}) {
+function makeEnv(href: string, opts: { storage?: Map<string, string>; cookie?: string; attrs?: Record<string, string>; links?: { href: string }[]; preset?: Record<string, unknown> } = {}) {
   const storage = opts.storage ?? new Map<string, string>();
   const beacons: string[] = [];
   const cookies = new Map<string, string>();
@@ -22,6 +22,8 @@ function makeEnv(href: string, opts: { storage?: Map<string, string>; cookie?: s
     return el;
   });
   const u = new URL(href);
+  const listeners: Record<string, (e: unknown) => void> = {};
+  const inserted: { src?: string }[] = [];
   const document = {
     currentScript: { src: "https://app.exemplo.com/t.js", getAttribute: (n: string) => opts.attrs?.[n] ?? (n === "data-offer" ? "00000000-0000-0000-0000-000000000001" : null) },
     readyState: "complete",
@@ -35,17 +37,23 @@ function makeEnv(href: string, opts: { storage?: Map<string, string>; cookie?: s
       cookies.set(k.trim(), rest.join("="));
     },
     querySelectorAll: () => links,
-    addEventListener: () => undefined,
+    addEventListener: (ev: string, fn: (e: unknown) => void) => { listeners[ev] = fn; },
+    createElement: () => ({}) as { src?: string },
+    getElementsByTagName: () => [{ parentNode: { insertBefore: (el: { src?: string }) => { inserted.push(el); } } }],
   };
   const window: Record<string, unknown> = {
     location: { href, search: u.search, origin: u.origin, pathname: u.pathname, hostname: u.hostname },
     localStorage: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v) },
     crypto: globalThis.crypto,
     navigator: { sendBeacon: (_url: string, blob: Blob) => { beacons.push(String((blob as unknown as { size: number }).size)); return true; } },
+    ...(opts.preset ?? {}),
   };
   new Function("window", "document", "URL", "URLSearchParams", "Blob", SRC)(window, document, URL, URLSearchParams, Blob);
   const T = window.UtmfyTracker as { decorate: (u: string) => string; sessionId: () => string; params: () => Record<string, string> };
-  return { T, storage, cookies, links, beacons };
+  const click = (href: string, attrs: Record<string, string> = {}) =>
+    listeners.click?.({ target: { tagName: "A", href, parentNode: null, hasAttribute: (n: string) => n in attrs } });
+  const fbq = window.fbq as (((...a: unknown[]) => void) & { queue?: unknown[][] }) | undefined;
+  return { T, storage, cookies, links, beacons, click, inserted, fbq, window };
 }
 
 const AD =
@@ -137,5 +145,59 @@ describe("diagnóstico de URL", () => {
   it("encoding duplo e parâmetro duplicado são ATENÇÃO", () => {
     const r = diagnoseUrl("https://p.com/?utm_source=FB&utm_source=ig&utm_campaign=A%257C120200000000000001");
     expect(r.checks.map((c) => c.code)).toEqual(expect.arrayContaining(["DUPLICATED_PARAM", "ENCODING_ISSUE"]));
+  });
+});
+
+describe("pixel da Meta no t.js (data-pixel)", () => {
+  const PIXEL = "1278010487791087";
+  const events = (e: ReturnType<typeof makeEnv>) => (e.fbq?.queue ?? []).map((a) => Array.from(a as ArrayLike<unknown>));
+
+  it("sem data-pixel não carrega nem toca no pixel (compatível com páginas que já têm o seu)", () => {
+    const e = makeEnv(AD);
+    expect(e.fbq).toBeUndefined();
+    expect(e.inserted).toHaveLength(0);
+  });
+
+  it("com data-pixel carrega o fbevents, faz init e dispara PageView", () => {
+    const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
+    expect(e.inserted[0]?.src).toBe("https://connect.facebook.net/en_US/fbevents.js");
+    expect(events(e)).toEqual([["init", PIXEL], ["track", "PageView"]]);
+  });
+
+  it("InitiateCheckout dispara no clique do checkout (domínio ou data-checkout), 1× por clique", () => {
+    const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
+    e.click("https://pay.cakto.com.br/abc");
+    e.click("https://pay.cakto.com.br/abc"); // clique duplo imediato não dobra
+    expect(events(e).filter((a) => a[1] === "InitiateCheckout")).toHaveLength(1);
+    const e2 = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
+    e2.click("https://outro.site/ir", { "data-checkout": "" });
+    expect(events(e2).filter((a) => a[1] === "InitiateCheckout")).toHaveLength(1);
+  });
+
+  it("link comum (nem checkout nem data-checkout) não dispara InitiateCheckout", () => {
+    const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
+    e.click("https://pagina.com/sobre");
+    expect(events(e).some((a) => a[1] === "InitiateCheckout")).toBe(false);
+  });
+
+  it("se a página já tem fbq, o t.js não mexe no pixel (evita eventos em dobro)", () => {
+    const calls: unknown[][] = [];
+    const own = Object.assign((...a: unknown[]) => { calls.push(a); }, { queue: [] as unknown[][] });
+    const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL }, preset: { fbq: own } });
+    e.click("https://pay.cakto.com.br/abc");
+    expect(calls).toEqual([]);
+    expect(e.inserted).toHaveLength(0);
+  });
+
+  it("data-pixel inválido é ignorado", () => {
+    const e = makeEnv(AD, { attrs: { "data-pixel": "abc" } });
+    expect(e.fbq).toBeUndefined();
+  });
+
+  it("o rastreio de UTM segue igual com o pixel ligado", () => {
+    const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
+    const out = new URL(e.T.decorate("https://pay.cakto.com.br/a8BcHrY"));
+    expect(out.searchParams.get("utm_content")).toBe("Ad 123|120200000000000123");
+    expect(out.searchParams.get("callback")).toBe(e.T.sessionId());
   });
 });

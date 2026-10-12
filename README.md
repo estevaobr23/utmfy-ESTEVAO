@@ -7,11 +7,13 @@ ANÚNCIO (Meta) → CLIQUE → UTM → PÁGINA (tracker) → CHECKOUT (Cakto) �
 ```
 
 - **Receita, vendas e status = Cakto** (webhook em tempo real + API para sincronizar/reconciliar).
-- **Gasto e estrutura de anúncios = Meta Ads** (integração **somente leitura**, Marketing API v26.0).
+- **Gasto e estrutura de anúncios = Meta Ads** (Marketing API v26.0; leitura, **exceto o orçamento diário**, que o lápis da tabela edita na Meta).
 - **Atribuição = UTMs recebidas pela Cakto + sessão do nosso tracker** (`callback`). IDs mandam; nomes só descrevem.
 - Multi-oferta, multi-conta, multi-pixel. Dashboard por oferta e consolidado.
 
 Pendências que dependem de você: **[SETUP_REQUIRED.md](SETUP_REQUIRED.md)**.
+
+**Configurar oferta / pixel / webhook (qualquer chat):** **[INTEGRACAO-CHATS.md](INTEGRACAO-CHATS.md)** · helper `node ~/.utmfy/utmfy.mjs ajuda`.
 
 ## Rodar localmente
 

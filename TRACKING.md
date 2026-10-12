@@ -37,6 +37,11 @@ Em **todas** as páginas do funil (vendas, obrigado, upsell hospedado por você)
 - envia um beacon mínimo para `/api/track` (sessão, UTMs, página sem query, host de referência, UA).
 
 Opções: `data-checkout-domains="pay.cakto.com.br,checkout.meusite.com"`, `data-callback="false"`, `data-beacon="false"`.
+
+**Pixel da Meta (o pixel da nossa plataforma):** `data-pixel="<ID_DO_PIXEL>"` carrega o pixel, dispara
+`PageView` e `InitiateCheckout` (clique em link para o checkout ou com `data-checkout`). Use **só** em
+páginas sem outro pixel da Meta; se a página já tem `fbq`, o `t.js` não mexe no pixel.
+`node ~/.utmfy/utmfy.mjs snippet --oferta <slug>` gera a linha completa.
 Botões por JS: `location.href = UtmfyTracker.decorate(url)`.
 
 ### Por que `callback`?
