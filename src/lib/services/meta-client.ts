@@ -81,8 +81,10 @@ export class MetaClient {
       const json = await res.json().catch(() => ({}));
       if (res.ok) return json as T;
       const err = classifyMetaError(res.status, json);
-      if ((err.kind === "rate_limited" || err.kind === "transient") && attempt < 4) {
-        await sleep(err.kind === "rate_limited" ? 15000 * attempt : 1000 * 2 ** attempt);
+      // Limite de consultas da Meta leva minutos para liberar: esperar 15–45 s e repetir só prende o usuário
+      // (e gasta mais cota). Falha na hora; a próxima sincronização continua de onde parou.
+      if (err.kind === "transient" && attempt < 4) {
+        await sleep(1000 * 2 ** attempt);
         continue;
       }
       throw new MetaApiError(err.kind, err.code, err.message, res.status);

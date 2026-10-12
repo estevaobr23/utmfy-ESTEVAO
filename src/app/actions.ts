@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { addDays, isIsoDate, todayIn } from "@/lib/core/dates";
 import { hint } from "@/lib/core/hash";
@@ -12,7 +13,7 @@ import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { discoverAccounts, syncMeta } from "@/lib/services/meta-sync";
 import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
 import { autoLinkOfferAccounts } from "@/lib/services/offer-auto-link";
-import { reattributePending } from "@/lib/services/orders";
+import { activeRefresh, recentlyRefreshed, runRefresh } from "@/lib/services/refresh";
 import { updateMetaDailyBudget } from "@/lib/services/meta-budget";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
 import { seedDemo } from "@/lib/services/demo";
@@ -307,24 +308,22 @@ export async function syncMetaNow(fd: FormData) {
 /**
  * "Atualizar" dos painéis: gasto da Meta E vendas da Cakto, em paralelo.
  */
-export async function refreshNow(fd: FormData) {
+export type StartRefresh = { state: "started" | "running" | "fresh"; since: string };
+
+export async function startRefresh(): Promise<StartRefresh> {
   const s = await writer();
   const admin = adminClient();
-  const today = todayIn(s.workspace.timezone);
-  // Meta e Cakto são independentes: rodam juntas. Ao final, reatribui o que ficou sem anúncio no catálogo (anúncio novo).
-  const [meta, cakto] = await Promise.all([
-    syncMeta(admin, s.workspace.id, { trigger: "manual" }),
-    syncCaktoOrders(admin, s.workspace.id, { from: `${addDays(today, -3)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual" }),
-  ]);
-  await reattributePending(admin, s.workspace.id).catch(() => null);
-  const raw = str(fd, "back");
-  const path = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/meta";
-  const failed = [meta.error ? `Meta: ${meta.error}` : "", cakto.error ? `Cakto: ${cakto.error}` : ""].filter(Boolean);
-  back(
-    path,
-    failed.length ? `Falha parcial — ${failed.join(" · ")}` : `Atualizado: Meta ${meta.stats.insights} linhas · Cakto ${cakto.stats.fetched} pedidos lidos, ${cakto.stats.inserted} novos, ${cakto.stats.statusChanged} corrigidos`,
-    failed.length ? "error" : "ok",
-  );
+  const since = new Date().toISOString();
+  // Já tem uma atualização em andamento (clique repetido): só acompanha a que existe, não abre outra.
+  const active = await activeRefresh(admin, s.workspace.id);
+  if (active.running) return { state: "running", since: active.startedAt ?? since };
+  // Acabou de atualizar: não gasta a cota da Meta à toa.
+  if (await recentlyRefreshed(admin, s.workspace.id)) return { state: "fresh", since };
+  const workspaceId = s.workspace.id;
+  const timezone = s.workspace.timezone;
+  // Responde na hora; o trabalho pesado segue depois da resposta e a tela só acompanha.
+  after(() => runRefresh(admin, workspaceId, timezone));
+  return { state: "started", since };
 }
 
 // ---------------------------------------------------------------- cakto -----

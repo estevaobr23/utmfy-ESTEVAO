@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { refreshNow } from "@/app/actions";
-import { SubmitButton } from "@/components/client";
+import { RefreshButton } from "@/components/refresh-button";
+
 import { MetaTable } from "@/components/meta/meta-table";
 import { timeAgo } from "@/lib/core/dates";
 import { aggregateLevel, LEVELS, type Level, type LevelRow } from "@/lib/core/meta-levels";
@@ -179,10 +179,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           <span className="text-[#9aa6bb]">Dados da Meta somente leitura (orçamento editável pelo lápis) · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
         </div>
         {canWrite && (
-          <form action={refreshNow}>
-            <input type="hidden" name="back" value={link({})} />
-            <SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton>
-          </form>
+          <RefreshButton />
         )}
       </div>
 

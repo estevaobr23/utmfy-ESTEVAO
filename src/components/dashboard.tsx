@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { refreshNow } from "@/app/actions";
-import { SubmitButton } from "@/components/client";
+import { RefreshButton } from "@/components/refresh-button";
 import { FilterBar } from "@/components/filters";
 import { KpiGrid, PeriodBadge } from "@/components/report";
 import { SummaryAnalyticsGrid } from "@/components/summary/analytics-grid";
@@ -38,13 +37,12 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
   const query = filtersToQuery(offerId ? { ...filters, offer: null } : filters);
   const untrackedHref = offerId ? `${untrackedPath}${query}${query ? "&" : "?"}atribuicao=nao-rastreadas` : `${untrackedPath}${query}`;
   const lastSync = accounts.map((account) => account.last_sync_at as string | null).filter((value): value is string => !!value).sort().pop() ?? null;
-  const refreshBack = `${basePath}${query}`;
 
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#384662] bg-[#27334d] px-4 py-2.5 text-xs text-[#9aa6bb]">
         <span><PeriodBadge f={filters} /> <span className="ml-2">fuso {ws.timezone} · moeda {ws.currency} · receita Cakto · gasto Meta</span></span>
-        <span className="flex items-center gap-3">Atualizado {lastSync ? timeAgo(lastSync) : "nunca"}{canWrite && <form action={refreshNow}><input type="hidden" name="back" value={refreshBack} /><SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton></form>}</span>
+        <span className="flex items-center gap-3">Atualizado {lastSync ? timeAgo(lastSync) : "nunca"}{canWrite && <RefreshButton />}</span>
       </div>
       <FilterBar f={filters} offers={offers} accounts={accounts} catalog={catalog} hideOffer={!!offerId} action={basePath} />
       {!report.spendStatus.reliable && <div className="mb-3"><Notice tone="warn">{report.spendStatus.message} Lucro, ROAS, ROI, margem e CPA permanecem indisponíveis. {offerId && <Link href={`/ofertas/${offerId}/integracoes`} className="underline">Revisar associações</Link>}</Notice></div>}

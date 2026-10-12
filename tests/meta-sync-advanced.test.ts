@@ -75,14 +75,14 @@ function fakeClient(opts: { failStep?: string; rejectField?: string } = {}) {
 }
 
 describe("syncAdvanced (mocks)", () => {
-  it("coleta campanhas, conjuntos, criativos, vídeo e alcance", async () => {
+  it("coleta campanhas, conjuntos, vídeo e alcance (criativos vêm junto do catálogo, em syncAccount)", async () => {
     const { db, tables } = fakeDb();
-    const { client } = fakeClient();
+    const { client, calls } = fakeClient();
     const s = await syncAdvanced(db, "ws", client, ACC, "2026-10-10", "2026-10-11", "America/Sao_Paulo");
-    expect(s).toMatchObject({ campaigns: 1, adsets: 1, creatives: 2, video_rows: 3, video_saved: 2, video_not_applicable: 1, failures: [] });
+    expect(s).toMatchObject({ campaigns: 1, adsets: 1, creatives: 0, video_rows: 3, video_saved: 2, video_not_applicable: 1, failures: [] });
     expect(tables.get("meta_campaigns")!.get("ws|C1")).toMatchObject({ daily_budget_minor: 401, currency: "USD" });
-    expect(tables.get("meta_ads")!.get("ws|V1")).toMatchObject({ has_video: true, creative_type: "VIDEO" });
-    expect(tables.get("meta_ads")!.get("ws|I1")).toMatchObject({ has_video: false });
+    // Economia de cota da Meta: syncAdvanced não consulta /ads (o catálogo já traz o criativo).
+    expect(calls.some((c) => c.path.endsWith("/ads"))).toBe(false);
     expect(tables.get("meta_video_daily")!.get("ws|111|V1|2026-10-11")).toMatchObject({ plays_3s: 30, video_plays: 95, thruplays: 10 });
     expect(s.reach_rows).toBeGreaterThan(0);
   });

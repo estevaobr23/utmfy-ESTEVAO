@@ -108,10 +108,11 @@ export type AccountRow = { id: string; account_id: string; connection_id: string
 
 async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string) {
   const stats = { ads: 0, insights: 0 };
-  // 1) catálogo (campanha → conjunto → anúncio), inclusive anúncios sem gasto
-  const ads = await client.getAll<{ id: string; name?: string; effective_status?: string; adset?: { id: string; name?: string }; campaign?: { id: string; name?: string } }>(
+  // 1) catálogo (campanha → conjunto → anúncio), inclusive anúncios sem gasto.
+  //    Já traz o tipo de criativo: uma chamada só (antes eram duas, e a cota da Meta é pequena).
+  const ads = await client.getAll<{ id: string; name?: string; effective_status?: string; adset?: { id: string; name?: string }; campaign?: { id: string; name?: string }; creative?: { object_type?: string; video_id?: string } }>(
     `act_${acc.account_id}/ads`,
-    { fields: "id,name,effective_status,adset{id,name},campaign{id,name}", limit: 500 },
+    { fields: "id,name,effective_status,adset{id,name},campaign{id,name},creative{object_type,video_id}", limit: 500 },
     50,
   );
   const catalog = ads
@@ -126,6 +127,8 @@ async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc:
       ad_id: a.id,
       ad_name: a.name ?? null,
       effective_status: a.effective_status ?? null,
+      creative_type: a.creative?.object_type ?? null,
+      has_video: creativeHasVideo(a.creative),
       updated_at: new Date().toISOString(),
     }));
   for (let i = 0; i < catalog.length; i += 500) {
@@ -224,17 +227,6 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     stats.adsets = rows.length;
   });
 
-  const sCreatives = step("creatives", async () => {
-    const raw = await client.getAll<{ id: string; campaign?: { id: string }; adset?: { id: string }; creative?: { object_type?: string; video_id?: string } }>(
-      `act_${acc.account_id}/ads`, { fields: "id,campaign{id},adset{id},creative{object_type,video_id}", limit: 500 }, 50);
-    const rows = raw.filter((a) => a.campaign?.id && a.adset?.id).map((a) => ({
-      workspace_id: workspaceId, account_id: acc.account_id, campaign_id: a.campaign!.id, adset_id: a.adset!.id, ad_id: a.id,
-      creative_type: a.creative?.object_type ?? null, has_video: creativeHasVideo(a.creative),
-    }));
-    await upsertChunks(db, "meta_ads", rows, "workspace_id,ad_id");
-    stats.creatives = rows.length;
-  });
-
   const sVideo = step("video", async () => {
     for (const win of chunkRange(since, until, 31)) {
       const days = Math.round((new Date(win.until).getTime() - new Date(win.since).getTime()) / 864e5) + 1;
@@ -253,13 +245,21 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
 
   const sReach = step("reach", async () => {
     const today = todayIn(tz);
-    const { data: known } = await db.from("meta_reach_period").select("since, until").eq("workspace_id", workspaceId).eq("account_id", acc.account_id).eq("level", "account");
-    const have = new Set((known ?? []).map((k) => `${k.since}|${k.until}`));
-    // Período já encerrado antes da janela desta sincronização e já salvo não muda mais.
-    const windows = reachWindows(tz).filter((w) => !(w.until < since && have.has(`${w.since}|${w.until}`)));
-    // Período × nível são consultas independentes: até 6 em paralelo (eram ~24 em fila, ~20 s).
+    const { data: known } = await db.from("meta_reach_period").select("since, until, fetched_at").eq("workspace_id", workspaceId).eq("account_id", acc.account_id).eq("level", "account");
+    const fetchedAt = new Map((known ?? []).map((k) => [`${k.since}|${k.until}`, new Date(k.fetched_at as string).getTime()]));
+    // O alcance gasta a maior parte da cota da Meta (4 consultas por período). Só busca de novo o que ficou velho:
+    // períodos que incluem hoje a cada 5 min, os demais a cada 60 min; encerrado antes da janela e já salvo não muda mais.
+    const stale = (w: { since: string; until: string }) => {
+      const key = `${w.since}|${w.until}`;
+      const at = fetchedAt.get(key);
+      if (at == null) return true;
+      if (w.until < since) return false;
+      return Date.now() - at >= (w.until >= today ? 5 : 60) * 60_000;
+    };
+    const windows = reachWindows(tz).filter(stale);
+    // Período × nível são consultas independentes: até 3 em paralelo (6 estourava o limite da Meta).
     const jobs = windows.flatMap((w) => REACH_LEVELS.map((level) => ({ w, level })));
-    await mapPool(jobs, 6, async ({ w, level }) => {
+    await mapPool(jobs, 3, async ({ w, level }) => {
       const idField = level === "account" ? "account_id" : `${level}_id`;
       const raw = await client.getAll<RawReach>(`act_${acc.account_id}/insights`, {
         level, fields: [...new Set(["account_id", idField, "impressions", "reach", "frequency"])].join(","),
@@ -273,7 +273,7 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     await db.from("meta_reach_period").delete().eq("workspace_id", workspaceId).eq("account_id", acc.account_id).lt("until", reachCutoff(today));
   });
 
-  await Promise.all([sCampaigns, sAdsets, sCreatives, sVideo, sReach]);
+  await Promise.all([sCampaigns, sAdsets, sVideo, sReach]);
 
   await logEvent(db, {
     workspaceId, level: stats.failures.length ? "warn" : "info", code: "META_ADVANCED_SYNC", provider: "meta",
@@ -314,6 +314,7 @@ export async function syncMeta(
     return { jobId, stats, error: "no_active_accounts" };
   }
 
+  let rateLimited = false;
   const clients = new Map<string, MetaClient>();
   for (const acc of accounts as AccountRow[]) {
     const conn = conns.find((c) => c.id === acc.connection_id) ?? conns[0];
@@ -335,12 +336,22 @@ export async function syncMeta(
       stats.ads = (stats.ads as number) + s.ads;
       stats.insights = (stats.insights as number) + s.insights;
       const adv = await syncAdvanced(db, workspaceId, client, acc, since, until, ws?.timezone ?? "America/Sao_Paulo");
+      adv.creatives = s.ads; // o tipo de criativo agora vem junto do catálogo
+      if (adv.failures.some((f) => f.reason === "rate_limited")) { stats.rate_limited = true; rateLimited = true; }
       (stats.advanced as Record<string, AdvancedStats>)[acc.account_id] = adv;
       await db.from("meta_ad_accounts").update({ last_sync_at: new Date().toISOString(), last_error: null }).eq("id", acc.id);
       await db.from("meta_connections").update({ status: "active", last_sync_at: new Date().toISOString(), last_error: null }).eq("id", conn.id);
     } catch (e) {
       (stats.failed as string[]).push(acc.account_id);
       const reason = e instanceof MetaApiError ? e.kind : "exception";
+      if (reason === "rate_limited") {
+        // Limite temporário da Meta: os dados já salvos continuam válidos. Não marca a conta com erro
+        // (isso apagava Gastos/Lucro do painel); só registra e avisa na interface.
+        stats.rate_limited = true;
+        rateLimited = true;
+        await logEvent(db, { workspaceId, level: "warn", code: "META_RATE_LIMITED", provider: "meta", message: (e as Error).message, context: { account_id: acc.account_id } });
+        break;
+      }
       await db.from("meta_ad_accounts").update({ last_error: `${reason}: ${(e as Error).message}`.slice(0, 300) }).eq("id", acc.id);
       if (reason === "token_expired") await markConnection(db, conn, e);
       await logEvent(db, { workspaceId, level: "error", code: "META_SYNC_FAILED", provider: "meta", message: (e as Error).message, context: { account_id: acc.account_id, reason } });
@@ -374,5 +385,5 @@ export async function syncMeta(
   stats.reattributed = re;
   const failed = (stats.failed as string[]).length;
   await finishJob(db, jobId, failed === 0 ? "success" : failed < accounts.length ? "partial" : "failed", stats);
-  return { jobId, stats };
+  return { jobId, stats, rateLimited };
 }
