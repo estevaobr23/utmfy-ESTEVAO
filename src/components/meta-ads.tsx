@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { syncMetaNow } from "@/app/actions";
+import { refreshNow } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { MetaTable } from "@/components/meta/meta-table";
 import { timeAgo } from "@/lib/core/dates";
@@ -179,7 +179,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           <span className="text-[#9aa6bb]">Meta somente leitura · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
         </div>
         {canWrite && (
-          <form action={syncMetaNow}>
+          <form action={refreshNow}>
             <input type="hidden" name="back" value={link({})} />
             <SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton>
           </form>

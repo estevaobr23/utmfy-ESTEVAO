@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { syncMetaNow } from "@/app/actions";
+import { refreshNow } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { FilterBar } from "@/components/filters";
 import { KpiGrid, PeriodBadge } from "@/components/report";
@@ -44,7 +44,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
     <>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#384662] bg-[#27334d] px-4 py-2.5 text-xs text-[#9aa6bb]">
         <span><PeriodBadge f={filters} /> <span className="ml-2">fuso {ws.timezone} · moeda {ws.currency} · receita Cakto · gasto Meta</span></span>
-        <span className="flex items-center gap-3">Atualizado {lastSync ? timeAgo(lastSync) : "nunca"}{canWrite && <form action={syncMetaNow}><input type="hidden" name="back" value={refreshBack} /><SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton></form>}</span>
+        <span className="flex items-center gap-3">Atualizado {lastSync ? timeAgo(lastSync) : "nunca"}{canWrite && <form action={refreshNow}><input type="hidden" name="back" value={refreshBack} /><SubmitButton pendingText="Atualizando...">Atualizar</SubmitButton></form>}</span>
       </div>
       <FilterBar f={filters} offers={offers} accounts={accounts} catalog={catalog} hideOffer={!!offerId} action={basePath} />
       {!report.spendStatus.reliable && <div className="mb-3"><Notice tone="warn">{report.spendStatus.message} Lucro, ROAS, ROI, margem e CPA permanecem indisponíveis. {offerId && <Link href={`/ofertas/${offerId}/integracoes`} className="underline">Revisar associações</Link>}</Notice></div>}

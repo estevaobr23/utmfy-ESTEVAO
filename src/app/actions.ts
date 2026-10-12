@@ -288,6 +288,26 @@ export async function syncMetaNow(fd: FormData) {
   back(path, r.error ? `Falha: ${r.error}` : `Meta sincronizada: ${r.stats.insights} linhas, ${r.stats.ads} anúncios`, r.error ? "error" : "ok");
 }
 
+/**
+ * "Atualizar" dos painéis: gasto da Meta E vendas da Cakto, na mesma ordem do cron
+ * (Meta primeiro, para o catálogo de anúncios já existir quando a venda for atribuída).
+ */
+export async function refreshNow(fd: FormData) {
+  const s = await writer();
+  const admin = adminClient();
+  const today = todayIn(s.workspace.timezone);
+  const meta = await syncMeta(admin, s.workspace.id, { trigger: "manual" });
+  const cakto = await syncCaktoOrders(admin, s.workspace.id, { from: `${addDays(today, -3)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual" });
+  const raw = str(fd, "back");
+  const path = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/meta";
+  const failed = [meta.error ? `Meta: ${meta.error}` : "", cakto.error ? `Cakto: ${cakto.error}` : ""].filter(Boolean);
+  back(
+    path,
+    failed.length ? `Falha parcial — ${failed.join(" · ")}` : `Atualizado: Meta ${meta.stats.insights} linhas · Cakto ${cakto.stats.fetched} pedidos lidos, ${cakto.stats.inserted} novos, ${cakto.stats.statusChanged} corrigidos`,
+    failed.length ? "error" : "ok",
+  );
+}
+
 // ---------------------------------------------------------------- cakto -----
 export async function syncCaktoNow(fd: FormData) {
   const s = await writer();
