@@ -8,6 +8,8 @@ import { env } from "@/lib/env";
 import { requireOffer } from "@/lib/offer-context";
 import { caktoApi, caktoConfigured, type CaktoProduct } from "@/lib/services/cakto-client";
 import { offerWebhookUrl } from "@/lib/services/offer-webhooks";
+import { adsetPixelId } from "@/lib/core/offer-pixel-scope";
+import { loadPixelDerivation } from "@/lib/services/offer-auto-link";
 
 const EVENTS = ["Compra aprovada", "Pix gerado", "Compra recusada", "Reembolso", "Reembolso solicitado", "Chargeback"];
 
@@ -31,11 +33,14 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
   const bindingsUnavailable = !!bindingResult.error;
   const adsets = adsetResult.data ?? [];
   const primaryPixelId = ((pixelLinks ?? [])[0]?.pixels as unknown as { external_pixel_id?: string } | null)?.external_pixel_id ?? null;
-  const promotedPixel = (value: unknown) => {
-    if (!value || typeof value !== "object") return null;
-    const pixel = (value as Record<string, unknown>).pixel_id;
-    return typeof pixel === "string" || typeof pixel === "number" ? String(pixel) : null;
-  };
+  const promotedPixel = adsetPixelId;
+  // Regra automática: conjuntos que otimizam para o pixel desta oferta pertencem a ela.
+  const derivation = await loadPixelDerivation(sb, workspace.id);
+  const mineAdsets = new Set((derivation?.bindings ?? []).filter((b) => b.offerId === id).map((b) => `${b.accountId}:${b.objectId}`));
+  const autoAdsets = adsets.filter((adset) => mineAdsets.has(`${adset.account_id}:${adset.adset_id}`));
+  const autoCampaignIds = new Set(autoAdsets.map((adset) => `${adset.account_id}:${adset.campaign_id}`));
+  const autoCampaigns = campaigns.filter((campaign) => autoCampaignIds.has(`${campaign.account_id}:${campaign.campaign_id}`));
+  const sharedPixels = (derivation?.ambiguousPixels ?? []).filter((pixel) => primaryPixelId === pixel);
 
   let products: CaktoProduct[] = [];
   let productsError: string | null = null;
@@ -123,8 +128,29 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
           )}
         </Card>
 
+        <Card title="Gasto Meta (automático pelo pixel)">
+          {!primaryPixelId ? (
+            <Notice tone="warn">Vincule o pixel desta oferta (card abaixo). Com ele, toda campanha que otimiza para esse pixel conta aqui sozinha — sem selecionar campanha.</Notice>
+          ) : sharedPixels.length ? (
+            <Notice tone="warn">O pixel {primaryPixelId} também está vinculado a outra oferta, então o gasto não pode ser separado. Use um pixel exclusivo para cada oferta.</Notice>
+          ) : (
+            <>
+              <p className="mb-2 text-sm text-[#aeb8c9]">
+                Pixel <Code>{primaryPixelId}</Code>: campanhas e conjuntos que usam esse pixel entram nesta oferta automaticamente, inclusive os novos (a cada sincronização da Meta).
+              </p>
+              <div className="mb-2 flex flex-wrap gap-2 text-xs"><Badge tone="ok">{autoCampaigns.length} campanha(s)</Badge><Badge tone="ok">{autoAdsets.length} conjunto(s)</Badge></div>
+              <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-[#e2e7ef]">
+                {autoCampaigns.map((campaign) => <li key={`${campaign.account_id}:${campaign.campaign_id}`} className="truncate">{campaign.campaign_name ?? "Sem nome"} <Code>{campaign.campaign_id}</Code></li>)}
+                {!autoCampaigns.length && <li className="text-[#8f9bb1]">Nenhum conjunto sincronizado usa esse pixel ainda. Suba um anúncio com ele e sincronize a Meta.</li>}
+              </ul>
+            </>
+          )}
+        </Card>
+
+        <details className="lg:col-span-2">
+          <summary className="cursor-pointer text-sm text-[#9ca8bb]">Avançado: vínculo manual de campanhas (só para exceções, o pixel já faz isso sozinho)</summary>
         <Card title="Contas, campanhas e conjuntos (Meta)">
-          <p className="mb-3 text-sm text-[#aeb8c9]">Confirme exatamente quais objetos pertencem a esta oferta. O pixel destaca sugestões, mas não atribui gasto sozinho.</p>
+          <p className="mb-3 text-sm text-[#aeb8c9]">Use só para campanha sem pixel de conversão. Conjuntos com o pixel de uma oferta sempre pertencem a ela, independente do que for marcado aqui.</p>
           {bindingsUnavailable && <div className="mb-3"><Notice tone="warn">A migration de associações explícitas ainda não foi aplicada. Os vínculos legados continuam preservados.</Notice></div>}
           {accounts?.length ? <div className="space-y-3">
             {accounts.map((account) => {
@@ -160,6 +186,7 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
             })}
           </div> : <Notice tone="warn">Nenhuma conta importada. Em <Link className="underline" href="/meta">Conexão Meta</Link>, clique em Descobrir contas.</Notice>}
         </Card>
+        </details>
 
         <Card title="Pixel principal">
           <ul className="mb-3 space-y-1 text-sm">

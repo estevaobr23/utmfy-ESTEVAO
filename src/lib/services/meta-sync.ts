@@ -13,6 +13,7 @@ import { ensureFxRates } from "./fx";
 import { finishJob, logEvent, startJob } from "./logs";
 import { MetaApiError, MetaClient } from "./meta-client";
 import { reattributePending } from "./orders";
+import { autoLinkOfferAccounts } from "./offer-auto-link";
 
 // Sincronização READ-ONLY: contas → catálogo de anúncios → insights diários
 // (nível anúncio). Estratégia: hoje + ontem a cada execução e retroativo de
@@ -349,6 +350,12 @@ export async function syncMeta(
       }
     }
   }
+
+  // Oferta ↔ conta de anúncio sai do pixel: campanha nova com o pixel da oferta entra sozinha.
+  stats.auto_linked = await autoLinkOfferAccounts(db, workspaceId).catch(async (e) => {
+    await logEvent(db, { workspaceId, level: "warn", code: "OFFER_AUTO_LINK_FAILED", provider: "meta", message: (e as Error).message });
+    return 0;
+  });
 
   const re = await reattributePending(db, workspaceId).catch(() => ({ checked: 0, resolved: 0 }));
   stats.reattributed = re;

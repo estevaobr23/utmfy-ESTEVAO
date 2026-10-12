@@ -11,6 +11,7 @@ import { requireWorkspace, requireSession, WS_COOKIE } from "@/lib/session";
 import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { discoverAccounts, syncMeta } from "@/lib/services/meta-sync";
 import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
+import { autoLinkOfferAccounts } from "@/lib/services/offer-auto-link";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
 import { seedDemo } from "@/lib/services/demo";
 import { logEvent } from "@/lib/services/logs";
@@ -230,7 +231,13 @@ export async function setPixelToken(fd: FormData) {
 
 export async function linkPixel(fd: FormData) {
   const s = await writer();
+  const dest = str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/integracoes` : "/pixels";
+  // Pixel compartilhado por duas ofertas não separa o gasto: um pixel, uma oferta.
+  const { data: other } = await s.sb.from("offer_pixels").select("offer_id").eq("pixel_id", uuid.parse(str(fd, "pixel_id"))).eq("active", true).neq("offer_id", uuid.parse(str(fd, "offer_id"))).limit(1);
+  if (other?.length) return back(dest, "Esse pixel já pertence a outra oferta. Use um pixel exclusivo para cada oferta.", "error");
   const { error } = await s.sb.from("offer_pixels").upsert({ workspace_id: s.workspace.id, offer_id: uuid.parse(str(fd, "offer_id")), pixel_id: uuid.parse(str(fd, "pixel_id")), active: true });
+  // Um pixel por oferta: com o pixel ligado, as contas e campanhas dele entram sozinhas.
+  if (!error) await autoLinkOfferAccounts(s.sb, s.workspace.id).catch(() => 0);
   back(str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/integracoes` : "/pixels", error ? error.message : "Pixel associado", error ? "error" : "ok");
 }
 
