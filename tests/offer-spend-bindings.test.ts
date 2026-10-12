@@ -42,4 +42,16 @@ describe("escopo de gasto por vínculo explícito", () => {
   it("sinaliza conta vinculada sem nenhum objeto confirmado", () => {
     expect(scopeOfferSpendRowsByBindings(rows, "offer-c", ["999"], bindings).pendingAccounts).toEqual(["999"]);
   });
+
+  it("usa a conta inteira quando ela é exclusiva e ainda não possui associações", () => {
+    const scoped = scopeOfferSpendRowsByBindings(rows, "offer-a", ["999"], [], ["999"]);
+    expect(scoped.rows).toEqual(rows);
+    expect(scoped.pendingAccounts).toEqual([]);
+    expect(scoped.confirmedAccounts).toEqual(["999"]);
+  });
+
+  it("mantém o escopo explícito quando uma conta exclusiva já possui associação", () => {
+    const scoped = scopeOfferSpendRowsByBindings(rows, "offer-a", ["999"], bindings, ["999"]);
+    expect(scoped.rows.map((item) => item.ad_id)).toEqual(["A1"]);
+  });
 });

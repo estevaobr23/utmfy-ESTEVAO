@@ -26,6 +26,17 @@ describe("isolamento de gasto por oferta", () => {
     expect(scoped.pendingAccounts).toEqual(["1"]);
   });
 
+  it("libera a conta inteira quando ela pertence exclusivamente à oferta", () => {
+    const scoped = scopeOfferSpendRows(
+      [row("1", "10", "Calistenia"), row("1", "20", "Outra campanha")],
+      [{ accountId: "1", campaignFilter: null }],
+      ["1"],
+    );
+    expect(scoped.rows.map((item) => item.campaign_id)).toEqual(["10", "20"]);
+    expect(scoped.pendingAccounts).toEqual([]);
+    expect(scoped.confirmedAccounts).toEqual(["1"]);
+  });
+
   it("aceita lista persistente de IDs sem misturar outra campanha da conta", () => {
     const rows = [row("1", "10", "Calistenia"), row("1", "20", "Casas")];
     const scoped = scopeOfferSpendRows(rows, [{ accountId: "1", campaignFilter: "10, 30" }]);

@@ -3,7 +3,7 @@ import type { Db } from "./supabase/types";
 import { dayRangeUtc, resolveRange, todayIn } from "./core/dates";
 import { spendStatus } from "./core/spend-status";
 import { buildTree, totals, type OrderRow, type SpendRow } from "./core/report";
-import { parseCampaignScope, scopeOfferSpendRows, scopeOfferSpendRowsByBindings, type OfferMetaBinding, type OfferSpendLink } from "./core/offer-spend-scope";
+import { scopeOfferSpendRows, scopeOfferSpendRowsByBindings, type OfferMetaBinding, type OfferSpendLink } from "./core/offer-spend-scope";
 import type { Workspace } from "./session";
 import type { AdsetConfig, CampaignConfig, ReachLevel, VideoRow } from "./core/meta-advanced";
 import { buildSummaryAnalytics, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
@@ -50,10 +50,10 @@ export function parseFilters(sp: SP, tz: string, fixedOffer?: string): Filters {
 export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { includeTree?: boolean } = {}) {
   return timed("report.load", { offerScoped: !!f.offer, includeTree: options.includeTree !== false }, async () => {
   const offers = f.offer ? [f.offer] : null;
-  const [spend, orders, offerLinks, bindingResult, excluded] = await Promise.all([
+  const [spend, orders, offerLinks, workspaceOfferLinks, bindingResult, excluded] = await Promise.all([
     timed("report.spend", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_rows", {
-      // O escopo de oferta é aplicado abaixo por IDs persistentes. A RPC legada
-      // tratava filtro vazio como conta inteira, o que misturava ofertas.
+      // O escopo de oferta é aplicado abaixo por IDs persistentes. Conta sem
+      // filtro só é aceita quando pertence exclusivamente a uma oferta.
       p_workspace: ws.id, p_offer_ids: null, p_from: f.from, p_to: f.to, p_currency: ws.currency,
       p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad,
     })),
@@ -65,6 +65,9 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
       ? sb.from("offer_ad_accounts").select("campaign_filter, meta_ad_accounts(account_id)").eq("offer_id", f.offer)
       : Promise.resolve({ data: [], error: null }),
     f.offer
+      ? sb.from("offer_ad_accounts").select("offer_id, meta_ad_accounts(account_id)").eq("workspace_id", ws.id)
+      : Promise.resolve({ data: [], error: null }),
+    f.offer
       ? sb.from("offer_meta_bindings").select("offer_id, level, object_id, meta_ad_accounts(account_id)").eq("workspace_id", ws.id).eq("status", "confirmed")
       : Promise.resolve({ data: [], error: null }),
     timed("report.excluded", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_excluded", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_currency: ws.currency })),
@@ -72,6 +75,7 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
   if (spend.error) throw new Error(`report_spend_rows: ${spend.error.message}`);
   if (orders.error) throw new Error(`report_order_rows: ${orders.error.message}`);
   if (offerLinks.error) throw new Error(`offer_ad_accounts: ${offerLinks.error.message}`);
+  if (workspaceOfferLinks.error) throw new Error(`offer_ad_accounts ownership: ${workspaceOfferLinks.error.message}`);
   if (excluded.error) throw new Error(`report_spend_excluded: ${excluded.error.message}`);
   const rawSpendRows = (spend.data ?? []) as SpendRow[];
   const links = (offerLinks.data ?? []).map((row) => ({
@@ -84,17 +88,26 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
     level: row.level as "campaign" | "adset",
     objectId: row.object_id as string,
   })).filter((row): row is OfferMetaBinding => !!row.accountId);
+  const accountOfferIds = new Map<string, Set<string>>();
+  for (const row of workspaceOfferLinks.data ?? []) {
+    const accountId = (row.meta_ad_accounts as unknown as { account_id: string } | null)?.account_id ?? "";
+    if (!accountId) continue;
+    const offerIds = accountOfferIds.get(accountId) ?? new Set<string>();
+    offerIds.add(row.offer_id as string);
+    accountOfferIds.set(accountId, offerIds);
+  }
+  const exclusiveAccounts = links
+    .map((link) => link.accountId)
+    .filter((accountId) => accountOfferIds.get(accountId)?.size === 1);
   const scoped = f.offer
     ? bindingResult.error
-      ? scopeOfferSpendRows(rawSpendRows, links)
-      : scopeOfferSpendRowsByBindings(rawSpendRows, f.offer, links.map((link) => link.accountId), bindings)
+      ? scopeOfferSpendRows(rawSpendRows, links, exclusiveAccounts)
+      : scopeOfferSpendRowsByBindings(rawSpendRows, f.offer, links.map((link) => link.accountId), bindings, exclusiveAccounts)
     : { rows: rawSpendRows, pendingAccounts: [] as string[], confirmedAccounts: [] as string[] };
   const spendRows = scoped.rows;
   const orderRows = (orders.data ?? []) as OrderRow[];
   const pre = totals(spendRows, orderRows);
-  const safeAccounts = new Set("confirmedAccounts" in scoped
-    ? scoped.confirmedAccounts
-    : links.filter((link) => parseCampaignScope(link.campaignFilter).mode !== "pending").map((link) => link.accountId));
+  const safeAccounts = new Set(scoped.confirmedAccounts);
   const excludedSpend = ((excluded.data ?? []) as { account_id: string; currency: string; spend: number }[])
     .filter((row) => !f.offer || safeAccounts.has(row.account_id));
   const [other, resolvedSpendStatus] = await Promise.all([
