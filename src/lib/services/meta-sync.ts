@@ -3,6 +3,7 @@ import type { Db } from "../supabase/types";
 import { hint } from "../core/hash";
 import { chunkRange, INSIGHTS_FIELDS, normalizeAccountId, normalizeInsight, type RawInsight } from "../core/meta";
 import { addDays, todayIn } from "../core/dates";
+import { mapPool } from "../core/concurrency";
 import {
   ADSET_FIELDS, CAMPAIGN_FIELDS, REACH_LEVELS, VIDEO_INSIGHTS_FIELDS, creativeHasVideo, hasVideoData, normalizeAdset,
   normalizeCampaign, normalizeReach, normalizeVideoInsight, reachCutoff, reachWindows, rejectedField,
@@ -206,7 +207,8 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     }
   };
 
-  await step("campaigns", async () => {
+  // As etapas são independentes (tabelas e chamadas diferentes) e isoladas por `step`: rodam juntas.
+  const sCampaigns = step("campaigns", async () => {
     const raw = await client.getAll<RawCampaign>(`act_${acc.account_id}/campaigns`, { fields: CAMPAIGN_FIELDS, limit: 500 }, 50);
     const rows = raw.map((r) => normalizeCampaign(r, acc.account_id, acc.currency)).filter((r): r is CampaignConfig => !!r)
       .map((r) => ({ ...r, workspace_id: workspaceId, synced_at: now() }));
@@ -214,7 +216,7 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     stats.campaigns = rows.length;
   });
 
-  await step("adsets", async () => {
+  const sAdsets = step("adsets", async () => {
     const raw = await client.getAll<RawAdset>(`act_${acc.account_id}/adsets`, { fields: ADSET_FIELDS, limit: 500 }, 50);
     const rows = raw.map((r) => normalizeAdset(r, acc.account_id, acc.currency)).filter((r): r is AdsetConfig => !!r)
       .map((r) => ({ ...r, workspace_id: workspaceId, synced_at: now() }));
@@ -222,7 +224,7 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     stats.adsets = rows.length;
   });
 
-  await step("creatives", async () => {
+  const sCreatives = step("creatives", async () => {
     const raw = await client.getAll<{ id: string; campaign?: { id: string }; adset?: { id: string }; creative?: { object_type?: string; video_id?: string } }>(
       `act_${acc.account_id}/ads`, { fields: "id,campaign{id},adset{id},creative{object_type,video_id}", limit: 500 }, 50);
     const rows = raw.filter((a) => a.campaign?.id && a.adset?.id).map((a) => ({
@@ -233,7 +235,7 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     stats.creatives = rows.length;
   });
 
-  await step("video", async () => {
+  const sVideo = step("video", async () => {
     for (const win of chunkRange(since, until, 31)) {
       const days = Math.round((new Date(win.until).getTime() - new Date(win.since).getTime()) / 864e5) + 1;
       const { rows: raw, dropped } = await insightsWithFallback<RawVideoInsight>(client, acc, VIDEO_INSIGHTS_FIELDS, {
@@ -249,27 +251,29 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
     }
   });
 
-  await step("reach", async () => {
+  const sReach = step("reach", async () => {
     const today = todayIn(tz);
     const { data: known } = await db.from("meta_reach_period").select("since, until").eq("workspace_id", workspaceId).eq("account_id", acc.account_id).eq("level", "account");
     const have = new Set((known ?? []).map((k) => `${k.since}|${k.until}`));
     // Período já encerrado antes da janela desta sincronização e já salvo não muda mais.
     const windows = reachWindows(tz).filter((w) => !(w.until < since && have.has(`${w.since}|${w.until}`)));
-    for (const w of windows) {
-      for (const level of REACH_LEVELS) {
-        const idField = level === "account" ? "account_id" : `${level}_id`;
-        const raw = await client.getAll<RawReach>(`act_${acc.account_id}/insights`, {
-          level, fields: [...new Set(["account_id", idField, "impressions", "reach", "frequency"])].join(","),
-          time_range: JSON.stringify({ since: w.since, until: w.until }), limit: 500,
-        }, 20);
-        const rows = raw.map((r) => normalizeReach(r, level, w.since, w.until)).filter((r): r is NonNullable<typeof r> => !!r)
-          .map((r) => ({ ...r, workspace_id: workspaceId, fetched_at: now() }));
-        await upsertChunks(db, "meta_reach_period", rows, "workspace_id,level,object_id,since,until");
-        stats.reach_rows += rows.length;
-      }
-    }
+    // Período × nível são consultas independentes: até 6 em paralelo (eram ~24 em fila, ~20 s).
+    const jobs = windows.flatMap((w) => REACH_LEVELS.map((level) => ({ w, level })));
+    await mapPool(jobs, 6, async ({ w, level }) => {
+      const idField = level === "account" ? "account_id" : `${level}_id`;
+      const raw = await client.getAll<RawReach>(`act_${acc.account_id}/insights`, {
+        level, fields: [...new Set(["account_id", idField, "impressions", "reach", "frequency"])].join(","),
+        time_range: JSON.stringify({ since: w.since, until: w.until }), limit: 500,
+      }, 20);
+      const rows = raw.map((r) => normalizeReach(r, level, w.since, w.until)).filter((r): r is NonNullable<typeof r> => !!r)
+        .map((r) => ({ ...r, workspace_id: workspaceId, fetched_at: now() }));
+      await upsertChunks(db, "meta_reach_period", rows, "workspace_id,level,object_id,since,until");
+      stats.reach_rows += rows.length;
+    });
     await db.from("meta_reach_period").delete().eq("workspace_id", workspaceId).eq("account_id", acc.account_id).lt("until", reachCutoff(today));
   });
+
+  await Promise.all([sCampaigns, sAdsets, sCreatives, sVideo, sReach]);
 
   await logEvent(db, {
     workspaceId, level: stats.failures.length ? "warn" : "info", code: "META_ADVANCED_SYNC", provider: "meta",
@@ -291,7 +295,12 @@ export async function syncMeta(
   const until = opts.until ?? today;
 
   // Contas novas na Meta entram sozinhas (sem depender de clique em "Descobrir contas").
-  const discovered = await discoverAccounts(db, workspaceId, opts.trigger);
+  // No botão "Atualizar" não repete a descoberta se ela já rodou há pouco (o cron sempre roda).
+  const recent = opts.trigger === "manual"
+    ? (await db.from("sync_jobs").select("id").eq("workspace_id", workspaceId).eq("kind", "meta_accounts").eq("status", "success")
+        .gte("started_at", new Date(Date.now() - 30 * 60_000).toISOString()).limit(1)).data?.length
+    : 0;
+  const discovered = recent ? { stats: { skipped: "recent" } as Record<string, unknown> } : await discoverAccounts(db, workspaceId, opts.trigger);
 
   const jobId = await startJob(db, workspaceId, "meta_insights", opts.trigger, { since, until });
   const stats: Record<string, unknown> = { accounts: 0, ads: 0, insights: 0, failed: [] as string[], discovered: discovered.stats, advanced: {} };
@@ -344,6 +353,10 @@ export async function syncMeta(
   if (wsCurrency === "BRL") {
     for (const cur of foreign) {
       try {
+        // PTAX só muda 1× por dia útil: não busca de novo se a cotação foi baixada há menos de 6 h e a janela é recente.
+        const { data: lastFx } = await db.from("fx_rates").select("fetched_at").eq("currency", cur).order("fetched_at", { ascending: false }).limit(1);
+        const fresh = lastFx?.[0]?.fetched_at && Date.now() - new Date(lastFx[0].fetched_at as string).getTime() < 6 * 3600_000;
+        if (fresh && since >= addDays(today, -7)) { stats[`fx_${cur}`] = "fresh"; continue; }
         stats[`fx_${cur}`] = (await ensureFxRates(db, cur, since, until)).fetched;
       } catch (e) {
         await logEvent(db, { workspaceId, level: "error", code: "FX_FETCH_FAILED", provider: "bcb", message: (e as Error).message, context: { currency: cur, since, until } });

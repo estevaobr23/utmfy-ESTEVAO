@@ -1,6 +1,7 @@
 import "server-only";
 import type { Db } from "../supabase/types";
 import { normalizeCaktoOrder } from "../core/cakto/normalize";
+import { mapPool } from "../core/concurrency";
 import { caktoApi, caktoConfigured, CaktoApiError } from "./cakto-client";
 import { finishJob, logEvent, startJob } from "./logs";
 import { syncOfferWebhooks } from "./offer-webhooks";
@@ -50,11 +51,12 @@ export async function syncCaktoOrders(
     stats.truncated = res.truncated;
     const snapshotAt = new Date().toISOString();
 
-    for (const item of res.items) {
+    // Cada pedido faz várias idas ao banco; pedidos são independentes, então até 4 em paralelo.
+    await mapPool(res.items, 4, async (item) => {
       const n = normalizeCaktoOrder(item, { eventAt: snapshotAt });
       if ("error" in n) {
         stats.errors++;
-        continue;
+        return;
       }
       const { data: before } = await db
         .from("orders")
@@ -101,7 +103,7 @@ export async function syncCaktoOrders(
         stats.errors++;
         await logEvent(db, { workspaceId, level: "error", code: "CAKTO_SYNC_ORDER_FAILED", provider: "cakto", message: (e as Error).message, context: { order_id: n.order.external_order_id } });
       }
-    }
+    });
 
     await db.from("cakto_connections").update({ last_sync_at: new Date().toISOString(), last_api_ok_at: new Date().toISOString(), status: "active", last_error: null }).eq("workspace_id", workspaceId);
     await finishJob(db, jobId, stats.errors ? "partial" : "success", stats);
