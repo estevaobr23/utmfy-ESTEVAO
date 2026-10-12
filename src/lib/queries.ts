@@ -2,7 +2,7 @@ import "server-only";
 import type { Db } from "./supabase/types";
 import { dayRangeUtc, resolveRange, todayIn } from "./core/dates";
 import { spendStatus } from "./core/spend-status";
-import { buildTree, totals, type OrderRow, type SpendRow } from "./core/report";
+import { attachPixelEvents, buildTree, pixelFunnelOf, totals, type OrderRow, type PixelEventRow, type SpendRow } from "./core/report";
 import { scopeOfferSpendRows, scopeOfferSpendRowsByBindings, type OfferMetaBinding, type OfferSpendLink } from "./core/offer-spend-scope";
 import { mergeBindings } from "./core/offer-pixel-scope";
 import { loadPixelDerivation } from "./services/offer-auto-link";
@@ -52,7 +52,7 @@ export function parseFilters(sp: SP, tz: string, fixedOffer?: string): Filters {
 export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { includeTree?: boolean } = {}) {
   return timed("report.load", { offerScoped: !!f.offer, includeTree: options.includeTree !== false }, async () => {
   const offers = f.offer ? [f.offer] : null;
-  const [spend, orders, offerLinks, workspaceOfferLinks, bindingResult, excluded, pixelScope] = await Promise.all([
+  const [spend, orders, offerLinks, workspaceOfferLinks, bindingResult, excluded, pixelScope, pixelEvents] = await Promise.all([
     timed("report.spend", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_rows", {
       // O escopo de oferta é aplicado abaixo por IDs persistentes. Conta sem
       // filtro só é aceita quando pertence exclusivamente a uma oferta.
@@ -74,13 +74,15 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
       : Promise.resolve({ data: [], error: null }),
     timed("report.excluded", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_excluded", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_currency: ws.currency })),
     f.offer ? loadPixelDerivation(sb, ws.id) : Promise.resolve(null),
+    // Eventos do pixel (visualização de página / início de checkout). Opcional: sem a função, o funil usa o tracker.
+    sb.rpc("report_pixel_rows", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad }),
   ]);
   if (spend.error) throw new Error(`report_spend_rows: ${spend.error.message}`);
   if (orders.error) throw new Error(`report_order_rows: ${orders.error.message}`);
   if (offerLinks.error) throw new Error(`offer_ad_accounts: ${offerLinks.error.message}`);
   if (workspaceOfferLinks.error) throw new Error(`offer_ad_accounts ownership: ${workspaceOfferLinks.error.message}`);
   if (excluded.error) throw new Error(`report_spend_excluded: ${excluded.error.message}`);
-  const rawSpendRows = (spend.data ?? []) as SpendRow[];
+  const rawSpendRows = attachPixelEvents((spend.data ?? []) as SpendRow[], pixelEvents.error ? null : ((pixelEvents.data ?? []) as PixelEventRow[]));
   const links = (offerLinks.data ?? []).map((row) => ({
     accountId: (row.meta_ad_accounts as unknown as { account_id: string } | null)?.account_id ?? "",
     campaignFilter: row.campaign_filter as string | null,
@@ -133,6 +135,8 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
     tree: options.includeTree === false ? [] : buildTree(spendRows, orderRows),
     spendRows,
     orderRows,
+    /** Visualizações de página e ICs do pixel da Meta no escopo; null = sem coleta (funil usa o tracker). */
+    pixelFunnel: pixelFunnelOf(spendRows),
     excludedSpend,
     spendStatus: resolvedSpendStatus,
     scopeStatus: {
@@ -143,7 +147,7 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
   });
 }
 
-export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true) {
+export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true, metaPixel: { pageviews: number; checkouts: number } | null = null) {
   return timed("summary.analytics", { offerScoped: !!f.offer }, async () => {
   const { start, end } = dayRangeUtc(f.from, f.to, ws.timezone);
   const fields = "id,status,gross_amount,base_amount,payment_method,product_name,offer_type,paid_at,provider_created_at";
@@ -195,6 +199,7 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     attributions: attributions.filter((item) => scopedIds.has(item.order_id)),
     sessions: (sessionsResult.data ?? []) as SummarySession[],
     clicks: spendReliable ? summary.clicks : null,
+    metaPixel: spendReliable ? metaPixel : null,
     approvedCount: summary.approved_count,
   });
   });

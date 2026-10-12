@@ -42,11 +42,11 @@ export const META_METRICS: MetaMetricDefinition[] = [
   { id: "margin", label: "Margem", source: "Cakto + Meta", formula: "Lucro ÷ faturamento líquido", format: "percent", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "roi", label: "ROI", source: "Cakto + Meta", formula: "Lucro ÷ investimento total", format: "ratio", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "clicks", label: "Cliques", source: "Meta Insights (cliques no link)", format: "integer", availability: "available", aggregation: "sum", sortable: true },
-  { id: "page_views", label: "Vis. de pág.", source: "Tracker", format: "integer", availability: "unavailable", aggregation: "unavailable", sortable: false },
+  { id: "page_views", label: "Vis. de pág.", source: "Pixel da Meta (landing_page_view)", format: "integer", availability: "available", aggregation: "sum", sortable: true },
   { id: "cpc", label: "CPC", source: "Meta Insights", formula: "Gasto ÷ cliques", format: "currency", availability: "available", aggregation: "recalculate", sortable: true },
-  { id: "cpv", label: "CPV", source: "Tracker + Meta", format: "currency", availability: "unavailable", aggregation: "unavailable", sortable: false },
-  { id: "checkouts", label: "IC", source: "Tracker/Cakto", format: "integer", availability: "unavailable", aggregation: "unavailable", sortable: false },
-  { id: "cpi", label: "CPI", source: "Tracker + Meta", format: "currency", availability: "unavailable", aggregation: "unavailable", sortable: false },
+  { id: "cpv", label: "CPV", source: "Pixel da Meta + gasto", formula: "Gasto ÷ visualizações da página", format: "currency", availability: "available", aggregation: "recalculate", sortable: true },
+  { id: "checkouts", label: "IC", source: "Pixel da Meta (initiate_checkout)", format: "integer", availability: "available", aggregation: "sum", sortable: true },
+  { id: "cpi", label: "CPI", source: "Pixel da Meta + gasto", formula: "Gasto ÷ inícios de checkout", format: "currency", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "ctr", label: "CTR", source: "Meta Insights", formula: "Cliques ÷ impressões", format: "percent", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "cpm", label: "CPM", source: "Meta Insights", formula: "Gasto × 1.000 ÷ impressões", format: "currency", availability: "available", aggregation: "recalculate", sortable: true },
   { id: "impressions", label: "Impressões", source: "Meta Insights", format: "integer", availability: "available", aggregation: "sum", sortable: true },
@@ -110,6 +110,11 @@ export function metaMetricValue(row: MetaTableRow, column: MetaColumnId): string
     case "margin": return m.margin;
     case "roi": return m.roi;
     case "clicks": return m.clicks;
+    // Eventos do pixel: sem nenhuma linha coletada é N/D (não zero).
+    case "page_views": return m.pixel_rows > 0 ? m.landing_page_views : null;
+    case "checkouts": return m.pixel_rows > 0 ? m.initiate_checkouts : null;
+    case "cpv": return m.pixel_rows > 0 ? m.cpv : null;
+    case "cpi": return m.pixel_rows > 0 ? m.cpi : null;
     case "cpc": return m.cpc;
     case "ctr": return m.ctr;
     case "cpm": return m.cpm;

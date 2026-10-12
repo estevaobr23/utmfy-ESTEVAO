@@ -32,7 +32,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
   ]);
   const report = await reportPromise;
   const [analytics, [offers, accounts, catalog]] = await Promise.all([
-    loadSummaryAnalytics(sb, ws, filters, report.summary, report.spendStatus.reliable),
+    loadSummaryAnalytics(sb, ws, filters, report.summary, report.spendStatus.reliable, report.pixelFunnel),
     auxiliaryPromise,
   ]);
   const query = filtersToQuery(offerId ? { ...filters, offer: null } : filters);

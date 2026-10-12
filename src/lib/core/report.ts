@@ -18,7 +18,35 @@ export type SpendRow = {
   outbound_clicks: number | string | null;
   spend: number | string | null;
   meta_purchases: number | string | null;
+  /** Eventos do pixel; ausente/null = ainda não coletado (≠ 0). */
+  landing_page_views?: number | string | null;
+  initiate_checkouts?: number | string | null;
 };
+
+export type PixelEventRow = {
+  account_id: string; campaign_id: string; adset_id: string; ad_id: string;
+  landing_page_views: number | string | null; initiate_checkouts: number | string | null;
+};
+
+const pixelKey = (r: { account_id: string; campaign_id: string; adset_id: string; ad_id: string }) => `${r.account_id}|${r.campaign_id}|${r.adset_id}|${r.ad_id}`;
+
+/** Junta as somas do pixel às linhas de gasto (mesma chave conta|campanha|conjunto|anúncio). */
+export function attachPixelEvents(rows: SpendRow[], pixel: PixelEventRow[] | null): SpendRow[] {
+  if (!pixel?.length) return rows;
+  const byKey = new Map(pixel.map((p) => [pixelKey(p), p]));
+  return rows.map((row) => {
+    const p = byKey.get(pixelKey(row));
+    return p ? { ...row, landing_page_views: p.landing_page_views, initiate_checkouts: p.initiate_checkouts } : row;
+  });
+}
+
+/** Totais do pixel no escopo atual; null quando nenhuma linha tem o dado coletado (funil cai no tracker). */
+export function pixelFunnelOf(rows: SpendRow[]): { pageviews: number; checkouts: number } | null {
+  const collected = rows.filter((r) => r.landing_page_views != null);
+  if (!collected.length) return null;
+  const sum = (pick: (r: SpendRow) => unknown) => collected.reduce((s, r) => s + (Number(pick(r)) || 0), 0);
+  return { pageviews: sum((r) => r.landing_page_views), checkouts: sum((r) => r.initiate_checkouts) };
+}
 
 export type OrderRow = {
   campaign_id: string | null;
@@ -66,6 +94,9 @@ export function spendToSums(r: SpendRow): Partial<BaseSums> {
     link_clicks: N(r.link_clicks),
     outbound_clicks: N(r.outbound_clicks),
     meta_purchases: N(r.meta_purchases),
+    landing_page_views: N(r.landing_page_views),
+    initiate_checkouts: N(r.initiate_checkouts),
+    pixel_rows: r.landing_page_views != null ? 1 : 0,
   };
 }
 

@@ -33,6 +33,10 @@ export type BaseSums = {
   link_clicks: number;
   outbound_clicks: number;
   meta_purchases: number;
+  /** Eventos do pixel (Meta). `pixel_rows` = nº de linhas de gasto com esse dado coletado; 0 → N/D, não zero. */
+  landing_page_views: number;
+  initiate_checkouts: number;
+  pixel_rows: number;
   gross_revenue: number;
   fees: number;
   refunded_count: number;
@@ -64,6 +68,9 @@ export type Derived = BaseSums & {
   roi: number | null;
   cpm: number | null;
   frequency: number | null;
+  /** Custo por visualização da página / por início de checkout (eventos do pixel). */
+  cpv: number | null;
+  cpi: number | null;
 };
 
 export const emptySums = (): BaseSums => ({
@@ -74,6 +81,9 @@ export const emptySums = (): BaseSums => ({
   link_clicks: 0,
   outbound_clicks: 0,
   meta_purchases: 0,
+  landing_page_views: 0,
+  initiate_checkouts: 0,
+  pixel_rows: 0,
   gross_revenue: 0,
   fees: 0,
   refunded_count: 0,
@@ -122,6 +132,8 @@ export function derive(s: BaseSums): Derived {
     roi: ratio(profit, investment),
     cpm: ratio(s.spend * 1000, s.impressions),
     frequency: ratio(s.impressions, s.reach),
+    cpv: ratio(s.spend, s.landing_page_views),
+    cpi: ratio(s.spend, s.initiate_checkouts),
   };
 }
 

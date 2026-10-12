@@ -109,6 +109,8 @@ export function buildSummaryAnalytics(input: {
   attributions: SummaryAttribution[];
   sessions: SummarySession[];
   clicks: number | null;
+  /** Eventos do pixel da Meta (mesma fonte da UTMify); null = não coletados → cai no tracker. */
+  metaPixel?: { pageviews: number; checkouts: number } | null;
   approvedCount: number;
 }): SummaryAnalytics {
   const paidMain = input.paidOrders.filter(mainOrder);
@@ -139,9 +141,12 @@ export function buildSummaryAnalytics(input: {
     };
   }).sort((a, b) => b.attempts - a.attempts);
 
-  const hasTracking = input.sessions.length > 0;
-  const pageviews = hasTracking ? input.sessions.reduce((sum, session) => sum + Number(session.pageviews ?? 0), 0) : null;
-  const checkouts = hasTracking ? input.sessions.reduce((sum, session) => sum + Number(session.checkout_clicks ?? 0), 0) : null;
+  // Visitas e ICs: pixel da Meta quando coletado; senão as sessões do tracker próprio.
+  const hasMetaPixel = !!input.metaPixel;
+  const hasSessions = input.sessions.length > 0;
+  const hasTracking = hasMetaPixel || hasSessions;
+  const pageviews = hasMetaPixel ? input.metaPixel!.pageviews : hasSessions ? input.sessions.reduce((sum, session) => sum + Number(session.pageviews ?? 0), 0) : null;
+  const checkouts = hasMetaPixel ? input.metaPixel!.checkouts : hasSessions ? input.sessions.reduce((sum, session) => sum + Number(session.checkout_clicks ?? 0), 0) : null;
   const values = [input.clicks, pageviews, checkouts, input.attempts.filter(mainOrder).length, input.approvedCount];
   const labels: [FunnelStage["key"], string][] = [["clicks", "Cliques"], ["pageviews", "Vis. página"], ["checkouts", "ICs"], ["initiated", "Vendas iniciadas"], ["approved", "Vendas aprovadas"]];
   const stages = labels.map(([key, label], index) => funnelStage(key, label, values[index], values[0], index ? values[index - 1] : null));

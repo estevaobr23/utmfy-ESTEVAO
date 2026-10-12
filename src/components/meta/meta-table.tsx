@@ -30,7 +30,7 @@ type Props = {
   canWrite?: boolean;
 };
 
-const SPEND_DEPENDENT = new Set<MetaColumnId>(["spend", "cpa", "profit", "roas", "margin", "roi", "cpc", "cpm"]);
+const SPEND_DEPENDENT = new Set<MetaColumnId>(["spend", "cpa", "profit", "roas", "margin", "roi", "cpc", "cpm", "cpv", "cpi"]);
 const STICKY: Partial<Record<MetaColumnId, string>> = {
   select: "sticky left-0 z-20 w-10 min-w-10 bg-inherit",
   status: "sticky left-10 z-20 w-16 min-w-16 bg-inherit",
@@ -49,6 +49,7 @@ function updateQuery(router: ReturnType<typeof useRouter>, current: URLSearchPar
 const ND_WHEN_EMPTY = new Set<MetaColumnId>([
   "reach", "frequency", "hook_rate", "play_rate", "body_retention", "retention_25", "retention_50",
   "retention_75", "retention_100", "thruplays", "plays_3s", "video_plays", "avg_watch",
+  "page_views", "checkouts", "cpv", "cpi",
 ]);
 
 function displayValue(row: MetaTableRow, metric: MetaMetricDefinition, currency: string, spendReliable: boolean) {

@@ -52,6 +52,9 @@ export type InsightRow = {
   currency: string | null;
   meta_purchases: number | null;
   meta_purchase_value: number | null;
+  /** Eventos do pixel que a Meta devolve em `actions` (0 quando a Meta não listou a ação no dia). */
+  landing_page_views: number;
+  initiate_checkouts: number;
 };
 
 const num = (v: unknown): number | null => {
@@ -62,6 +65,9 @@ const num = (v: unknown): number | null => {
 
 // Tipos de ação de compra (Pixel/offsite). Métrica separada — nunca vira receita.
 const PURCHASE_TYPES = ["offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase"];
+
+// Início de checkout: pega o primeiro tipo presente (os tipos se sobrepõem; somá-los contaria duas vezes).
+const INITIATE_CHECKOUT_TYPES = ["initiate_checkout", "offsite_conversion.fb_pixel_initiate_checkout", "omni_initiated_checkout"];
 
 function pickAction(list: MetaAction[] | undefined, types: string[]): number | null {
   if (!Array.isArray(list)) return null;
@@ -96,6 +102,8 @@ export function normalizeInsight(r: RawInsight): InsightRow | null {
     currency: r.account_currency ?? null,
     meta_purchases: pickAction(r.actions, PURCHASE_TYPES),
     meta_purchase_value: pickAction(r.action_values, PURCHASE_TYPES),
+    landing_page_views: pickAction(r.actions, ["landing_page_view"]) ?? 0,
+    initiate_checkouts: pickAction(r.actions, INITIATE_CHECKOUT_TYPES) ?? 0,
   };
 }
 
