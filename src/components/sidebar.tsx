@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { signOut, switchWorkspace } from "@/app/actions";
 import { AskClaude } from "@/components/ask-claude";
 import { ask } from "@/lib/claude-chat";
-import { offerContextFromPath, offerSectionLinks, offerSwitchHref } from "@/lib/core/offer-navigation";
+import { OFFER_COOKIE, isAdminPath, offerContextFromPath, offerSectionLinks, offerSwitchHref, resolveSelectedOffer } from "@/lib/core/offer-navigation";
 
 export type NavOffer = { id: string; name: string; status: string };
 type Ws = { id: string; name: string; is_demo: boolean };
@@ -28,14 +28,30 @@ const ADMIN: [string, string][] = [
   ["/configuracoes", "Workspace"],
 ];
 
-/** Oferta e seção atuais, lidas da URL (a URL é a fonte do contexto). Só vale oferta conhecida. */
-export function useOfferContext(offers: NavOffer[]) {
+/**
+ * Oferta e seção atuais. A URL é a fonte do contexto; nas telas de Administração (sem id na URL) vale a oferta
+ * lembrada, então navegar por Pixels, Webhooks, Saúde etc. NÃO tira você da oferta escolhida. Só escolher
+ * "Todas as ofertas" (ou abrir uma tela consolidada) limpa a lembrança.
+ */
+export function useOfferContext(offers: NavOffer[], initialRemembered: string | null = null) {
   const path = usePathname();
-  return { path, ...offerContextFromPath(path, offers.map((offer) => offer.id)) };
+  const ids = offers.map((offer) => offer.id);
+  const fromUrl = offerContextFromPath(path, ids);
+  const [remembered, setRemembered] = useState<string | null>(initialRemembered);
+  // Estado derivado da navegação: ajusta durante a renderização (padrão do React), sem efeito extra nem piscar.
+  const selected = resolveSelectedOffer(path, fromUrl.offerId, remembered, ids);
+  if (selected !== remembered && (fromUrl.offerId || !isAdminPath(path))) setRemembered(selected);
+  useEffect(() => {
+    try {
+      document.cookie = selected
+        ? `${OFFER_COOKIE}=${selected}; path=/; max-age=2592000; SameSite=Lax`
+        : `${OFFER_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+    } catch { /* cookie bloqueado: a oferta continua valendo nesta aba */ }
+  }, [selected]);
+  return { path, offerId: selected, section: fromUrl.section };
 }
 
-function OfferPicker({ offers, compact = false }: { offers: NavOffer[]; compact?: boolean }) {
-  const { offerId, section } = useOfferContext(offers);
+function OfferPicker({ offers, offerId, section, compact = false }: { offers: NavOffer[]; offerId: string | null; section: string; compact?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -192,8 +208,8 @@ function isActive(path: string, href: string, offerId: string | null, section: s
   return href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`);
 }
 
-export function Sidebar({ offers, workspaces, workspaceId, email }: { offers: NavOffer[]; workspaces: Ws[]; workspaceId: string | null; email: string }) {
-  const { path, offerId, section } = useOfferContext(offers);
+export function Sidebar({ offers, rememberedOfferId = null, workspaces, workspaceId, email }: { offers: NavOffer[]; rememberedOfferId?: string | null; workspaces: Ws[]; workspaceId: string | null; email: string }) {
+  const { path, offerId, section } = useOfferContext(offers, rememberedOfferId);
   const inAdmin = ADMIN.some(([href]) => path === href || path.startsWith(`${href}/`));
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#34415d] bg-[#222d46] md:flex">
@@ -207,7 +223,7 @@ export function Sidebar({ offers, workspaces, workspaceId, email }: { offers: Na
         </div>
       </div>
       <div className="px-3 pt-3">
-        <OfferPicker offers={offers} />
+        <OfferPicker offers={offers} offerId={offerId} section={section} />
       </div>
       <nav className="px-2 py-3">
         <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#738098]">{offerId ? "Nesta oferta" : "Todas as ofertas · consolidado"}</div>
@@ -247,13 +263,13 @@ export function Sidebar({ offers, workspaces, workspaceId, email }: { offers: Na
 }
 
 /** Navegação compacta para telas pequenas (mesmo contexto da lateral). */
-export function MobileNav({ offers }: { offers: NavOffer[] }) {
-  const { path, offerId, section } = useOfferContext(offers);
+export function MobileNav({ offers, rememberedOfferId = null }: { offers: NavOffer[]; rememberedOfferId?: string | null }) {
+  const { path, offerId, section } = useOfferContext(offers, rememberedOfferId);
   const router = useRouter();
   const inAdmin = ADMIN.some(([href]) => path === href || path.startsWith(`${href}/`));
   return (
     <div className="border-b border-[#34415d] bg-[#222d46] px-3 py-2 md:hidden">
-      <OfferPicker offers={offers} compact />
+      <OfferPicker offers={offers} offerId={offerId} section={section} compact />
       <nav aria-label={offerId ? "Navegação da oferta" : "Navegação consolidada"} className="mt-2 flex gap-1 overflow-x-auto text-sm">
         {contextLinks(offerId).map(([href, label]) => (
           <Link

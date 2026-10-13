@@ -30,6 +30,24 @@ export function offerContextFromPath(path: string, knownOfferIds: Iterable<strin
   return { offerId, section: normalizeOfferSection(match?.[2]) };
 }
 
+/** Telas de Administração: valem para o workspace todo e não têm o id da oferta na URL. */
+export const ADMIN_PATHS = ["/meta", "/cakto", "/pixels", "/saude", "/eventos", "/utms", "/diagnostico", "/configuracoes"] as const;
+export const isAdminPath = (path: string) => ADMIN_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+
+/** Cookie (só preferência de interface) que lembra a oferta escolhida enquanto se navega pela Administração. */
+export const OFFER_COOKIE = "utmfy_offer";
+
+/**
+ * Oferta selecionada. A URL manda; nas telas de Administração (sem id na URL) vale a oferta lembrada, para a
+ * navegação NÃO voltar sozinha para "Todas as ofertas". Em telas consolidadas (/, /campanhas, /pedidos, /ofertas)
+ * não há oferta: escolher "Todas as ofertas" limpa a lembrança.
+ */
+export function resolveSelectedOffer(path: string, urlOfferId: string | null, remembered: string | null, known: Iterable<string>): string | null {
+  if (urlOfferId) return urlOfferId;
+  if (!isAdminPath(path) || !remembered) return null;
+  return new Set(known).has(remembered) ? remembered : null;
+}
+
 /** Trocar de oferta mantém a seção funcional atual, nunca filtros da query string. */
 export function offerSwitchHref(targetOfferId: string, currentOfferId: string | null, section: string) {
   return `/ofertas/${targetOfferId}/${currentOfferId ? normalizeOfferSection(section) : "resumo"}`;
