@@ -125,13 +125,18 @@ export async function addCaktoItem(fd: FormData) {
 /** Lê na Cakto o webhook desta oferta: produtos marcados lá passam a ser desta oferta. */
 export async function checkOfferWebhook(fd: FormData) {
   const s = await writer();
-  const offerId = uuid.parse(str(fd, "offer_id"));
-  const path = `/ofertas/${offerId}/integracoes`;
+  // Sem offer_id = botão "Verificar tudo" da página /cakto.
+  const offerId = str(fd, "offer_id") ? uuid.parse(str(fd, "offer_id")) : null;
+  const path = offerId && str(fd, "back") !== "cakto" ? `/ofertas/${offerId}/integracoes` : "/cakto";
   let r: Awaited<ReturnType<typeof syncOfferWebhooks>>;
   try {
     r = await syncOfferWebhooks(adminClient(), s.workspace.id);
   } catch (e) {
     return back(path, `Falha ao ler webhooks da Cakto: ${(e as Error).message}`, "error");
+  }
+  if (!offerId) {
+    const missing = r.offers - r.matched;
+    return back(path, missing > 0 ? `${r.matched} de ${r.offers} oferta(s) com webhook na Cakto; ${missing} sem webhook.${r.conflicts.length ? ` Atenção: ${r.conflicts.join("; ")}` : ""}` : `Todas as ${r.offers} oferta(s) têm webhook na Cakto.${r.conflicts.length ? ` Atenção: ${r.conflicts.join("; ")}` : ""}`, missing > 0 || r.conflicts.length ? "error" : "ok");
   }
   const { data: offer } = await s.sb.from("offers").select("cakto_webhook_id").eq("id", offerId).single();
   if (!offer?.cakto_webhook_id) return back(path, "Nenhum webhook com a URL desta oferta foi encontrado na Cakto.", "error");

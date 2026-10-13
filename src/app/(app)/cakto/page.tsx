@@ -1,113 +1,141 @@
-import { syncCaktoNow } from "@/app/actions";
+import Link from "next/link";
+import { checkOfferWebhook } from "@/app/actions";
 import { CodeBlock, SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
-import { Badge, Card, Code, Field, inputCls, Notice, PageHeader, Table, Td, Th } from "@/components/ui";
-import { addDays, formatDateTime, timeAgo, todayIn } from "@/lib/core/dates";
+import { Badge, Card, Code, Empty, Notice, OrderStatusBadge, PageHeader } from "@/components/ui";
+import { timeAgo } from "@/lib/core/dates";
 import { env, envStatus } from "@/lib/env";
 import { requireWorkspace } from "@/lib/session";
+import { offerWebhookUrl } from "@/lib/services/offer-webhooks";
 
-const EVENTS = ["purchase_approved", "pix_gerado", "purchase_refused", "refund", "refund_requested", "chargeback", "boleto_gerado"];
+const EVENTS = ["Compra aprovada", "Pix gerado", "Boleto gerado", "Compra recusada", "Reembolso", "Reembolso solicitado", "Chargeback"];
+const DAY = 24 * 3600 * 1000;
+
+/** O que o usuário precisa saber de cada oferta em uma palavra: funciona, falta algo, ou nada chegou ainda. */
+function health(o: { hasWebhook: boolean; products: number; lastAt: string | null }) {
+  if (!o.hasWebhook) return { tone: "warn" as const, label: "Falta criar o webhook na Cakto", hint: "Siga os 3 passos no fim desta página, usando a URL abaixo." };
+  if (!o.products) return { tone: "warn" as const, label: "Webhook sem produtos", hint: "Na Cakto, edite o webhook e marque os produtos desta oferta." };
+  if (!o.lastAt) return { tone: "info" as const, label: "Pronto, aguardando a 1ª venda", hint: "Assim que a Cakto enviar um evento, ele aparece aqui." };
+  return { tone: "ok" as const, label: "Funcionando", hint: null };
+}
 
 export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
   const s = await requireWorkspace();
   const sp = await searchParams;
   const e = envStatus();
-  const [{ data: conn }, { data: events }, { data: changes }, { data: jobs }] = await Promise.all([
-    s.sb.from("cakto_connections").select("*").eq("workspace_id", s.workspace.id).maybeSingle(),
-    s.sb.from("webhook_events").select("id, event_name, external_order_id, processing_status, signature_method, received_at, error_message").eq("workspace_id", s.workspace.id).order("received_at", { ascending: false }).limit(20),
-    s.sb.from("reconciliation_changes").select("external_order_id, change_type, before, after, created_at").eq("workspace_id", s.workspace.id).order("created_at", { ascending: false }).limit(20),
-    s.sb.from("sync_jobs").select("kind, status, trigger, started_at, stats, error").eq("workspace_id", s.workspace.id).in("kind", ["cakto_sync", "cakto_reconcile"]).order("started_at", { ascending: false }).limit(6),
+  const now = new Date().getTime();
+  const since = new Date(now - 7 * DAY).toISOString();
+  const [{ data: offers }, { data: items }, { data: recent }, { data: conn }, { data: failed }] = await Promise.all([
+    s.sb.from("offers").select("id, name, status, webhook_token, cakto_webhook_id, cakto_webhook_checked_at").eq("workspace_id", s.workspace.id).neq("status", "archived").order("created_at"),
+    s.sb.from("offer_cakto_items").select("offer_id, cakto_product_id, product_name, label").eq("workspace_id", s.workspace.id),
+    s.sb.from("orders").select("offer_id, status, status_event_at, updated_at").eq("workspace_id", s.workspace.id).not("offer_id", "is", null).order("updated_at", { ascending: false }).limit(300),
+    s.sb.from("cakto_connections").select("status, last_webhook_at, last_error").eq("workspace_id", s.workspace.id).maybeSingle(),
+    s.sb.from("webhook_events").select("event_name, processing_status, error_message, received_at").eq("workspace_id", s.workspace.id).in("processing_status", ["failed", "rejected"]).gte("received_at", since).order("received_at", { ascending: false }).limit(50),
   ]);
-  const webhookUrl = `${env.appUrl}/api/webhooks/cakto?ws=${s.workspace.slug}`;
-  const today = todayIn(s.workspace.timezone);
+
+  const lastByOffer = new Map<string, { status: string; at: string }>();
+  for (const o of recent ?? []) {
+    if (o.offer_id && !lastByOffer.has(o.offer_id)) lastByOffer.set(o.offer_id, { status: o.status, at: o.status_event_at ?? o.updated_at });
+  }
+  const missingCreds = (["CAKTO_CLIENT_ID", "CAKTO_CLIENT_SECRET"] as const).filter((k) => !e[k]);
+  const lastWebhook = conn?.last_webhook_at ?? null;
+  const stale = lastWebhook ? now - new Date(lastWebhook).getTime() > 3 * DAY : false;
 
   return (
     <>
-      <PageHeader title="Integração Cakto" subtitle="A Cakto é a fonte da verdade de receita, vendas e status. Webhook em tempo real + API para sincronizar e reconciliar." />
+      <PageHeader
+        title="Webhooks da Cakto"
+        subtitle="Uma URL por oferta. Cole a URL da oferta na Cakto e as vendas dela passam a aparecer no painel."
+        actions={
+          s.canWrite && (
+            <form action={checkOfferWebhook}>
+              <SubmitButton variant="secondary" pendingText="Verificando...">Verificar tudo na Cakto</SubmitButton>
+            </form>
+          )
+        }
+      />
       <Flash sp={sp} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Credenciais (servidor)">
-          <ul className="space-y-1 text-sm">
-            {(["CAKTO_CLIENT_ID", "CAKTO_CLIENT_SECRET", "CAKTO_WEBHOOK_SECRETS"] as const).map((k) => (
-              <li key={k} className="flex justify-between"><Code>{k}</Code>{e[k] ? <Badge tone="ok">•••••••• configurado</Badge> : <Badge tone="error">ausente</Badge>}</li>
-            ))}
-          </ul>
-          <div className="mt-3 text-xs text-slate-500">
-            Status: <Badge tone={conn?.status === "active" ? "ok" : conn?.status === "error" ? "error" : "warn"}>{conn?.status ?? "sem conexão"}</Badge>
-            {" · "}último webhook {timeAgo(conn?.last_webhook_at)} · última API {timeAgo(conn?.last_api_ok_at)}
-            {conn?.last_error && <div className="text-rose-700">{conn.last_error}</div>}
-          </div>
-        </Card>
 
-        <Card title="Webhook">
-          <p className="mb-2 text-sm text-slate-500">Cadastre esta URL na Cakto (Integrações → Webhooks) para os produtos desta operação, com os eventos:</p>
-          <CodeBlock code={webhookUrl} />
-          <div className="mt-2 flex flex-wrap gap-1">{EVENTS.map((ev) => <Code key={ev}>{ev}</Code>)}</div>
-          <p className="mt-2 text-xs text-slate-500">
-            Validação: HMAC-SHA256 em <Code>X-Cakto-Signature</Code> + <Code>X-Cakto-Timestamp</Code> (tolerância 5 min).{" "}
-            {env.caktoAllowBodySecret ? "Fallback pelo campo secret do corpo: permitido." : "Fallback pelo corpo: desativado."} Copie o secret de cada webhook para <Code>CAKTO_WEBHOOK_SECRETS</Code> (separados por vírgula).
-          </p>
-          {env.appUrl.includes("localhost") && <Notice tone="warn">APP_URL é localhost: a Cakto não alcança. Faça o deploy (ou use um túnel) antes de cadastrar.</Notice>}
-        </Card>
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#aeb8c9]">
+        <span>Conexão com a Cakto:</span>
+        <Badge tone={missingCreds.length || conn?.status === "error" ? "error" : conn?.status === "active" ? "ok" : "warn"}>
+          {missingCreds.length ? "credenciais ausentes" : conn?.status === "error" ? "com erro" : conn?.status === "active" ? "ativa" : "sem conexão"}
+        </Badge>
+        <span>último evento recebido {lastWebhook ? timeAgo(lastWebhook) : "— nenhum ainda"}</span>
       </div>
 
-      <Card title="Sincronizar Cakto / Reconciliar" className="mt-4">
-        <p className="mb-3 text-sm text-slate-500">
-          Busca na API os pedidos <b>atualizados</b> no período e aplica pela mesma máquina de estados do webhook. Recupera vendas perdidas, reembolsos e chargebacks não processados.
-          A reconciliação automática roda pelo cron (últimos 3 dias).
-        </p>
-        {s.canWrite && (
-          <form action={syncCaktoNow} className="flex flex-wrap items-end gap-2">
-            <Field label="De"><input type="date" name="from" defaultValue={addDays(today, -2)} className={inputCls} /></Field>
-            <Field label="Até"><input type="date" name="to" defaultValue={today} className={inputCls} /></Field>
-            <Field label="Modo">
-              <select name="mode" className={inputCls}><option value="sync">Sincronizar</option><option value="reconcile">Reconciliar (registra divergências)</option></select>
-            </Field>
-            <SubmitButton pendingText="Sincronizando...">SINCRONIZAR CAKTO</SubmitButton>
-          </form>
-        )}
-        <ul className="mt-3 space-y-1 text-xs text-slate-600">
-          {(jobs ?? []).map((j, i) => (
-            <li key={i}><Badge tone={j.status === "success" ? "ok" : j.status === "partial" ? "warn" : j.status === "running" ? "info" : "error"}>{j.status}</Badge> {j.kind} ({j.trigger}) · {timeAgo(j.started_at)} · {JSON.stringify(j.stats)}{j.error && <span className="text-rose-700"> · {j.error}</span>}</li>
-          ))}
-        </ul>
+      {missingCreds.length > 0 && <div className="mb-4"><Notice tone="error">Faltam no servidor: <Code>{missingCreds.join(", ")}</Code>. Sem elas o painel não consegue conferir os webhooks.</Notice></div>}
+      {stale && <div className="mb-4"><Notice tone="warn">Nenhum evento da Cakto chegou há mais de 3 dias. Se você teve vendas, confira se os webhooks continuam ativos na Cakto.</Notice></div>}
+      {conn?.last_error && <div className="mb-4"><Notice tone="error">{conn.last_error}</Notice></div>}
+      {env.appUrl.includes("localhost") && <div className="mb-4"><Notice tone="warn">APP_URL é localhost: a Cakto não alcança essa URL. Faça o deploy antes de cadastrar.</Notice></div>}
+      {(failed?.length ?? 0) > 0 && (
+        <div className="mb-4">
+          <Notice tone="error">
+            <b>{failed!.length} evento(s) da Cakto deram erro nos últimos 7 dias.</b>{" "}
+            Último: {failed![0].event_name ?? "evento"} {timeAgo(failed![0].received_at)}
+            {failed![0].processing_status === "rejected" ? " — assinatura recusada" : failed![0].error_message ? ` — ${failed![0].error_message}` : ""}.
+          </Notice>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {!offers?.length && <Empty>Nenhuma oferta ainda. Crie a primeira em <Link href="/ofertas" className="underline">Gerenciar ofertas</Link> e a URL do webhook aparece aqui.</Empty>}
+        {(offers ?? []).map((o) => {
+          const products = (items ?? []).filter((i) => i.offer_id === o.id);
+          const last = lastByOffer.get(o.id) ?? null;
+          const h = health({ hasWebhook: !!o.cakto_webhook_id, products: products.length, lastAt: last?.at ?? null });
+          return (
+            <Card
+              key={o.id}
+              title={o.name}
+              actions={<Badge tone={h.tone}>{h.tone === "ok" ? "✓ " : h.tone === "warn" ? "⚠ " : ""}{h.label}</Badge>}
+            >
+              <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">URL do webhook desta oferta</div>
+              <div className="mt-1">{o.webhook_token ? <CodeBlock code={offerWebhookUrl(env.appUrl, o.webhook_token)} /> : <Notice tone="warn">Esta oferta ainda não tem URL (migration pendente).</Notice>}</div>
+              {h.hint && <p className="mt-2 text-sm text-amber-200">{h.hint}</p>}
+
+              <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">Produtos desta oferta</div>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {products.map((p) => <Badge key={`${p.cakto_product_id}`} tone="muted">{p.product_name ?? p.label ?? p.cakto_product_id}</Badge>)}
+                    {!products.length && <span className="text-[#8f9bb1]">nenhum</span>}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">Último evento recebido</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    {last ? <><OrderStatusBadge status={last.status} /><span className="text-[#aeb8c9]">{timeAgo(last.at)}</span></> : <span className="text-[#8f9bb1]">nenhum ainda</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#3a4762] pt-3">
+                {s.canWrite && (
+                  <form action={checkOfferWebhook}>
+                    <input type="hidden" name="offer_id" value={o.id} /><input type="hidden" name="back" value="cakto" />
+                    <SubmitButton variant="secondary" pendingText="Verificando...">Verificar na Cakto</SubmitButton>
+                  </form>
+                )}
+                <Link href={`/ofertas/${o.id}/integracoes`} className="text-xs text-sky-300 hover:underline">abrir oferta</Link>
+                {o.cakto_webhook_checked_at && <span className="text-xs text-[#8f9bb1]">verificado {timeAgo(o.cakto_webhook_checked_at)}</span>}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      <Card title="Como criar o webhook de uma oferta nova" className="mt-6">
+        <ol className="space-y-3 text-sm text-[#dce2ec]">
+          <li><b>1. Crie a oferta no UTMFY.</b> A URL do webhook nasce sozinha e aparece nesta página. <Link href="/ofertas" className="text-sky-300 underline">Criar oferta</Link></li>
+          <li>
+            <b>2. Na Cakto, vá em Integrações → Webhooks → Adicionar.</b> Cole a URL da oferta, marque <b>só os produtos dela</b> e estes eventos:
+            <div className="mt-1.5 flex flex-wrap gap-1.5">{EVENTS.map((ev) => <Badge key={ev} tone="info">{ev}</Badge>)}</div>
+          </li>
+          <li><b>3. Volte aqui e clique em “Verificar na Cakto”.</b> Quando o selo da oferta ficar verde, falta só a primeira venda para confirmar.</li>
+        </ol>
+        <p className="mt-3 text-xs text-[#8f9bb1]">Atenção: produto que não está marcado no webhook vende e não aparece no painel.</p>
       </Card>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div>
-          <h2 className="mb-2 text-sm font-semibold">Últimos webhooks</h2>
-          <Table>
-            <thead><tr><Th>Recebido</Th><Th>Evento</Th><Th>Pedido</Th><Th>Status</Th></tr></thead>
-            <tbody>
-              {(events ?? []).map((ev) => (
-                <tr key={ev.id}>
-                  <Td className="whitespace-nowrap text-xs">{formatDateTime(ev.received_at, s.workspace.timezone)}</Td>
-                  <Td className="text-xs">{ev.event_name}<div className="text-[10px] text-slate-400">{ev.signature_method}</div></Td>
-                  <Td className="font-mono text-[10px]">{ev.external_order_id?.slice(0, 13)}</Td>
-                  <Td><Badge tone={ev.processing_status === "processed" ? "ok" : ev.processing_status === "failed" ? "error" : "muted"}>{ev.processing_status}</Badge>{ev.error_message && <div className="text-[10px] text-rose-700">{ev.error_message}</div>}</Td>
-                </tr>
-              ))}
-              {!events?.length && <tr><Td className="text-slate-400">nenhum</Td></tr>}
-            </tbody>
-          </Table>
-        </div>
-        <div>
-          <h2 className="mb-2 text-sm font-semibold">Log de reconciliação</h2>
-          <Table>
-            <thead><tr><Th>Quando</Th><Th>Pedido</Th><Th>Mudança</Th></tr></thead>
-            <tbody>
-              {(changes ?? []).map((c, i) => (
-                <tr key={i}>
-                  <Td className="whitespace-nowrap text-xs">{formatDateTime(c.created_at, s.workspace.timezone)}</Td>
-                  <Td className="font-mono text-[10px]">{c.external_order_id.slice(0, 13)}</Td>
-                  <Td className="text-xs"><Badge tone="info">{c.change_type}</Badge> {(c.before as { status?: string } | null)?.status ?? "∅"} → {(c.after as { status?: string } | null)?.status}</Td>
-                </tr>
-              ))}
-              {!changes?.length && <tr><Td className="text-slate-400">nenhuma divergência registrada</Td></tr>}
-            </tbody>
-          </Table>
-        </div>
-      </div>
     </>
   );
 }

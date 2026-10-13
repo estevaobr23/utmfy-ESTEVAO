@@ -17,7 +17,7 @@ const ALL_SECTIONS: [string, string][] = [
 
 const ADMIN: [string, string][] = [
   ["/meta", "Conexão Meta"],
-  ["/cakto", "Conexão Cakto"],
+  ["/cakto", "Webhooks Cakto"],
   ["/pixels", "Pixels"],
   ["/saude", "Saúde das integrações"],
   ["/eventos", "Eventos e logs"],
