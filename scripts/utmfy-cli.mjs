@@ -62,6 +62,18 @@ async function cakto() {
   }
   return _cakto;
 }
+let _meta;
+/** Helper global da Meta (~/.meta/meta.mjs): token de usuário do sistema, nunca impresso. */
+async function metaApi() {
+  if (!_meta) {
+    const file = join(homedir(), ".meta", "meta.mjs");
+    if (!existsSync(file)) throw new Error(`helper da Meta não encontrado em ${file}`);
+    _meta = await import(pathToFileURL(file).href);
+  }
+  return _meta;
+}
+/** Conta de anúncio onde os pixels novos nascem (os pixels são do business "CONTA EUA" e visíveis nas 3 contas). */
+const DEFAULT_AD_ACCOUNT = "act_2094401681297034";
 /** A API da Cakto ignora page_size e devolve 10 por página: percorre todas. */
 async function caktoAll(path) {
   const { api } = await cakto();
@@ -130,15 +142,17 @@ async function ofertas() {
   }
 }
 
-async function ofertaCriar() {
+async function ofertaCriar({ quiet = false } = {}) {
   const name = f.nome;
   if (!name || name === true) throw new Error('use --nome "Nome da oferta"');
   const slug = slugify(f.slug && f.slug !== true ? f.slug : name);
   const body = { name: String(name).slice(0, 120), slug, currency: "BRL", timezone: "America/Sao_Paulo" };
-  if (!dryRun("vai criar a OFERTA no UTMFY:", body)) return;
+  if (!dryRun("vai criar a OFERTA no UTMFY:", body)) return null;
   const [o] = await db("POST", "offers", { workspace_id: await workspaceId(), ...body });
   p(`\noferta criada: ${o.name} (slug ${o.slug})\n  id: ${o.id}\n  URL do webhook (para a Cakto): ${webhookUrl(o)}`);
+  if (quiet) return o;
   p(`\nPróximos passos:\n  1. node ~/.utmfy/utmfy.mjs webhook-criar --oferta ${o.slug} --produto <ID_PRODUTO_CAKTO> --confirmar\n  2. node ~/.utmfy/utmfy.mjs pixel-add --id <ID_DO_PIXEL> --nome "Pixel ..." --confirmar   (1 pixel exclusivo por oferta)\n  3. node ~/.utmfy/utmfy.mjs pixel-vincular --oferta ${o.slug} --pixel <ID_DO_PIXEL> --confirmar\n  4. colocar na página de vendas:  ${snippet(o)}\n  5. node ~/.utmfy/utmfy.mjs verificar --oferta ${o.slug}`);
+  return o;
 }
 
 async function webhookCriar() {
@@ -199,6 +213,113 @@ async function pixelVincular() {
   if (!dryRun(`vai vincular o pixel "${px.name}" (${ext}) à oferta "${offer.name}":`)) return;
   await db("POST", "offer_pixels", { workspace_id: offer.workspace_id, offer_id: offer.id, pixel_id: px.id, active: true }, "resolution=merge-duplicates,return=representation");
   p("vinculado. Clique em Atualizar no painel: as campanhas que usam esse pixel entram na oferta sozinhas.");
+}
+
+/** Leitura (sem gravar): o pixel já existe na Meta? Devolve o pixel a reaproveitar, ou null se pode criar; lança erro se for duplicar. */
+async function metaPixelPreflight(conta, name, reuse) {
+  const { graph } = await metaApi();
+  if (reuse) {
+    if (!/^\d{5,30}$/.test(reuse)) throw new Error("--reusar precisa ser o ID numérico do pixel");
+    const px = await graph("GET", `${reuse}?fields=id,name,owner_business,last_fired_time`);
+    return { id: px.id, name: px.name, businessId: px.owner_business?.id ?? null, lastFired: px.last_fired_time ?? null };
+  }
+  const all = (await graph("GET", `${conta}/adspixels?fields=id,name&limit=200`)).data ?? [];
+  const same = all.find((x) => String(x.name).trim().toLowerCase() === name.trim().toLowerCase());
+  if (same) throw new Error(`já existe um pixel "${same.name}" (${same.id}) na Meta. Reaproveite com --reusar ${same.id} (ou escolha outro --nome): não crie duplicado.`);
+  return null;
+}
+
+/** Cria o pixel NA META (ou reaproveita um existente), cadastra no UTMFY e liga à oferta (1 oferta = 1 pixel exclusivo). */
+async function pixelCriar() {
+  const offer = await findOffer(f.oferta);
+  const already = await pixelOf(offer);
+  if (already) throw new Error(`a oferta "${offer.name}" já tem o pixel ${already}. Uma oferta tem UM pixel; para trocar, desvincule o atual no painel (Pixels).`);
+  const conta = f.conta && f.conta !== true ? String(f.conta) : DEFAULT_AD_ACCOUNT;
+  if (!/^act_\d+$/.test(conta)) throw new Error("--conta deve ser act_<número>");
+  const name = f.nome && f.nome !== true ? String(f.nome).slice(0, 120) : offer.name.slice(0, 120);
+  const reuse = f.reusar && f.reusar !== true ? String(f.reusar) : "";
+  const found = await metaPixelPreflight(conta, name, reuse);
+  const plan = found
+    ? { acao: "REAPROVEITAR pixel existente da Meta (nada é criado na Meta)", pixel: found.id, nome_na_meta: found.name, ultimo_disparo: found.lastFired }
+    : { acao: "CRIAR pixel novo na Meta (produção)", conta, nome: name };
+  if (!dryRun(`vai ligar um pixel à oferta "${offer.name}": ${found ? "reaproveitar" : "criar"} na Meta, cadastrar no UTMFY, vincular à oferta e gerar o script da página:`, plan)) return;
+
+  const { graph } = await metaApi();
+  let id; let metaName; let businessId;
+  if (found) {
+    ({ id, name: metaName, businessId } = found);
+  } else {
+    const created = await graph("POST", `${conta}/adspixels`, { name });
+    id = created.id;
+    const back = await graph("GET", `${id}?fields=id,name,owner_business`); // 200 não prova nada: relê
+    metaName = back.name;
+    businessId = back.owner_business?.id ?? null;
+    check(back.id === id && back.name === name, `pixel criado na Meta: ${metaName} (${id})`);
+    // Melhor esforço: deixa o pixel utilizável nas outras contas de anúncio do mesmo business.
+    if (businessId) {
+      const accounts = ((await graph("GET", "me/adaccounts?fields=id&limit=100")).data ?? []).map((a) => a.id).filter((a) => a !== conta);
+      for (const a of accounts) {
+        try {
+          await graph("POST", `${id}/shared_accounts`, { account_id: a.replace("act_", ""), business: businessId });
+          check(true, `pixel compartilhado com ${a}`);
+        } catch (e) {
+          warn(`não compartilhou com ${a} (${e.message.slice(0, 120)}). Compartilhe no Gerenciador de Negócios antes de usar nessa conta.`);
+        }
+      }
+    } else warn("a Meta não informou o business dono do pixel: confira o compartilhamento com as outras contas.");
+  }
+  f.id = id; f.nome = metaName; f.pixel = id;
+  await pixelAdd();
+  await pixelVincular();
+  await mostrarSnippet();
+  p("\nPendente (ainda não automático): token da API de Conversões (CAPI) deste pixel. O envio server-side está desligado (CAPI_ENABLED=false), então isso não bloqueia o rastreio pelo navegador.");
+}
+
+/** A cadeia inteira de uma oferta nova: oferta → webhook de rastreio (Cakto) → pixel (Meta) → script → verificação. */
+async function ofertaNova() {
+  const name = f.nome;
+  if (!name || name === true) throw new Error('use --nome "Nome da oferta"');
+  const products = list(f.produto || f.produtos);
+  if (!products.length) throw new Error("use --produto <id_do_produto_cakto[,outro]>");
+  const slug = slugify(f.slug && f.slug !== true ? f.slug : name);
+  const conta = f.conta && f.conta !== true ? String(f.conta) : DEFAULT_AD_ACCOUNT;
+  const pixelName = f.pixelnome && f.pixelnome !== true ? String(f.pixelnome).slice(0, 120) : String(name).slice(0, 120);
+  const reuse = f.reusar && f.reusar !== true ? String(f.reusar) : "";
+
+  p("Pré-checagem (só leitura):");
+  check(!(await db("GET", `offers?select=id&slug=eq.${encodeURIComponent(slug)}`)).length, `slug "${slug}" livre no UTMFY`, "use --slug outro, ou continue a oferta existente com os comandos separados");
+  const taken = await db("GET", `offer_cakto_items?select=product_name&cakto_product_id=in.(${products.join(",")})`);
+  check(!taken.length, "produto(s) ainda sem oferta no UTMFY", `já pertence a outra oferta: ${taken[0]?.product_name}`);
+  try {
+    const known = new Set((await caktoAll("products/")).map((x) => x.id));
+    check(products.every((x) => known.has(x)), "produto(s) existem na Cakto", "confira o ID (skill criar-produto-cakto)");
+  } catch (e) {
+    warn(`não consegui listar produtos da Cakto (${e.message.slice(0, 80)}); o webhook-criar vai conferir`);
+  }
+  const found = await metaPixelPreflight(conta, pixelName, reuse);
+  check(true, found ? `pixel da Meta a reaproveitar: ${found.name} (${found.id})` : `nenhum pixel "${pixelName}" na Meta: será criado em ${conta}`);
+  if (process.exitCode) throw new Error("pré-checagem falhou; nada foi gravado.");
+
+  const plan = {
+    oferta: { nome: name, slug },
+    produto_cakto: products,
+    webhook_rastreio: "criar na Cakto (7 eventos, só esses produtos)",
+    pixel: found ? { reaproveitar: found.id } : { criar_na_meta: pixelName, conta },
+    depois: ["script t.js da página", "verificar (checklist)"],
+  };
+  if (!dryRun("vai montar a OFERTA COMPLETA (UTMFY + Cakto de PRODUÇÃO + Meta de PRODUÇÃO):", plan)) return;
+
+  const offer = await ofertaCriar({ quiet: true });
+  f.oferta = offer.slug;
+  f.produto = products.join(",");
+  f.nome = pixelName; // a partir daqui --nome é o nome do pixel
+  p("\n[1/3] webhook de rastreio na Cakto");
+  await webhookCriar();
+  p("\n[2/3] pixel (Meta + UTMFY) e script da página");
+  await pixelCriar();
+  p("\n[3/3] verificação final");
+  await verificar();
+  p("\nFalta, fora desta automação: o produto nos webhooks de ACESSO e de RECUPERAÇÃO (skill criar-produto-cakto), o script na página e os anúncios com os parâmetros de URL.");
 }
 
 async function mostrarSnippet() {
@@ -357,6 +478,10 @@ const HELP = `UTMFY — configura ofertas, pixels e webhooks (qualquer chat)
   node ~/.utmfy/utmfy.mjs ofertas                        lista ofertas, pixels, produtos, webhook, pedidos
   node ~/.utmfy/utmfy.mjs oferta-criar --nome "X" [--slug x] --confirmar
   node ~/.utmfy/utmfy.mjs webhook-criar --oferta <slug> --produto <id[,id]> --confirmar   (Cakto: PRODUÇÃO)
+  node ~/.utmfy/utmfy.mjs oferta-nova --nome "X" --produto <id[,id]> [--conta act_N] [--reusar <pixelId>] --confirmar
+                                                         CADEIA COMPLETA: oferta + webhook Cakto + pixel Meta + script + verificação
+  node ~/.utmfy/utmfy.mjs pixel-criar --oferta <slug> [--nome "X"] [--conta act_N] [--reusar <pixelId>] --confirmar
+                                                         cria (ou reaproveita) o pixel NA META, cadastra e liga à oferta
   node ~/.utmfy/utmfy.mjs pixel-add --id <pixelId> --nome "Pixel X" --confirmar
   node ~/.utmfy/utmfy.mjs pixel-vincular --oferta <slug> --pixel <pixelId> --confirmar
   node ~/.utmfy/utmfy.mjs snippet --oferta <slug>        script da página + parâmetros de URL dos anúncios
@@ -365,7 +490,7 @@ const HELP = `UTMFY — configura ofertas, pixels e webhooks (qualquer chat)
 
 Gravações exigem --confirmar; sem a flag é só simulação. Guia: INTEGRACAO-CHATS.md`;
 
-const COMMANDS = { status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular };
+const COMMANDS = { status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular };
 try {
   if (!cmd || cmd === "ajuda" || cmd === "help" || !COMMANDS[cmd]) { p(HELP); if (cmd && !COMMANDS[cmd] && cmd !== "ajuda" && cmd !== "help") process.exitCode = 1; }
   else await COMMANDS[cmd]();

@@ -28,6 +28,71 @@ os dois pelas UTMs que o anúncio coloca no link.
 Credenciais: banco em `<repo>/.env.local`, Cakto em `~/.cakto/credentials.env`. Nunca copie chave
 para código, commit ou mensagem.
 
+## 2.1 Regra de operação — pixel e webhook SÓ por prompt (vale desde 13/10/2026)
+
+**Ninguém cria pixel nem webhook à mão** (Gerenciador de Eventos da Meta, painel da Cakto,
+formulários). O usuário pede em linguagem natural — *"monta a oferta X com o produto Y"*, *"cria o
+pixel da oferta Z"*, *"cria o webhook de rastreio da oferta W"* — e **o chat executa** com os helpers
+abaixo. As telas do painel (Pixels, Webhooks Cakto) servem para **olhar e diagnosticar**.
+
+**Comando-mestre** (uma oferta nova, do zero, em um passo):
+
+```bash
+U="node ~/.utmfy/utmfy.mjs"
+$U oferta-nova --nome "Nome da oferta" --produto <ID_PRODUTO_CAKTO>            # simulação: pré-checagem + plano
+$U oferta-nova --nome "Nome da oferta" --produto <ID_PRODUTO_CAKTO> --confirmar # executa
+```
+
+O que ele faz, nesta ordem (para no primeiro erro; nada é apagado):
+
+| # | Passo | Onde grava |
+|---|---|---|
+| 0 | Pré-checagem (só leitura): slug livre, produto existe na Cakto e **não pertence a outra oferta**, pixel não duplicado na Meta | — |
+| 1 | Cria a **oferta** (gera o token da URL) | UTMFY |
+| 2 | Cria o **webhook de rastreio** `?o=<token>` com **só** os produtos dela e os 7 eventos; relê e confere | Cakto (produção) |
+| 3 | **Cria o pixel na Meta** (ou reaproveita com `--reusar <id>`), compartilha com as outras contas de anúncio, cadastra no UTMFY e **liga à oferta** | Meta (produção) + UTMFY |
+| 4 | Imprime o **`<script t.js data-offer data-pixel>`** da página | — |
+| 5 | Roda o **`verificar`** (checklist ✓/✗) | — |
+
+Opções: `--conta act_N` (padrão **CONTA 1 ADS EUA** `act_2094401681297034`), `--reusar <pixelId>`
+(aproveita pixel que já existe na Meta — **obrigatório** se o nome já existe, nunca duplique),
+`--pixelnome "X"`, `--slug x`. Cada passo também roda sozinho para retomar de onde parou:
+`oferta-criar`, `webhook-criar`, `pixel-criar --oferta <slug>`, `snippet`, `verificar`.
+
+**Como o chat deve agir quando o usuário pedir oferta/pixel/webhook:**
+
+1. Reúna o mínimo: nome da oferta e o **produto da Cakto** (se o usuário só disser o nome, procure o
+   ID com o helper da Cakto — `GET products/`). Conta de anúncio e pixel novo/reaproveitado têm padrão.
+2. Rode **sem `--confirmar`** e **mostre a pré-checagem e o plano**. A Cakto e a Meta são **produção,
+   sem sandbox**: só rode com `--confirmar` depois do ok do usuário.
+3. Rode com `--confirmar`, depois `verificar`, e **relate o resultado como ele é** (✓ e ✗). Não diga
+   "tudo certo" com ✗ pendente.
+4. Entregue ao usuário: o script da página e os parâmetros de URL dos anúncios (seções 6 e 7).
+5. Lembre o que a automação **não** faz (abaixo).
+
+**O que a automação NÃO faz (avise sempre):**
+
+- Produto nos webhooks de **acesso** (área de membros) e de **recuperação** — skill `criar-produto-cakto`
+  / `area-de-membros`. O de recuperação (id 71145) substitui a lista: mande a união.
+- Colocar o `<script>` na página e subir os anúncios com os parâmetros de URL.
+- **Token da API de Conversões (CAPI) do pixel**: ainda é manual. O envio server-side está desligado
+  (`CAPI_ENABLED=false`), então isso não bloqueia o rastreio pelo navegador.
+- A **1ª venda real**: é a prova final do webhook.
+
+**Regras que não mudam:** nunca imprima token; nunca apague webhook de outro papel sem ordem do
+usuário; **antes de criar pixel, o helper já confere a Meta** (não crie à mão por fora dele); um pixel
+**nunca** serve a duas ofertas.
+
+**Estado da validação (atualize aqui quando mudar):**
+
+| Peça | Estado |
+|---|---|
+| `webhook-criar`, `pixel-add`, `pixel-vincular`, `snippet`, `verificar` | em uso e validados |
+| `pixel-criar` / `oferta-nova`: pré-checagem e simulação | validados (13/10/2026, só leitura) |
+| `pixel-criar`: **criação real** do pixel na Meta (`POST act_N/adspixels`) | **ainda não executada em produção**; na 1ª vez, rode, confira o pixel na Meta e atualize esta linha |
+| Compartilhar pixel novo com as outras 2 contas (`shared_accounts`) | melhor esforço: se a Meta recusar, o helper avisa e o compartilhamento é manual |
+| Token CAPI automático (atribuir o usuário `gerenciador-api` ao pixel) | **não implementado**; a Meta só gera o token por Gerenciador de Eventos ou Business Extension |
+
 ## 3. Modelo mental (3 regras que nunca mudam)
 
 1. **1 oferta = 1 produto Cakto.** A escada (VIP / básico / downsell) são *ofertas da Cakto* do
@@ -56,14 +121,17 @@ Eventos do rastreio: `pix_gerado`, `boleto_gerado`, `purchase_approved`, `purcha
 
 ## 5. Oferta nova — passo a passo (padrão)
 
+O caminho normal é o **`oferta-nova`** da seção 2.1 (faz os passos 1 a 3 abaixo de uma vez). Os
+comandos separados existem para retomar um passo que falhou ou para casos pontuais.
+
 ```bash
 U="node ~/.utmfy/utmfy.mjs"
 $U ofertas                                                     # o que já existe
 # 1) produto na Cakto (skill criar-produto-cakto) → anote o ID do produto
 $U oferta-criar --nome "Nome da oferta" --confirmar            # cria a oferta e gera o token
 $U webhook-criar --oferta <slug> --produto <ID_PRODUTO> --confirmar   # Cakto (PRODUÇÃO): cria, relê e confere
-$U pixel-add --id <ID_PIXEL_META> --nome "Pixel <oferta>" --confirmar
-$U pixel-vincular --oferta <slug> --pixel <ID_PIXEL_META> --confirmar
+$U pixel-criar --oferta <slug> --confirmar                     # cria (ou --reusar <id>) o pixel NA META, cadastra e liga
+# (pixel-add + pixel-vincular continuam valendo para ligar um pixel que já existe e já tem ID)
 $U snippet --oferta <slug>                                     # script da página + parâmetros dos anúncios
 # 2) colocar o <script t.js> no <head> de TODAS as páginas do funil (skills de página de vendas)
 # 3) anúncios: colar os parâmetros de URL no nível do anúncio
