@@ -9,7 +9,7 @@ import { requireOffer } from "@/lib/offer-context";
 async function SummaryContent({ params, searchParams }: PageProps<"/ofertas/[id]/resumo">) {
   const { id } = await params;
   const sp = await searchParams;
-  const { sb, workspace, accounts, pixels, canWrite } = await requireOffer(id);
+  const { sb, workspace, pixels, canWrite } = await requireOffer(id);
   const [items, sessions, orders] = await Promise.all([
     sb.from("offer_cakto_items").select("id", { count: "exact", head: true }).eq("offer_id", id),
     sb.from("tracking_sessions").select("id", { count: "exact", head: true }).eq("offer_id", id),
@@ -17,7 +17,6 @@ async function SummaryContent({ params, searchParams }: PageProps<"/ofertas/[id]
   ]);
   const steps: [string, boolean, string][] = [
     ["Produto Cakto", (items.count ?? 0) > 0, "integracoes"],
-    ["Conta Meta", accounts.length > 0, "integracoes"],
     ["Pixel", pixels.length > 0, "integracoes"],
     ["Script de tracking", (sessions.count ?? 0) > 0, "tracking"],
     ["Primeira venda recebida", (orders.count ?? 0) > 0, "pedidos"],

@@ -12,7 +12,7 @@ const STATUS: Record<string, [string, string]> = {
 /** Faixa de contexto: todas as páginas da oferta mostram de onde vêm os números. */
 async function OfferContextHeader({ params }: { params: LayoutProps<"/ofertas/[id]">["params"] }) {
   const { id } = await params;
-  const { offer, accounts, pixels } = await requireOffer(id);
+  const { offer, pixels } = await requireOffer(id);
   const [label, cls] = STATUS[offer.status] ?? [offer.status, "bg-slate-400/10 text-slate-300"];
   const pending = <Link href={`/ofertas/${id}/integracoes`} className="text-amber-300 underline decoration-dotted">não vinculado</Link>;
   return (
@@ -24,10 +24,6 @@ async function OfferContextHeader({ params }: { params: LayoutProps<"/ofertas/[i
           <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>{label}</span>
         </div>
         <dl className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[#bac3d2]">
-          <div>
-            <dt className="inline text-[#7f8ca4]">Conta Meta: </dt>
-            <dd className="inline font-medium">{accounts.length ? accounts.map((a) => a.account_name ?? `act_${a.account_id}`).join(", ") : pending}</dd>
-          </div>
           <div>
             <dt className="inline text-[#7f8ca4]">Pixel: </dt>
             <dd className="inline font-medium">{pixels.length ? pixels.map((p) => `${p.name} (${p.external_pixel_id})`).join(", ") : pending}</dd>

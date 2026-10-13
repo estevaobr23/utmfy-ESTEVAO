@@ -209,9 +209,10 @@ async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { ac
   const accountsQ = f.offer
     ? sb.from("offer_ad_accounts").select("meta_ad_accounts(account_id, last_error)").eq("offer_id", f.offer)
     : sb.from("meta_ad_accounts").select("account_id, last_error").eq("workspace_id", ws.id).eq("active", true);
-  const [accounts, jobs] = await Promise.all([
+  const [accounts, jobs, pixelLinks] = await Promise.all([
     accountsQ,
     sb.from("sync_jobs").select("params").eq("workspace_id", ws.id).eq("kind", "meta_insights").in("status", ["success", "partial"]).order("started_at", { ascending: false }).limit(500),
+    f.offer ? sb.from("offer_pixels").select("pixel_id", { count: "exact", head: true }).eq("offer_id", f.offer).eq("active", true) : Promise.resolve({ count: 0 }),
   ]);
   type Acc = { account_id: string; last_error: string | null };
   const rows = (accounts.data ?? []) as unknown[];
@@ -220,7 +221,7 @@ async function loadSpendStatus(sb: Db, ws: Workspace, f: Filters, excluded: { ac
   const windows = (jobs.data ?? [])
     .map((j) => j.params as { since?: string; until?: string } | null)
     .filter((p): p is { since: string; until: string } => !!p?.since && !!p?.until);
-  return spendStatus({ accounts: scoped, syncedWindows: windows, excluded, pendingAssociations, from: f.from, to: f.to, today: todayIn(ws.timezone) });
+  return spendStatus({ accounts: scoped, syncedWindows: windows, excluded, pendingAssociations, offerScope: !!f.offer, offerHasPixel: (pixelLinks.count ?? 0) > 0, from: f.from, to: f.to, today: todayIn(ws.timezone) });
 }
 
 /**

@@ -2,7 +2,7 @@
 // viraria R$ 0 e o lucro/ROAS/CPA pareceriam reais. Função pura (testável).
 import { addDays } from "./dates";
 
-export type SpendState = "ok" | "no_accounts" | "association_pending" | "error" | "not_synced" | "fx_missing";
+export type SpendState = "ok" | "no_accounts" | "no_pixel" | "association_pending" | "error" | "not_synced" | "fx_missing";
 
 export type SpendStatus = { state: SpendState; reliable: boolean; message: string | null };
 
@@ -14,6 +14,10 @@ export type SpendStatusInput = {
   /** Gasto deixado de fora por falta de câmbio no período. */
   excluded: { account_id: string; currency: string; spend: number }[];
   pendingAssociations?: string[];
+  /** Relatório de UMA oferta: o gasto vem das campanhas que otimizam para o pixel dela (as contas entram sozinhas). */
+  offerScope?: boolean;
+  /** Só no escopo de oferta: a oferta tem pixel ativo ligado. */
+  offerHasPixel?: boolean;
   from: string;
   to: string;
   today: string;
@@ -29,7 +33,13 @@ function missingDays(from: string, to: string, windows: SpendStatusInput["synced
 
 export function spendStatus(i: SpendStatusInput): SpendStatus {
   if (!i.accounts.length) {
-    return { state: "no_accounts", reliable: false, message: "Nenhuma conta Meta vinculada: o gasto é desconhecido, então lucro, ROAS e CPA não são calculados." };
+    if (!i.offerScope) {
+      return { state: "no_accounts", reliable: false, message: "Nenhuma conta de anúncio conectada: o gasto é desconhecido, então lucro, ROAS e CPA não são calculados." };
+    }
+    if (!i.offerHasPixel) {
+      return { state: "no_pixel", reliable: false, message: "Esta oferta ainda não tem pixel ligado: o gasto é atribuído pelo pixel da oferta, então lucro, ROAS e CPA não são calculados." };
+    }
+    // Oferta com pixel e nenhuma campanha usando o pixel ainda: o gasto é R$ 0 conhecido (segue para a checagem de sincronização).
   }
   if (i.pendingAssociations?.length) {
     return {

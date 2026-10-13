@@ -211,7 +211,7 @@ Detalhes e diagnóstico em `TRACKING.md`.
 | Número | Fonte |
 |---|---|
 | Faturamento / reembolso / taxas / vendas | Cakto (webhook; "Atualizar" também reconcilia os últimos 3 dias) |
-| Gasto, cliques no link, impressões | Meta Insights (convertido para R$ pela PTAX do dia) |
+| Gasto, cliques no link, impressões | Meta Insights (convertido para R$ pela PTAX do dia). **O gasto de uma oferta é atribuído pelo pixel dela**: conjuntos que otimizam para o pixel entram sozinhos, de qualquer conta de anúncio. **Conta Meta não é passo de configuração da oferta** (não há checklist nem aviso por falta de conta). Oferta com pixel e sem campanha ainda mostra gasto R$ 0; oferta sem pixel avisa para ligar o pixel |
 | Vis. página, ICs, CPV, CPI | eventos do pixel na Meta (`landing_page_view`, `initiate_checkout`); sem dado → N/D |
 | Orçamento / bid cap | Meta, exibidos em R$ (lápis edita o orçamento diário na Meta) |
 | Atribuição | UTM do pedido → `EXACT_ID` / `UTM_PARSED` / `UNTRACKED`… |

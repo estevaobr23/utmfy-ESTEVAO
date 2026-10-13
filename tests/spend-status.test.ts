@@ -17,6 +17,18 @@ describe("confiabilidade do gasto", () => {
   it("sem contas → não confiável (gasto desconhecido, não R$ 0)", () => {
     expect(spendStatus({ ...base, accounts: [] })).toMatchObject({ state: "no_accounts", reliable: false });
   });
+  it("oferta COM pixel e nenhuma campanha usando o pixel ainda → gasto R$ 0 conhecido, confiável (a conta não é pré-requisito)", () => {
+    expect(spendStatus({ ...base, accounts: [], offerScope: true, offerHasPixel: true })).toMatchObject({ state: "ok", reliable: true, message: null });
+  });
+  it("oferta com pixel mas Meta ainda não sincronizada no período → continua avisando (não vira R$ 0 falso)", () => {
+    expect(spendStatus({ ...base, accounts: [], syncedWindows: [], offerScope: true, offerHasPixel: true }).state).toBe("not_synced");
+  });
+  it("oferta SEM pixel → não confiável, e a mensagem manda ligar o pixel (não uma conta)", () => {
+    const s = spendStatus({ ...base, accounts: [], offerScope: true, offerHasPixel: false });
+    expect(s).toMatchObject({ state: "no_pixel", reliable: false });
+    expect(s.message).toContain("pixel");
+    expect(s.message).not.toMatch(/conta Meta/i);
+  });
   it("conta com erro de sincronização", () => {
     expect(spendStatus({ ...base, accounts: [{ account_id: "1", last_error: "token_expired: x" }] }).state).toBe("error");
   });

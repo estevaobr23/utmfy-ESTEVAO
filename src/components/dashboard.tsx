@@ -45,7 +45,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
         <span className="flex items-center gap-3">Atualizado {lastSync ? timeAgo(lastSync) : "nunca"}{canWrite && <RefreshButton />}</span>
       </div>
       <FilterBar f={filters} offers={offers} accounts={accounts} catalog={catalog} hideOffer={!!offerId} action={basePath} />
-      {!report.spendStatus.reliable && <div className="mb-3"><Notice tone="warn">{report.spendStatus.message} Lucro, ROAS, ROI, margem e CPA permanecem indisponíveis. {offerId && <Link href={`/ofertas/${offerId}/integracoes`} className="underline">Revisar associações</Link>}</Notice></div>}
+      {!report.spendStatus.reliable && <div className="mb-3"><Notice tone="warn">{report.spendStatus.message} Lucro, ROAS, ROI, margem e CPA permanecem indisponíveis. {offerId && <Link href={`/ofertas/${offerId}/integracoes`} className="underline">Revisar integrações da oferta</Link>}</Notice></div>}
 
       <KpiGrid m={report.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} />
       <div className="mt-4"><ConversionFunnel data={analytics.funnel} /></div>
