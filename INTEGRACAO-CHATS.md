@@ -75,6 +75,11 @@ Opções: `--conta act_N` (padrão **CONTA 1 ADS EUA** `act_2094401681297034`), 
 - Produto nos webhooks de **acesso** (área de membros) e de **recuperação** — skill `criar-produto-cakto`
   / `area-de-membros`. O de recuperação (id 71145) substitui a lista: mande a união.
 - Colocar o `<script>` na página e subir os anúncios com os parâmetros de URL.
+- **Pixel no checkout da Cakto** (é ele que dispara o **Purchase** no navegador/CAPI da Cakto): a API pública da Cakto
+  **não grava** pixel (só o schema de resposta cita `tracking_pixels`; os endpoints de pixel dão 404 — testado em
+  13/10/2026). É passo manual no painel: Produto → Pixels → Facebook → ID do pixel + token da API de Conversões.
+  Depois de configurar, confira no Meta Pixel Helper se o checkout dispara InitiateCheckout: se disparar, desligue o
+  do site (ver `data-initiate-checkout` na seção 7) para não contar em dobro.
 - **Token da API de Conversões (CAPI) do pixel**: ainda é manual. O envio server-side está desligado
   (`CAPI_ENABLED=false`), então isso não bloqueia o rastreio pelo navegador.
 - A **1ª venda real**: é a prova final do webhook.
@@ -170,6 +175,10 @@ Detalhes e diagnóstico em `TRACKING.md`.
   `InitiateCheckout` no clique do checkout (link para `pay.cakto.com.br` ou com `data-checkout`);
   é daí que vêm "Vis. página" e "ICs" do funil; (2) guarda sessão e first/last touch, repassa as UTMs
   e põe `callback` nos links do checkout (acrescenta só o que falta; nunca sobrescreve).
+- `data-initiate-checkout="false"` (opcional): o `t.js` carrega o pixel e dispara `PageView`, mas **não** dispara o
+  `InitiateCheckout` do clique. Use quando a própria página já envia o `InitiateCheckout` com `value`/`currency`/
+  `content_ids` (ex.: a página da oferta `100-gatos-marcenaria`), senão conta em dobro. Quem envia eventos da página ao pixel deve
+  esperar o `fbq` existir (o `t.js` é assíncrono): enfileire e descarregue, nunca descarte.
 - **Não instale outro código do pixel da Meta nem o da UTMify** na página: dobra os eventos. Se a
   página já tiver `fbq` próprio (ex.: SaaS com Meta Pixel no layout), use o `t.js` **sem**
   `data-pixel` — ele não mexe em pixel alheio.

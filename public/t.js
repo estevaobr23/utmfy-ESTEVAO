@@ -8,6 +8,9 @@
  *   data-pixel="<ID_DO_PIXEL_META>"              (carrega o pixel da Meta: PageView + InitiateCheckout no clique do
  *                                                 checkout. Use SÓ em páginas sem outro pixel da Meta instalado;
  *                                                 se a página já tiver `fbq`, o t.js não mexe no pixel)
+ *   data-initiate-checkout="false"               (o t.js carrega o pixel e dispara PageView, mas NÃO dispara o
+ *                                                 InitiateCheckout do clique: use quando a própria página já envia
+ *                                                 o InitiateCheckout com valor/moeda, para não contar em dobro)
  * API: window.UtmfyTracker.decorate(url) → url com os parâmetros de atribuição.
  */
 (function (w, d) {
@@ -33,6 +36,7 @@
     callback: attr("data-callback", "true") !== "false",
     beacon: attr("data-beacon", "true") !== "false",
     pixel: /^\d{5,30}$/.test(attr("data-pixel", "")) ? attr("data-pixel", "") : "",
+    initiateCheckout: attr("data-initiate-checkout", "true") !== "false",
   };
 
   function now() { return new Date().getTime(); }
@@ -136,7 +140,7 @@
   }
   var lastIC = 0;
   function trackInitiateCheckout() {
-    if (!pixelOwned || !w.fbq) return;
+    if (!pixelOwned || !w.fbq || !cfg.initiateCheckout) return;
     var t = now();
     if (t - lastIC < 1500) return; // clique duplo / bolha de evento
     lastIC = t;

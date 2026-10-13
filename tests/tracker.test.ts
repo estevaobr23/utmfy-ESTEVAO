@@ -174,6 +174,13 @@ describe("pixel da Meta no t.js (data-pixel)", () => {
     expect(events(e2).filter((a) => a[1] === "InitiateCheckout")).toHaveLength(1);
   });
 
+  it('data-initiate-checkout="false": mantém PageView mas não dispara InitiateCheckout no clique (a página assume o evento)', () => {
+    const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL, "data-initiate-checkout": "false" } });
+    e.click("https://pay.cakto.com.br/abc");
+    e.click("https://outro.site/ir", { "data-checkout": "" });
+    expect(events(e)).toEqual([["init", PIXEL], ["track", "PageView"]]);
+  });
+
   it("link comum (nem checkout nem data-checkout) não dispara InitiateCheckout", () => {
     const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
     e.click("https://pagina.com/sobre");
