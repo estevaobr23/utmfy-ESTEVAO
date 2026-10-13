@@ -193,12 +193,49 @@ export async function unlinkAdAccount(fd: FormData) {
 }
 
 // --------------------------------------------------------------- pixels -----
+/** Cadastro completo: ID + token da API de Conversões + oferta. Termina abrindo o popup com o código da página. */
 export async function createPixel(fd: FormData) {
   const s = await writer();
   const pid = str(fd, "external_pixel_id");
-  if (!/^[0-9]{5,30}$/.test(pid)) back("/pixels", "ID do pixel deve ser numérico", "error");
-  const { error } = await s.sb.from("pixels").insert({ workspace_id: s.workspace.id, external_pixel_id: pid, name: str(fd, "name").slice(0, 120) || `Pixel ${pid}` });
-  back("/pixels", error ? (error.message.includes("duplicate") ? "Pixel já cadastrado" : error.message) : "Pixel cadastrado", error ? "error" : "ok");
+  if (!/^[0-9]{5,30}$/.test(pid)) return back("/pixels", "ID do pixel deve ser numérico", "error");
+  const token = str(fd, "token");
+  if (token.length < 20) return back("/pixels", "Informe o token da API de Conversões da Meta.", "error");
+  const offerRaw = str(fd, "offer_id");
+  const offerId = offerRaw ? uuid.parse(offerRaw) : null;
+
+  const { data: px, error } = await s.sb
+    .from("pixels")
+    .insert({ workspace_id: s.workspace.id, external_pixel_id: pid, name: str(fd, "name").slice(0, 120) || `Pixel ${pid}` })
+    .select("id")
+    .single();
+  if (error || !px) return back("/pixels", error?.message.includes("duplicate") ? "Pixel já cadastrado" : (error?.message ?? "Falha ao cadastrar"), "error");
+
+  const warnings: string[] = [];
+  const admin = adminClient();
+  const { error: vaultError } = await admin.rpc("store_secret", { p_workspace: s.workspace.id, p_owner_type: "pixel", p_owner_id: px.id, p_secret: token });
+  if (vaultError) warnings.push(`token não salvo (${vaultError.message}); cadastre-o de novo no card do pixel`);
+  else await admin.from("pixels").update({ token_source: "vault", token_hint: hint(token), server_tracking_enabled: true }).eq("id", px.id);
+
+  if (offerId) {
+    const linkError = await linkPixelToOffer(s, offerId, px.id);
+    if (linkError) warnings.push(linkError);
+  }
+  revalidatePath("/pixels");
+  const tone = warnings.length ? "error" : "ok";
+  const msg = warnings.length ? `Pixel cadastrado, mas: ${warnings.join("; ")}.` : "Pixel cadastrado";
+  redirect(`/pixels?${tone}=${encodeURIComponent(msg)}&codigo=${px.id}`);
+}
+
+/** Exclui o pixel. Vínculos e histórico de envio saem em cascata; o token deixa de ser referenciado. */
+export async function deletePixel(fd: FormData) {
+  const s = await writer();
+  const id = uuid.parse(str(fd, "pixel_id"));
+  const { data: px } = await s.sb.from("pixels").select("id, name").eq("id", id).eq("workspace_id", s.workspace.id).maybeSingle();
+  if (!px) return back("/pixels", "Pixel não encontrado", "error");
+  const { error } = await s.sb.from("pixels").delete().eq("id", id).eq("workspace_id", s.workspace.id);
+  if (error) return back("/pixels", `Não foi possível excluir: ${error.message}`, "error");
+  await adminClient().from("secret_refs").delete().eq("owner_type", "pixel").eq("owner_id", id);
+  back("/pixels", `Pixel ${px.name} excluído`);
 }
 
 export async function updatePixel(fd: FormData) {
@@ -232,16 +269,23 @@ export async function setPixelToken(fd: FormData) {
   back("/pixels", "Token salvo no Vault");
 }
 
-export async function linkPixel(fd: FormData) {
-  const s = await writer();
-  const dest = str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/integracoes` : "/pixels";
+/** Liga pixel↔oferta. Devolve a mensagem de erro (ou null). */
+async function linkPixelToOffer(s: Awaited<ReturnType<typeof writer>>, offerId: string, pixelId: string): Promise<string | null> {
   // Pixel compartilhado por duas ofertas não separa o gasto: um pixel, uma oferta.
-  const { data: other } = await s.sb.from("offer_pixels").select("offer_id").eq("pixel_id", uuid.parse(str(fd, "pixel_id"))).eq("active", true).neq("offer_id", uuid.parse(str(fd, "offer_id"))).limit(1);
-  if (other?.length) return back(dest, "Esse pixel já pertence a outra oferta. Use um pixel exclusivo para cada oferta.", "error");
-  const { error } = await s.sb.from("offer_pixels").upsert({ workspace_id: s.workspace.id, offer_id: uuid.parse(str(fd, "offer_id")), pixel_id: uuid.parse(str(fd, "pixel_id")), active: true });
+  const { data: other } = await s.sb.from("offer_pixels").select("offer_id").eq("pixel_id", pixelId).eq("active", true).neq("offer_id", offerId).limit(1);
+  if (other?.length) return "Esse pixel já pertence a outra oferta. Use um pixel exclusivo para cada oferta.";
+  const { error } = await s.sb.from("offer_pixels").upsert({ workspace_id: s.workspace.id, offer_id: offerId, pixel_id: pixelId, active: true });
   // Um pixel por oferta: com o pixel ligado, as contas e campanhas dele entram sozinhas.
   if (!error) await autoLinkOfferAccounts(s.sb, s.workspace.id).catch(() => 0);
-  back(str(fd, "back") === "offer" ? `/ofertas/${str(fd, "offer_id")}/integracoes` : "/pixels", error ? error.message : "Pixel associado", error ? "error" : "ok");
+  return error ? error.message : null;
+}
+
+export async function linkPixel(fd: FormData) {
+  const s = await writer();
+  const offerId = uuid.parse(str(fd, "offer_id"));
+  const dest = str(fd, "back") === "offer" ? `/ofertas/${offerId}/integracoes` : "/pixels";
+  const error = await linkPixelToOffer(s, offerId, uuid.parse(str(fd, "pixel_id")));
+  back(dest, error ?? "Pixel associado", error ? "error" : "ok");
 }
 
 export async function unlinkPixel(fd: FormData) {

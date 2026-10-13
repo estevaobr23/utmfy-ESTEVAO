@@ -1,7 +1,8 @@
-import { createPixel, linkPixel, setPixelToken, unlinkPixel, updatePixel } from "@/app/actions";
+import { linkPixel, setPixelToken, unlinkPixel, updatePixel } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
-import { Badge, Card, Code, Empty, Field, inputCls, Notice, PageHeader } from "@/components/ui";
+import { DeletePixelDialog, NewPixelDialog, PixelCodeDialog } from "@/components/pixels/pixel-dialogs";
+import { Badge, Card, Code, Empty, inputCls, Notice, PageHeader } from "@/components/ui";
 import { env } from "@/lib/env";
 import { listOffers } from "@/lib/queries";
 import { requireWorkspace } from "@/lib/session";
@@ -17,10 +18,18 @@ export default async function PixelsPage({ searchParams }: PageProps<"/pixels">)
   ]);
   const w = s.canWrite;
   const count = (pid: string, st: string) => (dispatchStats ?? []).filter((d) => d.pixel_id === pid && d.status === st).length;
+  const justCreated = typeof sp.codigo === "string" ? sp.codigo : null;
+  const offerOptions = offers
+    .filter((o) => o.status !== "archived")
+    .map((o) => ({ id: o.id, name: o.name, hasPixel: (links ?? []).some((l) => l.offer_id === o.id && l.active) }));
 
   return (
     <>
-      <PageHeader title="Pixels" subtitle="Pixels/datasets da Meta. Uma oferta pode ter vários pixels e um pixel pode servir várias ofertas. Cada pixel tem seu próprio histórico de envio." />
+      <PageHeader
+        title="Pixels"
+        subtitle="Cadastre o pixel da Meta (ID + token da API de Conversões) e receba o código para colar no topo da sua página. Um pixel exclusivo por oferta; cada pixel tem seu próprio histórico de envio."
+        actions={w && <NewPixelDialog offers={offerOptions} />}
+      />
       <Flash sp={sp} />
       {!env.capiEnabled && (
         <Notice tone="info">
@@ -28,14 +37,28 @@ export default async function PixelsPage({ searchParams }: PageProps<"/pixels">)
         </Notice>
       )}
       <div className="mt-4 space-y-4">
-        {!pixels?.length && <Empty>Nenhum pixel cadastrado.</Empty>}
+        {!pixels?.length && <Empty>Nenhum pixel cadastrado. Use <b>+ Cadastrar novo pixel</b> no topo.</Empty>}
         {(pixels ?? []).map((p) => {
           const linked = (links ?? []).filter((l) => l.pixel_id === p.id);
+          const dispatchTotal = (dispatchStats ?? []).filter((d) => d.pixel_id === p.id).length;
           return (
             <Card
               key={p.id}
               title={<>{p.name} <Code>{p.external_pixel_id}</Code></>}
-              actions={<div className="flex gap-1">{p.active ? <Badge tone="ok">ativo</Badge> : <Badge>inativo</Badge>}{p.server_tracking_enabled ? <Badge tone="info">server-side ON</Badge> : <Badge>server-side OFF</Badge>}</div>}
+              actions={
+                <div className="flex flex-wrap items-center gap-1">
+                  <PixelCodeDialog
+                    pixelName={p.name}
+                    externalPixelId={p.external_pixel_id}
+                    offers={linked.map((l) => ({ offerId: l.offer_id, offerName: offers.find((o) => o.id === l.offer_id)?.name ?? l.offer_id }))}
+                    appUrl={env.appUrl}
+                    defaultOpen={justCreated === p.id}
+                  />
+                  {w && <DeletePixelDialog pixelId={p.id} pixelName={p.name} externalPixelId={p.external_pixel_id} offerCount={linked.length} dispatchCount={dispatchTotal} />}
+                  {p.active ? <Badge tone="ok">ativo</Badge> : <Badge>inativo</Badge>}
+                  {p.server_tracking_enabled ? <Badge tone="info">server-side ON</Badge> : <Badge>server-side OFF</Badge>}
+                </div>
+              }
             >
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="text-sm">
@@ -99,15 +122,6 @@ export default async function PixelsPage({ searchParams }: PageProps<"/pixels">)
           );
         })}
       </div>
-      {w && (
-        <Card title="Cadastrar pixel" className="mt-6 max-w-xl">
-          <form action={createPixel} className="flex flex-wrap items-end gap-3">
-            <Field label="ID do pixel/dataset"><input name="external_pixel_id" required pattern="[0-9]{5,30}" className={inputCls} /></Field>
-            <Field label="Nome"><input name="name" className={inputCls} placeholder="Pixel principal" /></Field>
-            <SubmitButton>Cadastrar</SubmitButton>
-          </form>
-        </Card>
-      )}
     </>
   );
 }
