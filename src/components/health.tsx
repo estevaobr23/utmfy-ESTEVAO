@@ -1,6 +1,8 @@
 import type { Db } from "../lib/supabase/types";
 import { timeAgo } from "@/lib/core/dates";
 import { envStatus } from "@/lib/env";
+import { AskClaude } from "./ask-claude";
+import { ask } from "@/lib/claude-chat";
 import { LevelBadge } from "./ui";
 
 type Level = "ok" | "warn" | "error";
@@ -81,7 +83,7 @@ export async function loadHealth(sb: Db, wsId: string, offerId?: string): Promis
   return { items, raw: h };
 }
 
-export function HealthList({ items }: { items: Item[] }) {
+export function HealthList({ items, tela = "Saúde das integrações", offer }: { items: Item[]; tela?: string; offer?: { id: string; name: string; slug: string } }) {
   return (
     <ul className="divide-y divide-[#394761] rounded-md border border-[#394761] bg-[#27334d]">
       {items.map((i) => (
@@ -90,7 +92,10 @@ export function HealthList({ items }: { items: Item[] }) {
             <div className="font-medium text-slate-800">{i.level === "ok" ? "✓" : i.level === "warn" ? "⚠" : "✕"} {i.name}</div>
             <div className="text-slate-500">{i.detail}</div>
           </div>
-          <LevelBadge level={i.level} />
+          <div className="flex shrink-0 items-center gap-2">
+            {i.level !== "ok" && <AskClaude tone="problem" label="Resolver com o Claude" prompt={ask.problema(tela, i.name, i.detail, offer)} copy={false} />}
+            <LevelBadge level={i.level} />
+          </div>
         </li>
       ))}
     </ul>

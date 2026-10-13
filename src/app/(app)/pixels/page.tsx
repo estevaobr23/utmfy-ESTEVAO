@@ -1,8 +1,10 @@
 import { linkPixel, setPixelToken, unlinkPixel, updatePixel } from "@/app/actions";
+import { AskClaude } from "@/components/ask-claude";
 import { SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
 import { DeletePixelDialog, NewPixelDialog, PixelCodeDialog } from "@/components/pixels/pixel-dialogs";
 import { Badge, Card, Code, Empty, inputCls, Notice, PageHeader } from "@/components/ui";
+import { ask } from "@/lib/claude-chat";
 import { env } from "@/lib/env";
 import { listOffers } from "@/lib/queries";
 import { requireWorkspace } from "@/lib/session";
@@ -28,7 +30,7 @@ export default async function PixelsPage({ searchParams }: PageProps<"/pixels">)
       <PageHeader
         title="Pixels"
         subtitle="Cadastre o pixel da Meta (ID + token da API de Conversões) e receba o código para colar no topo da sua página. Um pixel exclusivo por oferta; cada pixel tem seu próprio histórico de envio."
-        actions={w && <NewPixelDialog offers={offerOptions} />}
+        actions={<><AskClaude prompt={ask.pixelNovo()} label="Criar pixel com o Claude" copy={false} />{w && <NewPixelDialog offers={offerOptions} />}</>}
       />
       <Flash sp={sp} />
       {!env.capiEnabled && (
@@ -54,6 +56,7 @@ export default async function PixelsPage({ searchParams }: PageProps<"/pixels">)
                     appUrl={env.appUrl}
                     defaultOpen={justCreated === p.id}
                   />
+                  {!linked.length && <AskClaude tone="problem" label="Ligar a uma oferta" prompt={ask.pixelSolto(p.name, p.external_pixel_id)} copy={false} />}
                   {w && <DeletePixelDialog pixelId={p.id} pixelName={p.name} externalPixelId={p.external_pixel_id} offerCount={linked.length} dispatchCount={dispatchTotal} />}
                   {p.active ? <Badge tone="ok">ativo</Badge> : <Badge>inativo</Badge>}
                   {p.server_tracking_enabled ? <Badge tone="info">server-side ON</Badge> : <Badge>server-side OFF</Badge>}

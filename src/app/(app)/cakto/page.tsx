@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { checkOfferWebhook } from "@/app/actions";
+import { AskClaude } from "@/components/ask-claude";
 import { CodeBlock, SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
 import { Badge, Card, Code, Empty, Notice, OrderStatusBadge, PageHeader } from "@/components/ui";
+import { ask } from "@/lib/claude-chat";
 import { timeAgo } from "@/lib/core/dates";
 import { env, envStatus } from "@/lib/env";
 import { requireWorkspace } from "@/lib/session";
@@ -26,7 +28,7 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
   const now = new Date().getTime();
   const since = new Date(now - 7 * DAY).toISOString();
   const [{ data: offers }, { data: items }, { data: recent }, { data: conn }, { data: failed }] = await Promise.all([
-    s.sb.from("offers").select("id, name, status, webhook_token, cakto_webhook_id, cakto_webhook_checked_at").eq("workspace_id", s.workspace.id).neq("status", "archived").order("created_at"),
+    s.sb.from("offers").select("id, name, slug, status, webhook_token, cakto_webhook_id, cakto_webhook_checked_at").eq("workspace_id", s.workspace.id).neq("status", "archived").order("created_at"),
     s.sb.from("offer_cakto_items").select("offer_id, cakto_product_id, product_name, label").eq("workspace_id", s.workspace.id),
     s.sb.from("orders").select("offer_id, status, status_event_at, updated_at").eq("workspace_id", s.workspace.id).not("offer_id", "is", null).order("updated_at", { ascending: false }).limit(300),
     s.sb.from("cakto_connections").select("status, last_webhook_at, last_error").eq("workspace_id", s.workspace.id).maybeSingle(),
@@ -47,11 +49,14 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
         title="Webhooks da Cakto"
         subtitle="Uma URL por oferta. Cole a URL da oferta na Cakto e as vendas dela passam a aparecer no painel."
         actions={
-          s.canWrite && (
-            <form action={checkOfferWebhook}>
-              <SubmitButton variant="secondary" pendingText="Verificando...">Verificar tudo na Cakto</SubmitButton>
-            </form>
-          )
+          <>
+            <AskClaude prompt={ask.novaOferta()} label="Criar oferta e webhook com o Claude" copy={false} />
+            {s.canWrite && (
+              <form action={checkOfferWebhook}>
+                <SubmitButton variant="secondary" pendingText="Verificando...">Verificar tudo na Cakto</SubmitButton>
+              </form>
+            )}
+          </>
         }
       />
       <Flash sp={sp} />
@@ -74,6 +79,9 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
             <b>{failed!.length} evento(s) da Cakto deram erro nos últimos 7 dias.</b>{" "}
             Último: {failed![0].event_name ?? "evento"} {timeAgo(failed![0].received_at)}
             {failed![0].processing_status === "rejected" ? " — assinatura recusada" : failed![0].error_message ? ` — ${failed![0].error_message}` : ""}.
+            <div className="mt-2">
+              <AskClaude tone="problem" label="Resolver com o Claude" prompt={ask.problema("Webhooks Cakto", `${failed!.length} evento(s) da Cakto com erro (7 dias)`, `último: ${failed![0].event_name ?? "evento"} ${failed![0].processing_status === "rejected" ? "— assinatura recusada" : failed![0].error_message ?? ""}`)} />
+            </div>
           </Notice>
         </div>
       )}
@@ -88,7 +96,17 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
             <Card
               key={o.id}
               title={o.name}
-              actions={<Badge tone={h.tone}>{h.tone === "ok" ? "✓ " : h.tone === "warn" ? "⚠ " : ""}{h.label}</Badge>}
+              actions={
+                <div className="flex flex-wrap items-center gap-2">
+                  <AskClaude
+                    tone={h.tone === "warn" ? "problem" : "default"}
+                    label={h.tone === "warn" ? "Resolver com o Claude" : "Pedir ao Claude"}
+                    prompt={ask.webhook({ id: o.id, name: o.name, slug: o.slug }, !o.cakto_webhook_id ? "sem_webhook" : !products.length ? "sem_produtos" : "ok")}
+                    copy={false}
+                  />
+                  <Badge tone={h.tone}>{h.tone === "ok" ? "✓ " : h.tone === "warn" ? "⚠ " : ""}{h.label}</Badge>
+                </div>
+              }
             >
               <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">URL do webhook desta oferta</div>
               <div className="mt-1">{o.webhook_token ? <CodeBlock code={offerWebhookUrl(env.appUrl, o.webhook_token)} /> : <Notice tone="warn">Esta oferta ainda não tem URL (migration pendente).</Notice>}</div>
@@ -125,7 +143,8 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
         })}
       </div>
 
-      <Card title="Como criar o webhook de uma oferta nova" className="mt-6">
+      <Card title="Como criar o webhook de uma oferta nova" className="mt-6" actions={<AskClaude prompt={ask.novaOferta()} label="Fazer isso com o Claude" />}>
+        <p className="mb-3 text-sm text-[#aeb8c9]">Caminho rápido: clique em <b>Fazer isso com o Claude</b>. Ele cria a oferta, o webhook e o pixel; você só confirma. O passo a passo manual abaixo continua valendo.</p>
         <ol className="space-y-3 text-sm text-[#dce2ec]">
           <li><b>1. Crie a oferta no UTMFY.</b> A URL do webhook nasce sozinha e aparece nesta página. <Link href="/ofertas" className="text-sky-300 underline">Criar oferta</Link></li>
           <li>

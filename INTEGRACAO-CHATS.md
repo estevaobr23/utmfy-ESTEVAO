@@ -98,6 +98,27 @@ usuário; **antes de criar pixel, o helper já confere a Meta** (não crie à m�
 | Compartilhar pixel novo com as outras 2 contas (`shared_accounts`) | melhor esforço: se a Meta recusar, o helper avisa e o compartilhamento é manual |
 | Token CAPI automático (atribuir o usuário `gerenciador-api` ao pixel) | **não implementado**; a Meta só gera o token por Gerenciador de Eventos ou Business Extension |
 
+## 2.2 Botão "Pedir ao Claude" no painel
+
+O painel tem botões **✦ Pedir ao Claude / Resolver com o Claude** que abrem o Claude Code **no VS Code deste
+computador, na conversa do projeto**, com a mensagem já escrita (o usuário só lê e dá Enter; **nada é enviado
+sozinho**). Ao receber uma dessas mensagens, trate como pedido normal: siga a seção 2.1 (simulação, plano, ok,
+execução, `verificar`).
+
+- **Onde estão:** Webhooks Cakto (topo, por oferta e no erro de eventos), Pixels (topo e pixel sem oferta), Integrações
+  da oferta (webhook, pixel, gasto Meta), Saúde das integrações e Tracking da oferta (cada item ⚠/✕), e "Falar com o
+  Claude" na barra lateral. "Copiar mensagem" existe nos botões do topo da seção de ajuda para colar em outro chat.
+- **Como funciona:** link `vscode://anthropic.claude-code/open?session=<id>&prompt=<texto>` (documentação oficial,
+  "Launch a VS Code tab from other tools"). Só funciona no computador onde o VS Code com a extensão está instalado;
+  abre na janela do VS Code em foco. `session` retoma a conversa; se ela não existir mais, abre uma conversa nova com
+  o mesmo texto (o contexto vem do `CLAUDE.md`, da skill `utmfy-tracker` e deste guia).
+- **Trocar a conversa de destino:** edite `CLAUDE_SESSION_ID` em `src/lib/claude-chat.ts` (ou defina
+  `NEXT_PUBLIC_CLAUDE_SESSION_ID` na Vercel e faça redeploy). O ID é o nome do arquivo `.jsonl` da conversa em
+  `~/.claude/projects/<pasta-do-projeto>/`. Hoje aponta para a conversa onde o fluxo foi montado.
+- **Mensagens padronizadas:** todas em `ask` (`src/lib/claude-chat.ts`), com a oferta (nome, slug, id), o problema
+  e a regra do projeto. **Nunca** coloque segredo nelas (token Meta, `?o=<token>` do webhook): há teste para isso.
+  Para um botão novo, crie a mensagem em `ask` e use `<AskClaude prompt=… />` (`src/components/ask-claude.tsx`).
+
 ## 3. Modelo mental (3 regras que nunca mudam)
 
 1. **1 oferta = 1 produto Cakto.** A escada (VIP / básico / downsell) são *ofertas da Cakto* do

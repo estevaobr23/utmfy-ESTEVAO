@@ -9,7 +9,7 @@ const URL_PARAMS = "utm_source=FB&utm_campaign={{campaign.name}}|{{campaign.id}}
 
 export default async function OfferTracking({ params }: PageProps<"/ofertas/[id]/tracking">) {
   const { id } = await params;
-  const { sb, workspace } = await requireOffer(id);
+  const { sb, workspace, offer } = await requireOffer(id);
   const { items } = await loadHealth(sb, workspace.id, id);
   const snippet = `<script src="${env.appUrl}/t.js" data-offer="${id}" async></script>`;
   return (
@@ -31,7 +31,7 @@ export default async function OfferTracking({ params }: PageProps<"/ofertas/[id]
         </Card>
       </div>
       <h3 className="mb-2 mt-6 text-sm font-semibold text-slate-800">Diagnóstico desta oferta</h3>
-      <HealthList items={items} />
+      <HealthList items={items} tela="Tracking da oferta" offer={{ id, name: offer.name, slug: offer.slug }} />
       <p className="mt-2 text-xs text-slate-500">
         Para testar um link de checkout específico, use o <Link href="/diagnostico" className="underline">diagnóstico de tracking</Link>.
       </p>

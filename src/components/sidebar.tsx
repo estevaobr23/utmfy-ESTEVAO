@@ -3,6 +3,8 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { signOut, switchWorkspace } from "@/app/actions";
+import { AskClaude } from "@/components/ask-claude";
+import { ask } from "@/lib/claude-chat";
 import { offerContextFromPath, offerSectionLinks, offerSwitchHref } from "@/lib/core/offer-navigation";
 
 export type NavOffer = { id: string; name: string; status: string };
@@ -215,6 +217,13 @@ export function Sidebar({ offers, workspaces, workspaceId, email }: { offers: Na
       </nav>
       <AdminMenu path={path} />
       <div className="mt-auto border-t border-[#34415d] bg-[#1d2840] px-4 py-3">
+        <div className="mb-3">
+          <AskClaude
+            label="Falar com o Claude"
+            copy={false}
+            prompt={ask.livre(offerId ? "Oferta" : "Painel", offers.find((o) => o.id === offerId))}
+          />
+        </div>
         {workspaces.length > 1 && (
           <form action={switchWorkspace} className="mb-2">
             <select name="workspace_id" defaultValue={workspaceId ?? undefined} className="w-full rounded border border-[#46546e] bg-[#172137] px-2 py-1.5 text-xs text-white">

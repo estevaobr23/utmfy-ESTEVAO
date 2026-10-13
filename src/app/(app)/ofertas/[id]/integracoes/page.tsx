@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { addCaktoItem, checkOfferWebhook, linkPixel, removeCaktoItem, saveMetaBindings, unlinkAdAccount, unlinkPixel } from "@/app/actions";
+import { AskClaude } from "@/components/ask-claude";
 import { CodeBlock, SubmitButton } from "@/components/client";
 import { Flash } from "@/components/filters";
 import { Badge, Card, Code, Field, inputCls, Notice, SectionTitle } from "@/components/ui";
+import { ask } from "@/lib/claude-chat";
 import { timeAgo } from "@/lib/core/dates";
 import { env } from "@/lib/env";
 import { requireOffer } from "@/lib/offer-context";
@@ -60,7 +62,10 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
       <SectionTitle title="Integrações" subtitle="Vínculos desta oferta. As conexões gerais da Meta e da Cakto ficam em Administração e servem todas as ofertas." />
       <Flash sp={sp} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Produtos Cakto (webhook da oferta)">
+        <Card
+          title="Produtos Cakto (webhook da oferta)"
+          actions={<AskClaude tone={webhookId && (items?.length ?? 0) ? "default" : "problem"} label={webhookId ? "Pedir ao Claude" : "Criar webhook com o Claude"} prompt={ask.webhook({ id, name: offer.name, slug: offer.slug }, !webhookId ? "sem_webhook" : !items?.length ? "sem_produtos" : "ok")} copy={false} />}
+        >
           {token ? (
             <>
               <p className="mb-2 text-sm text-slate-500">
@@ -128,7 +133,10 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
           )}
         </Card>
 
-        <Card title="Gasto Meta (automático pelo pixel)">
+        <Card
+          title="Gasto Meta (automático pelo pixel)"
+          actions={!primaryPixelId || sharedPixels.length ? <AskClaude tone="problem" label="Resolver com o Claude" prompt={ask.problema("Integrações da oferta", "Gasto Meta sem pixel exclusivo", !primaryPixelId ? "a oferta não tem pixel ligado" : `o pixel ${primaryPixelId} também está em outra oferta`, { id, name: offer.name, slug: offer.slug })} copy={false} /> : undefined}
+        >
           {!primaryPixelId ? (
             <Notice tone="warn">Vincule o pixel desta oferta (card abaixo). Com ele, toda campanha que otimiza para esse pixel conta aqui sozinha — sem selecionar campanha.</Notice>
           ) : sharedPixels.length ? (
@@ -188,7 +196,10 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
         </Card>
         </details>
 
-        <Card title="Pixel principal">
+        <Card
+          title="Pixel principal"
+          actions={<AskClaude tone={pixelLinks?.length ? "default" : "problem"} label={pixelLinks?.length ? "Pedir ao Claude" : "Criar pixel com o Claude"} prompt={ask.pixelOferta({ id, name: offer.name, slug: offer.slug }, !!pixelLinks?.length)} copy={false} />}
+        >
           <ul className="mb-3 space-y-1 text-sm">
             {(pixelLinks ?? []).map((l) => {
               const p = l.pixels as unknown as { name: string; external_pixel_id: string } | null;
