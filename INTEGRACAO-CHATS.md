@@ -97,6 +97,7 @@ usuário; **antes de criar pixel, o helper já confere a Meta** (não crie à m�
 | `pixel-criar`: **criação real** do pixel na Meta (`POST act_N/adspixels`) | **ainda não executada em produção**; na 1ª vez, rode, confira o pixel na Meta e atualize esta linha |
 | Compartilhar pixel novo com as outras 2 contas (`shared_accounts`) | melhor esforço: se a Meta recusar, o helper avisa e o compartilhamento é manual |
 | Token CAPI automático (atribuir o usuário `gerenciador-api` ao pixel) | **não implementado**; a Meta só gera o token por Gerenciador de Eventos ou Business Extension |
+| Pixel + token CAPI no checkout da Cakto, oferta `100-gatos-marcenaria` (pixel `4126700287461816`) | **configurado pelo usuário em 15/10/2026** (informado, ainda não comprovado: sem venda). Quem envia o **Purchase** (navegador + servidor) é a **Cakto**. Por isso o envio server-side do UTMFY fica **desligado** (`CAPI_ENABLED=false`): ligar os dois manda o Purchase em dobro, porque os `event_id` são diferentes e a Meta não deduplica. Para trocar de lado, desligue um antes de ligar o outro. Conferir com a 1ª venda (Gerenciador de Eventos: Purchase por "Navegador e servidor") |
 
 ## 2.2 Botão "Pedir ao Claude" no painel
 
