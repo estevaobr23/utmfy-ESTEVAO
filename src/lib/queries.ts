@@ -8,7 +8,7 @@ import { mergeBindings } from "./core/offer-pixel-scope";
 import { loadPixelDerivation } from "./services/offer-auto-link";
 import type { Workspace } from "./session";
 import type { AdsetConfig, CampaignConfig, ReachLevel, VideoRow } from "./core/meta-advanced";
-import { buildSummaryAnalytics, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
+import { buildSummaryAnalytics, isMetaSession, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
 import { timed } from "./perf";
 
 // Consultas da interface. Toda métrica passa por core/metrics.ts (via report.ts).
@@ -165,7 +165,7 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     .neq("source", "test")
     .gte("provider_created_at", start).lt("provider_created_at", end)
     .limit(5000);
-  let sessionsQuery = sb.from("tracking_sessions").select("pageviews,checkout_clicks")
+  let sessionsQuery = sb.from("tracking_sessions").select("pageviews,checkout_clicks,utm_source,fbclid,fbc")
     .eq("workspace_id", ws.id)
     .gte("first_seen_at", start).lt("first_seen_at", end)
     .limit(5000);
@@ -200,7 +200,8 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     paidOrders: scopedPaid,
     attempts: scopedAttempts,
     attributions: attributions.filter((item) => scopedIds.has(item.order_id)),
-    sessions: (sessionsResult.data ?? []) as SummarySession[],
+    // O funil é "Meta Ads": só sessões que vieram de anúncio (sem acesso direto, orgânico ou teste sem origem).
+    sessions: ((sessionsResult.data ?? []) as SummarySession[]).filter(isMetaSession),
     clicks: spendReliable ? summary.clicks : null,
     metaPixel: spendReliable ? metaPixel : null,
     approvedCount: summary.approved_count,

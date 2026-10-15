@@ -1,3 +1,5 @@
+import { classifySource } from "./utm";
+
 export type DataState = "available" | "no_activity" | "not_synced" | "integration_missing" | "partial" | "error" | "not_applicable";
 
 export type MetricDatum<T> = {
@@ -50,7 +52,12 @@ export type SummaryOrder = {
 };
 
 export type SummaryAttribution = { order_id: string; utm_source: string | null; attribution_status: string | null; account_id?: string | null };
-export type SummarySession = { pageviews: number | null; checkout_clicks: number | null };
+export type SummarySession = { pageviews: number | null; checkout_clicks: number | null; utm_source?: string | null; fbclid?: string | null; fbc?: string | null };
+
+/** Sessão que veio de anúncio da Meta: utm_source da Meta ou clique com fbclid/fbc. Acesso direto e orgânico ficam de fora. */
+export function isMetaSession(session: SummarySession): boolean {
+  return classifySource(session.utm_source ?? null) === "meta" || !!session.fbclid || !!session.fbc;
+}
 
 const APPROVED = new Set(["paid", "refund_requested", "disputed", "refunded", "chargedback"]);
 const mainOrder = (order: SummaryOrder) => !order.offer_type || order.offer_type === "main";
@@ -153,7 +160,11 @@ export function buildSummaryAnalytics(input: {
   const funnel: ConversionFunnel = {
     stages,
     state: hasTracking ? "available" : "partial",
-    note: hasTracking ? null : "Visitas de página e inícios de checkout dependem do tracker. Nenhuma sessão foi registrada no período.",
+    note: !hasTracking
+      ? "Visitas de página e inícios de checkout dependem do tracker. Nenhuma sessão foi registrada no período."
+      : !hasMetaPixel && pageviews != null && input.clicks != null && pageviews > input.clicks
+        ? "Visitas e ICs vêm do rastreador da página (só tráfego de anúncio da Meta). Os cliques ainda não chegaram da Meta: ela só conta clique de anúncio entregue, e cliques de teste ou de prévia ficam de fora."
+        : null,
   };
 
   const noHourlySpend = "A Meta está sincronizada por dia. O gasto diário não é distribuído artificialmente por hora.";

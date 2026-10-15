@@ -47,3 +47,22 @@ describe("analytics do resumo", () => {
     expect(data.hourlyFinancial).toMatchObject({ state: "not_synced", value: null });
   });
 });
+
+describe("funil: só visitas vindas de anúncio da Meta", () => {
+  it("isMetaSession aceita utm_source da Meta e fbclid/fbc, e recusa acesso direto", async () => {
+    const { isMetaSession } = await import("@/lib/core/summary");
+    expect(isMetaSession({ pageviews: 1, checkout_clicks: 0, utm_source: "FB" })).toBe(true);
+    expect(isMetaSession({ pageviews: 1, checkout_clicks: 0, fbclid: "abc" })).toBe(true);
+    expect(isMetaSession({ pageviews: 1, checkout_clicks: 0, fbc: "fb.1.1.abc" })).toBe(true);
+    expect(isMetaSession({ pageviews: 1, checkout_clicks: 0, utm_source: null, fbclid: null })).toBe(false);
+    expect(isMetaSession({ pageviews: 1, checkout_clicks: 0, utm_source: "google" })).toBe(false);
+  });
+
+  it("explica quando há mais visitas que cliques da Meta (anúncio ainda sem entrega)", async () => {
+    const { buildSummaryAnalytics } = await import("@/lib/core/summary");
+    const out = buildSummaryAnalytics({ paidOrders: [], attempts: [], attributions: [], sessions: [{ pageviews: 5, checkout_clicks: 2 }], clicks: 0, approvedCount: 0 });
+    expect(out.funnel.note).toContain("cliques ainda não chegaram");
+    const ok = buildSummaryAnalytics({ paidOrders: [], attempts: [], attributions: [], sessions: [{ pageviews: 5, checkout_clicks: 2 }], clicks: 50, approvedCount: 0 });
+    expect(ok.funnel.note).toBeNull();
+  });
+});
