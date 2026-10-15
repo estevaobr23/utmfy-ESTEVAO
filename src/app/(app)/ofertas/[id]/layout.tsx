@@ -16,16 +16,16 @@ async function OfferContextHeader({ params }: { params: LayoutProps<"/ofertas/[i
   const [label, cls] = STATUS[offer.status] ?? [offer.status, "bg-slate-400/10 text-slate-300"];
   const pending = <Link href={`/ofertas/${id}/integracoes`} className="text-amber-300 underline decoration-dotted">não vinculado</Link>;
   return (
-      <div className="mb-5 rounded-md border border-[#34415d] bg-[#27334d] px-5 py-4 shadow-[0_10px_30px_rgba(4,9,20,0.12)]">
+      <div className="mb-[26px] flex min-h-[57px] flex-wrap items-center gap-x-6 gap-y-1 rounded-md bg-surface px-5 py-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8491a8]">Dashboard</span>
-          <span className="text-[#65738c]">—</span>
-          <h1 className="text-lg font-semibold text-[#eef2f8]">{offer.name}</h1>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-copy-muted">Dashboard</span>
+          <span className="text-copy-muted">—</span>
+          <h1 className="text-[19px] font-semibold text-copy-strong">{offer.name}</h1>
           <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${cls}`}>{label}</span>
         </div>
-        <dl className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1 text-xs text-[#bac3d2]">
+        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-copy">
           <div>
-            <dt className="inline text-[#7f8ca4]">Pixel: </dt>
+            <dt className="inline text-copy-muted">Pixel: </dt>
             <dd className="inline font-medium">{pixels.length ? pixels.map((p) => `${p.name} (${p.external_pixel_id})`).join(", ") : pending}</dd>
           </div>
         </dl>

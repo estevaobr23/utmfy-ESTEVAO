@@ -12,16 +12,16 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const saved = (await cookies()).get(OFFER_COOKIE)?.value ?? null;
   const remembered = saved && offers.some((o) => o.id === saved) ? saved : null;
   return (
-    <div className="flex min-h-screen bg-[#11192d]">
+    <div className="flex min-h-screen bg-app-bg">
       <Sidebar offers={offers} rememberedOfferId={remembered} workspaces={s.workspaces} workspaceId={s.workspace?.id ?? null} email={s.user.email ?? ""} />
-      <div className="flex min-w-0 flex-1 flex-col bg-[#11192d]">
+      <div className="flex min-w-0 flex-1 flex-col bg-app-bg">
         <MobileNav offers={offers} rememberedOfferId={remembered} />
         {s.workspace?.is_demo && (
           <div className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-sm font-medium text-amber-900">
             MODO DEMO — dados fictícios, isolados em um workspace separado. Nada aqui é produção.
           </div>
         )}
-        <main className="w-full flex-1 p-4 md:p-6">{children}</main>
+        <main className="w-full flex-1 p-4 md:p-[26px]">{children}</main>
       </div>
     </div>
   );
