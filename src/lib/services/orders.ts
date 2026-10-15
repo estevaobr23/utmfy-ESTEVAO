@@ -1,7 +1,7 @@
 import "server-only";
 import type { Db } from "../supabase/types";
 import { attribute, type Catalog, type CatalogAd, type SessionTouch } from "../core/attribution";
-import type { NormalizedOrder } from "../core/cakto/normalize";
+import { pickMappedOffer, type NormalizedOrder, type OfferItemRow } from "../core/cakto/normalize";
 import { purchaseEventId } from "../core/capi";
 import { parseUtms, type UtmInput } from "../core/utm";
 import { logEvent } from "./logs";
@@ -35,11 +35,7 @@ export async function resolveOffer(db: Db, workspaceId: string, productId: strin
         .filter(Boolean)
         .join(","),
     );
-  const rows = data ?? [];
-  const exact = rows.find((r) => r.cakto_offer_id && r.cakto_offer_id === offerId && (!productId || r.cakto_product_id === productId));
-  const byOffer = rows.find((r) => r.cakto_offer_id && r.cakto_offer_id === offerId);
-  const byProduct = rows.find((r) => !r.cakto_offer_id && r.cakto_product_id === productId);
-  return (exact ?? byOffer ?? byProduct)?.offer_id ?? null;
+  return pickMappedOffer((data ?? []) as OfferItemRow[], productId, offerId);
 }
 
 // Valores vão num filtro PostgREST: só permitimos o charset dos ids da Cakto.

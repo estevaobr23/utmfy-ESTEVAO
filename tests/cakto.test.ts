@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { caktoOrder, caktoWebhook } from "@/lib/core/cakto/fixtures";
-import { normalizeCaktoOrder, normalizePhone, normalizeStatus, offerIdFromCheckoutUrl, parseEnvelope, redactPayload } from "@/lib/core/cakto/normalize";
+import { isUnchangedOrder, normalizeCaktoOrder, normalizePhone, pickMappedOffer, normalizeStatus, offerIdFromCheckoutUrl, parseEnvelope, redactPayload } from "@/lib/core/cakto/normalize";
 import { parseSignatureHeader, verifyCaktoWebhook } from "@/lib/core/cakto/signature";
 import { toMoney } from "@/lib/core/money";
 
@@ -141,5 +141,31 @@ describe("líquido pela comissão do produtor", () => {
     const n = normalizeCaktoOrder({ id: "ord-2", status: "paid", amount: "32.90", fees: "2.63", paidAt: "2026-10-11T12:00:00Z" }, {});
     if ("error" in n) throw new Error(n.error);
     expect(n.order.fees).toBe(2.63);
+  });
+});
+
+describe("reconciliação sem reprocessar pedido igual", () => {
+  const incoming = { status: "paid" as const, gross_amount: 47.9, net_amount: 43.5, fees: 4.4 };
+  const row = { status: "paid", gross_amount: "47.90", net_amount: "43.50", fees: "4.40", offer_id: "O1" };
+
+  it("igual no banco (valores numéricos em texto) e com oferta → não reprocessa", () => {
+    expect(isUnchangedOrder(row, incoming, "O1")).toBe(true);
+  });
+  it("status ou valor mudou → reprocessa", () => {
+    expect(isUnchangedOrder({ ...row, status: "pending" }, incoming, "O1")).toBe(false);
+    expect(isUnchangedOrder({ ...row, fees: "5.00" }, incoming, "O1")).toBe(false);
+  });
+  it("sem oferta: só é igual se continua sem mapeamento; vínculo novo exige reprocessar", () => {
+    expect(isUnchangedOrder({ ...row, offer_id: null }, incoming, null)).toBe(true);
+    expect(isUnchangedOrder({ ...row, offer_id: null }, incoming, "O1")).toBe(false);
+  });
+  it("pickMappedOffer: oferta exata > mesma oferta Cakto > produto", () => {
+    const items = [
+      { offer_id: "A", cakto_product_id: "P1", cakto_offer_id: null },
+      { offer_id: "B", cakto_product_id: "P1", cakto_offer_id: "X9" },
+    ];
+    expect(pickMappedOffer(items, "P1", "X9")).toBe("B");
+    expect(pickMappedOffer(items, "P1", "OUTRA")).toBe("A");
+    expect(pickMappedOffer(items, "P2", null)).toBeNull();
   });
 });

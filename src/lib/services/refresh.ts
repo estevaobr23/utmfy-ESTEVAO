@@ -40,7 +40,7 @@ export async function runRefresh(db: Db, workspaceId: string, timezone: string) 
   try {
     await Promise.all([
       syncMeta(db, workspaceId, { trigger: "manual", mode: "fast" }),
-      syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -1)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual", skipWebhookSync: true }),
+      syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -1)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual", skipWebhookSync: true, skipUnchanged: true }),
     ]);
     // Anúncio novo que a venda citava e ainda não estava no catálogo.
     await reattributePending(db, workspaceId).catch(() => null);

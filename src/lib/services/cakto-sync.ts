@@ -1,6 +1,6 @@
 import "server-only";
 import type { Db } from "../supabase/types";
-import { normalizeCaktoOrder } from "../core/cakto/normalize";
+import { isUnchangedOrder, normalizeCaktoOrder, pickMappedOffer, type ExistingOrder, type OfferItemRow } from "../core/cakto/normalize";
 import { mapPool } from "../core/concurrency";
 import { caktoApi, caktoConfigured, CaktoApiError } from "./cakto-client";
 import { finishJob, logEvent, startJob } from "./logs";
@@ -25,7 +25,7 @@ export type SyncStats = {
 export async function syncCaktoOrders(
   db: Db,
   workspaceId: string,
-  opts: { from: string; to: string; mode: "sync" | "reconcile"; trigger: "manual" | "cron"; skipWebhookSync?: boolean },
+  opts: { from: string; to: string; mode: "sync" | "reconcile"; trigger: "manual" | "cron"; skipWebhookSync?: boolean; skipUnchanged?: boolean },
 ): Promise<{ jobId: string | null; stats: SyncStats; error?: string }> {
   const kind = opts.mode === "reconcile" ? "cakto_reconcile" : "cakto_sync";
   const jobId = await startJob(db, workspaceId, kind, opts.trigger, { from: opts.from, to: opts.to });
@@ -54,20 +54,44 @@ export async function syncCaktoOrders(
     stats.truncated = res.truncated;
     const snapshotAt = new Date().toISOString();
 
-    // Cada pedido faz várias idas ao banco; pedidos são independentes, então até 4 em paralelo.
-    await mapPool(res.items, 4, async (item) => {
+    const normalized: { n: Extract<ReturnType<typeof normalizeCaktoOrder>, { order: unknown }> }[] = [];
+    for (const item of res.items) {
       const n = normalizeCaktoOrder(item, { eventAt: snapshotAt });
-      if ("error" in n) {
-        stats.errors++;
-        return;
+      if ("error" in n) stats.errors++;
+      else normalized.push({ n });
+    }
+
+    // "Atualizar": uma consulta só diz o que já está igual no banco; só os pedidos novos/alterados passam pelo
+    // caminho completo (cada um faz ~10 idas ao banco). Venda nova já chega pelo webhook; aqui é a rede de segurança.
+    const known = new Map<string, ExistingOrder & { id: string }>();
+    let offerItems: OfferItemRow[] = [];
+    if (opts.skipUnchanged && normalized.length) {
+      offerItems = ((await db.from("offer_cakto_items").select("offer_id, cakto_product_id, cakto_offer_id").eq("workspace_id", workspaceId)).data ?? []) as OfferItemRow[];
+      const ids = normalized.map(({ n }) => n.order.external_order_id);
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data } = await db.from("orders").select("id, external_order_id, status, gross_amount, net_amount, fees, offer_id")
+          .eq("workspace_id", workspaceId).eq("provider", "cakto").in("external_order_id", ids.slice(i, i + 100));
+        for (const row of data ?? []) known.set(row.external_order_id as string, row as unknown as ExistingOrder & { id: string });
       }
-      const { data: before } = await db
+    }
+    const pending = normalized.filter(({ n }) => {
+      const existing = known.get(n.order.external_order_id);
+      if (existing && isUnchangedOrder(existing, n.order, pickMappedOffer(offerItems, n.order.product_external_id, n.order.offer_external_id))) {
+        stats.unchanged++;
+        return false;
+      }
+      return true;
+    });
+
+    // Cada pedido faz várias idas ao banco; pedidos são independentes, então até 6 em paralelo.
+    await mapPool(pending, 6, async ({ n }) => {
+      const before = known.get(n.order.external_order_id) ?? (await db
         .from("orders")
         .select("id, status, gross_amount")
         .eq("workspace_id", workspaceId)
         .eq("provider", "cakto")
         .eq("external_order_id", n.order.external_order_id)
-        .maybeSingle();
+        .maybeSingle()).data;
       try {
         const r = await ingestOrder(db, workspaceId, n.order, opts.mode === "reconcile" ? "reconcile" : "api_sync");
         if (!r.offerId) stats.unmapped++;

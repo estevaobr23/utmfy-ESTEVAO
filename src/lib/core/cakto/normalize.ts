@@ -291,3 +291,40 @@ export function redactPayload(body: unknown): unknown {
   const data = rest.data;
   return { ...rest, data: Array.isArray(data) ? data.map(redactItem) : redactItem(data) };
 }
+
+/** Linha de `orders` já gravada (campos usados para saber se a reconciliação teria algo a mudar). */
+export type ExistingOrder = {
+  status: string;
+  gross_amount: number | string | null;
+  net_amount: number | string | null;
+  fees: number | string | null;
+  offer_id: string | null;
+};
+
+const sameMoney = (a: number | string | null | undefined, b: number | null | undefined) => {
+  if (a == null || b == null) return a == null && b == null;
+  return Math.abs(Number(a) - b) < 0.005;
+};
+
+export type OfferItemRow = { offer_id: string; cakto_product_id: string | null; cakto_offer_id: string | null };
+
+/** Oferta interna de um produto/oferta da Cakto (oferta exata > mesma oferta Cakto > produto). Usada por `resolveOffer`. */
+export function pickMappedOffer(rows: OfferItemRow[], productId: string | null, offerId: string | null): string | null {
+  const exact = rows.find((r) => r.cakto_offer_id && r.cakto_offer_id === offerId && (!productId || r.cakto_product_id === productId));
+  const byOffer = rows.find((r) => r.cakto_offer_id && r.cakto_offer_id === offerId);
+  const byProduct = rows.find((r) => !r.cakto_offer_id && r.cakto_product_id === productId);
+  return (exact ?? byOffer ?? byProduct)?.offer_id ?? null;
+}
+
+/**
+ * Pedido da API igual ao que já está no banco (status, valores e vínculo com a oferta): reprocessar não muda nada.
+ * `mappedOfferId` é a oferta que o mapeamento ATUAL daria: pedido sem oferta só é "igual" se continua sem mapeamento
+ * (se o vínculo foi criado depois, precisa passar pelo caminho completo para ser atribuído).
+ */
+export function isUnchangedOrder(existing: ExistingOrder, incoming: Pick<NormalizedOrder, "status" | "gross_amount" | "net_amount" | "fees">, mappedOfferId: string | null): boolean {
+  return (existing.offer_id != null || mappedOfferId == null)
+    && existing.status === incoming.status
+    && sameMoney(existing.gross_amount, incoming.gross_amount)
+    && sameMoney(existing.net_amount, incoming.net_amount)
+    && sameMoney(existing.fees, incoming.fees);
+}
