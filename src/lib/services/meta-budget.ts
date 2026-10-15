@@ -54,7 +54,11 @@ export async function updateMetaDailyBudget(
   const update: BudgetUpdate = { name: String(row.name ?? input.objectId), currency, beforeMinor: current, afterMinor: plan.newMinor, rate };
   await logEvent(db, {
     workspaceId, level: "info", code: "META_BUDGET_UPDATED", provider: "meta", message: `${update.name}: ${current} → ${plan.newMinor} (${currency}, unidade menor)`,
-    context: { level: input.level, object_id: input.objectId, before_minor: current, after_minor: plan.newMinor, currency, rate, requested: input.requested, workspace_currency: input.workspaceCurrency },
+    context: {
+      level: input.level, object_id: input.objectId, before_minor: current, after_minor: plan.newMinor, currency, rate, requested: input.requested, workspace_currency: input.workspaceCurrency,
+      // Valores na moeda do painel (o que o usuário vê na tabela), para mostrar "de → para" sem refazer conta.
+      before_target: rate ? (current / 100) * rate : current / 100, after_target: input.requested,
+    },
   });
   return { ok: true, update };
 }

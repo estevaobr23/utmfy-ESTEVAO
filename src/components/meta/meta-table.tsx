@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -30,11 +30,19 @@ type Props = {
   canWrite?: boolean;
 };
 
+/** Larguras padrão (px) e limites do redimensionamento por arrasto. */
+const DEFAULT_WIDTH = 112;
+const COLUMN_WIDTH: Partial<Record<MetaColumnId, number>> = { select: 40, status: 64, name: 280, last_sync: 200, budget: 150 };
+const FIXED_COLUMNS = new Set<MetaColumnId>(["select", "status"]);
+const MIN_WIDTH = 72;
+const MAX_WIDTH = 640;
+const WIDTHS_KEY = "utmfy:v1:meta-col-widths";
+
 const SPEND_DEPENDENT = new Set<MetaColumnId>(["spend", "cpa", "profit", "roas", "margin", "roi", "cpc", "cpm", "cpv", "cpi"]);
 const STICKY: Partial<Record<MetaColumnId, string>> = {
-  select: "sticky left-0 z-20 w-10 min-w-10 bg-inherit",
-  status: "sticky left-10 z-20 w-16 min-w-16 bg-inherit",
-  name: "sticky left-[6.5rem] z-20 min-w-64 max-w-80 bg-inherit shadow-[5px_0_8px_rgba(7,12,25,0.18)]",
+  select: "sticky left-0 z-20 bg-inherit",
+  status: "sticky left-10 z-20 bg-inherit",
+  name: "sticky left-[6.5rem] z-20 bg-inherit shadow-[5px_0_8px_rgba(7,12,25,0.18)]",
 };
 
 function updateQuery(router: ReturnType<typeof useRouter>, current: URLSearchParams, path: string, patch: Record<string, string | null>) {
@@ -126,6 +134,14 @@ function flattenExpanded(rows: MetaTableRow[], expanded: Set<string>, depth = 0)
   return output;
 }
 
+const formatChangeDate = (iso: string) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
+};
+
+const budgetChangeTitle = (c: { at: string; before: number; after: number; currency: string }) =>
+  `Orçamento diário alterado por aqui em ${formatChangeDate(c.at)}: ${formatMoney(c.before, c.currency)} → ${formatMoney(c.after, c.currency)}`;
+
 function cellTitle(row: MetaTableRow, metric: MetaMetricDefinition) {
   if (metric.format === "budget" && row.budget) {
     const mode = row.budget.mode === "CBO" ? "CBO — orçamento na campanha" : "ABO — orçamento no conjunto";
@@ -156,6 +172,54 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const [columns, setColumns] = useState<MetaColumnId[]>(META_COLUMN_PRESETS.complete);
   const [columnSearch, setColumnSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [widths, setWidths] = useState<Partial<Record<MetaColumnId, number>>>({});
+  const widthsRef = useRef(widths);
+  useEffect(() => { widthsRef.current = widths; }, [widths]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(WIDTHS_KEY) ?? "{}") as Record<string, number>;
+      const timer = window.setTimeout(() => setWidths(saved), 0);
+      return () => window.clearTimeout(timer);
+    } catch {
+      /* sem armazenamento: usa as larguras padrão */
+    }
+  }, []);
+
+  const widthOf = (id: MetaColumnId) => {
+    const w = widths[id];
+    return typeof w === "number" ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w)) : COLUMN_WIDTH[id] ?? DEFAULT_WIDTH;
+  };
+  const persistWidths = (next: Partial<Record<MetaColumnId, number>>) => {
+    try { window.localStorage.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* ignora */ }
+  };
+  /** Arrastar a borda direita do cabeçalho muda a largura da coluna; duplo clique volta ao padrão. */
+  const startResize = (id: MetaColumnId, event: React.PointerEvent<HTMLSpanElement>) => {
+    event.preventDefault();
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = widthOf(id);
+    const move = (e: PointerEvent) => {
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(startWidth + e.clientX - startX)));
+      setWidths((current) => ({ ...current, [id]: next }));
+    };
+    const end = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", end);
+      target.removeEventListener("pointercancel", end);
+      persistWidths(widthsRef.current);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+  };
+  const resetWidth = (id: MetaColumnId) => {
+    const next = { ...widthsRef.current };
+    delete next[id];
+    setWidths(next);
+    persistWidths(next);
+  };
 
   useEffect(() => {
     const storageKey = `utmfy:v3:meta-columns:${level}`;
@@ -274,12 +338,18 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
       </div>
 
       <div className="max-h-[68vh] overflow-auto">
-        <table className="min-w-max border-separate border-spacing-0 text-[12px] text-[#e6ebf3]">
+        <table className="border-separate border-spacing-0 text-[12px] text-[#e6ebf3]" style={{ tableLayout: "fixed", width: visibleColumns.reduce((sum, metric) => sum + widthOf(metric.id), 0) }}>
+          <colgroup>
+            {visibleColumns.map((metric) => <col key={metric.id} style={{ width: widthOf(metric.id) }} />)}
+          </colgroup>
           <thead className="sticky top-0 z-30">
             <tr className="bg-[#35425f]">
               {visibleColumns.map((metric) => (
-                <th key={metric.id} className={`border-b border-r border-[#46536d] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-[#d4dbe7] ${STICKY[metric.id] ?? "min-w-24"} ${metric.format !== "text" && metric.id !== "status" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
+                <th key={metric.id} className={`overflow-hidden text-ellipsis whitespace-nowrap border-b border-r border-[#46536d] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-[#d4dbe7] ${STICKY[metric.id] ?? "relative"} ${metric.format !== "text" && metric.id !== "status" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
                   {metric.sortable ? <button type="button" onClick={() => changeSort(metric.id)} className="whitespace-nowrap hover:text-white">{metric.label} {sort === metric.id ? (direction === "desc" ? "↓" : "↑") : ""}</button> : metric.label}
+                  {!FIXED_COLUMNS.has(metric.id) && (
+                    <span role="separator" aria-orientation="vertical" aria-label={`Ajustar largura de ${metric.label}`} title="Arraste para ajustar a largura · duplo clique restaura" onPointerDown={(event) => startResize(metric.id, event)} onDoubleClick={() => resetWidth(metric.id)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none select-none hover:bg-[#54a8ff]/60 active:bg-[#54a8ff]" />
+                  )}
                 </th>
               ))}
             </tr>
@@ -288,16 +358,30 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
             {visibleRows.map(({ row, depth }) => (
               <tr key={`${row.level}:${row.id}`} className={`${depth ? "bg-[#222e47]" : "bg-[#27334d]"} hover:bg-[#2d3a56]`}>
                 {visibleColumns.map((metric) => {
-                  const base = `border-b border-r border-[#394761] px-3 py-2 ${STICKY[metric.id] ?? ""}`;
+                  const base = `overflow-hidden text-ellipsis border-b border-r border-[#394761] px-3 py-2 ${STICKY[metric.id] ?? ""}`;
                   if (metric.id === "select") return <td key={metric.id} className={base}><input type="checkbox" aria-label={`Selecionar ${row.name}`} /></td>;
                   if (metric.id === "status") return <td key={metric.id} className={`${base} text-center`}><StatusIndicator status={row.status} /></td>;
                   if (metric.id === "name") return (
                     <td key={metric.id} className={base}>
                       <div className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: depth * 16 }}>
                         {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="w-4 shrink-0 text-[#8fa1bb] hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
-                        {row.drillUrl ? <Link href={row.drillUrl} className="max-w-56 truncate font-semibold text-white hover:text-[#54a8ff]" title={row.name}>{row.name}</Link> : <span className="max-w-56 truncate font-semibold" title={row.name}>{row.name}</span>}
+                        {row.drillUrl ? <Link href={row.drillUrl} className="min-w-0 truncate font-semibold text-white hover:text-[#54a8ff]" title={row.name}>{row.name}</Link> : <span className="min-w-0 truncate font-semibold" title={row.name}>{row.name}</span>}
                         {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="text-[#7f91aa] hover:text-[#54a8ff]">↗</a>}
                       </div>
+                    </td>
+                  );
+                  if (metric.id === "last_sync") return (
+                    <td key={metric.id} className={`${base} whitespace-nowrap text-right tabular-nums`} title={row.budgetChange ? budgetChangeTitle(row.budgetChange) : undefined}>
+                      {displayValue(row, metric, currency, spendReliable)}
+                      {row.budgetChange && (
+                        <span className="mt-0.5 block text-[10px] leading-tight">
+                          <span className="text-[#9fb3d1]">Orçamento </span>
+                          <span className="text-[#aab4c6]">{formatMoney(row.budgetChange.before, row.budgetChange.currency)}</span>
+                          <span className="text-[#8fa1bb]"> → </span>
+                          <span className={row.budgetChange.after >= row.budgetChange.before ? "font-semibold text-[#25d17f]" : "font-semibold text-[#ffb347]"}>{formatMoney(row.budgetChange.after, row.budgetChange.currency)}</span>
+                          <span className="block text-[#7f8ca4]">alterado em {formatChangeDate(row.budgetChange.at)}</span>
+                        </span>
+                      )}
                     </td>
                   );
                   const value = displayValue(row, metric, currency, spendReliable);

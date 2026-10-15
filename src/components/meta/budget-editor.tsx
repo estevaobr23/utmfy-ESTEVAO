@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { updateMetaBudget } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { MAX_BUDGET_INCREASE } from "@/lib/core/meta-advanced";
@@ -13,47 +14,106 @@ export function BudgetEditor({ row, back, currency }: { row: MetaTableRow; back:
   const [open, setOpen] = useState(false);
   const [review, setReview] = useState(false);
   const [value, setValue] = useState("");
+  const close = () => { setOpen(false); setReview(false); setValue(""); };
+  // Orçamento novo chegou do servidor (mudança aplicada): fecha o diálogo.
+  const amount = budget?.amount ?? null;
+  const [seenAmount, setSeenAmount] = useState(amount);
+  if (seenAmount !== amount) {
+    setSeenAmount(amount);
+    if (open) close();
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); setReview(false); setValue(""); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   if (!budget || budget.amount == null || (row.level !== "campaign" && row.level !== "adset")) return null;
 
   const parsed = Number(value.replace(/\./g, "").replace(",", "."));
   const valid = Number.isFinite(parsed) && parsed > 0 && parsed <= budget.amount * MAX_BUDGET_INCREASE;
+  const unchanged = valid && Math.abs(parsed - budget.amount) < 0.005;
   const source = budget.source;
   const inAccountCurrency = source && valid ? parsed / source.rate : null;
-  const close = () => { setOpen(false); setReview(false); setValue(""); };
+  const pct = valid ? (parsed / budget.amount - 1) * 100 : null;
+  const canReview = valid && !unchanged;
+  const up = parsed >= budget.amount;
+
+  const dialog = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Orçamento diário" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <form
+        action={updateMetaBudget}
+        onSubmit={(e) => { if (!review || !canReview) e.preventDefault(); }}
+        className="w-full max-w-md whitespace-normal rounded-xl border border-[#46536d] bg-[#202b43] text-left text-[13px] font-normal normal-case tracking-normal text-[#e6ebf3] shadow-2xl"
+      >
+        <input type="hidden" name="level" value={row.level} />
+        <input type="hidden" name="object_id" value={row.id} />
+        <input type="hidden" name="back" value={back} />
+
+        <header className="flex items-start justify-between gap-3 border-b border-[#394761] px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">Orçamento diário</h3>
+            <p className="mt-0.5 break-words text-xs text-[#9aa6bb]">{budget.mode === "CBO" ? "Campanha (CBO)" : "Conjunto (ABO)"} · <span className="text-[#c9d2e0]">{row.name}</span></p>
+          </div>
+          <button type="button" onClick={close} aria-label="Fechar" className="-mr-1 rounded p-1 text-[#8fa1bb] hover:bg-[#2d3a56] hover:text-white">✕</button>
+        </header>
+
+        <div className="space-y-4 px-5 py-4">
+          <div className="rounded-lg bg-[#27334d] px-4 py-3">
+            <div className="text-[11px] uppercase tracking-wide text-[#8fa1bb]">Orçamento atual</div>
+            <div className="mt-0.5 text-lg font-semibold text-white">{formatMoney(budget.amount, currency)}<span className="text-xs font-normal text-[#9aa6bb]"> /dia</span></div>
+            {source && <div className="mt-0.5 text-xs text-[#9aa6bb]">{formatMoney(source.amount, source.currency)} na conta · câmbio {source.rate.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}</div>}
+          </div>
+
+          <label className="block">
+            <span className="text-xs font-medium text-[#c9d2e0]">Novo orçamento diário</span>
+            <span className="mt-1 flex items-center rounded-md border border-[#46536d] bg-[#27334d] focus-within:border-[#0874f9]">
+              <span className="pl-3 text-sm text-[#9aa6bb]">{currency === "BRL" ? "R$" : currency}</span>
+              <input
+                name="amount" inputMode="decimal" autoFocus required autoComplete="off" value={value} placeholder="ex.: 120,00"
+                onChange={(e) => { setValue(e.target.value); setReview(false); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (canReview && !review) setReview(true); } }}
+                className="w-full bg-transparent px-2 py-2 text-sm text-white outline-none placeholder:text-[#718098]"
+              />
+            </span>
+            <span className="mt-1 block text-[11px] text-[#7f8ca4]">Até {MAX_BUDGET_INCREASE}× o valor atual por mudança.</span>
+          </label>
+
+          {value && !valid && <p className="rounded-md bg-amber-400/10 px-3 py-2 text-xs text-amber-200 ring-1 ring-amber-400/25">Informe um valor maior que zero e até {MAX_BUDGET_INCREASE}× o atual ({formatMoney(budget.amount * MAX_BUDGET_INCREASE, currency)}).</p>}
+          {unchanged && <p className="rounded-md bg-[#27334d] px-3 py-2 text-xs text-[#aab4c6]">Esse já é o orçamento atual.</p>}
+
+          {review && canReview && pct != null && (
+            <div className="rounded-lg border border-[#0874f9]/40 bg-[#0874f9]/10 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-[#8fb8ee]">Confira antes de aplicar</div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="text-sm text-[#aab4c6] line-through decoration-[#718098]">{formatMoney(budget.amount, currency)}</span>
+                <span className="text-[#8fa1bb]">→</span>
+                <span className="text-lg font-semibold text-white">{formatMoney(parsed, currency)}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${up ? "bg-[#25d17f]/15 text-[#25d17f]" : "bg-[#ffb347]/15 text-[#ffb347]"}`}>{up ? "+" : ""}{pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%</span>
+              </div>
+              {source && inAccountCurrency != null && <div className="mt-1 text-xs text-[#9aa6bb]">≈ {formatMoney(inAccountCurrency, source.currency)} por dia na conta</div>}
+              <p className="mt-2 text-xs text-[#c9d2e0]">A alteração vale na Meta imediatamente e fica registrada na coluna “Últ. atualização”.</p>
+            </div>
+          )}
+        </div>
+
+        <footer className="flex items-center justify-end gap-2 border-t border-[#394761] px-5 py-3">
+          <button type="button" onClick={close} className="rounded-md px-3 py-1.5 text-sm text-[#aab4c6] hover:text-white">Cancelar</button>
+          {review && canReview
+            ? <SubmitButton pendingText="Aplicando na Meta...">Confirmar e aplicar</SubmitButton>
+            : <button type="button" disabled={!canReview} onClick={() => setReview(true)} className="rounded-md bg-[#0874f9] px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Revisar</button>}
+        </footer>
+      </form>
+    </div>
+  );
 
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} aria-label={`Editar orçamento de ${row.name}`} title="Editar orçamento diário" className="ml-1.5 text-[#8fa1bb] hover:text-white">✎</button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-          <form action={updateMetaBudget} className="w-full max-w-sm rounded-lg border border-[#46536d] bg-[#202b43] p-5 text-left shadow-xl">
-            <input type="hidden" name="level" value={row.level} />
-            <input type="hidden" name="object_id" value={row.id} />
-            <input type="hidden" name="back" value={back} />
-            <h3 className="text-sm font-semibold text-white">Orçamento diário</h3>
-            <p className="mt-1 truncate text-xs text-[#9aa6bb]" title={row.name}>{row.name} · {budget.mode === "CBO" ? "campanha (CBO)" : "conjunto (ABO)"}</p>
-            <p className="mt-3 text-xs text-[#aab4c6]">
-              Atual: <b className="text-white">{formatMoney(budget.amount, currency)}/dia</b>
-              {source && <> · {formatMoney(source.amount, source.currency)} na conta, câmbio {source.rate.toLocaleString("pt-BR", { maximumFractionDigits: 4 })}</>}
-            </p>
-            <label className="mt-3 block text-xs text-[#aab4c6]">
-              Novo orçamento ({currency})
-              <input name="amount" inputMode="decimal" autoFocus required value={value} onChange={(e) => { setValue(e.target.value); setReview(false); }} placeholder="ex.: 25,00" className="mt-1 w-full rounded-md border border-[#46536d] bg-[#27334d] px-3 py-2 text-sm text-white outline-none focus:border-[#0874f9]" />
-            </label>
-            {value && !valid && <p className="mt-2 text-xs text-amber-300">Informe um valor maior que zero e até {MAX_BUDGET_INCREASE}× o atual.</p>}
-            {review && valid && (
-              <p className="mt-3 rounded-md bg-[#27334d] p-3 text-xs text-[#dce2ec]">
-                Vai mudar de <b>{formatMoney(budget.amount, currency)}</b> para <b>{formatMoney(parsed, currency)}</b> por dia
-                {source && inAccountCurrency != null && <> (≈ {formatMoney(inAccountCurrency, source.currency)} na conta)</>}. A alteração vale na Meta imediatamente.
-              </p>
-            )}
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button type="button" onClick={close} className="rounded-md px-3 py-1.5 text-sm text-[#aab4c6] hover:text-white">Cancelar</button>
-              {review && valid ? <SubmitButton pendingText="Aplicando na Meta...">Confirmar e aplicar</SubmitButton> : <button type="button" disabled={!valid} onClick={() => setReview(true)} className="rounded-md bg-[#0874f9] px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Revisar</button>}
-            </div>
-          </form>
-        </div>
-      )}
+      {/* Fora da célula da tabela: senão herda nowrap/alinhamento à direita e fica preso ao overflow dela. */}
+      {open && createPortal(dialog, document.body)}
     </>
   );
 }

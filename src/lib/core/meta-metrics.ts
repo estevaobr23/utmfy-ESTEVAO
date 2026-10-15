@@ -81,6 +81,8 @@ export type MetaTableRow = {
   status: string | null;
   lastSync: string | null;
   budget: BudgetInfo | null;
+  /** Última mudança de orçamento feita pela ferramenta (de → para, na moeda do painel). */
+  budgetChange?: BudgetChange | null;
   bidCap: BidInfo | null;
   /** Alcance/frequência deduplicados do período no nível da linha; null = sem dado exato. */
   reach: number | null;
@@ -91,6 +93,25 @@ export type MetaTableRow = {
   managerUrl: string | null;
   children: MetaTableRow[];
 };
+
+export type BudgetChange = { at: string; before: number; after: number; currency: string };
+
+/** Última mudança de orçamento por objeto Meta, a partir dos logs META_BUDGET_UPDATED (mais recentes primeiro). */
+export function latestBudgetChanges(logs: { created_at: string; context: Record<string, unknown> | null }[]): Map<string, BudgetChange> {
+  const out = new Map<string, BudgetChange>();
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  for (const log of [...logs].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
+    const c = log.context ?? {};
+    const id = typeof c.object_id === "string" ? c.object_id : null;
+    if (!id || out.has(id)) continue;
+    const rate = num(c.rate) ?? 1;
+    const before = num(c.before_target) ?? (num(c.before_minor) != null ? num(c.before_minor)! / 100 * rate : null);
+    const after = num(c.after_target) ?? num(c.requested);
+    if (before == null || after == null) continue;
+    out.set(id, { at: log.created_at, before, after, currency: typeof c.workspace_currency === "string" ? c.workspace_currency : "BRL" });
+  }
+  return out;
+}
 
 export function metaMetricValue(row: MetaTableRow, column: MetaColumnId): string | number | null {
   const m = row.metrics;

@@ -4,7 +4,7 @@ import { RefreshButton } from "@/components/refresh-button";
 import { MetaTable } from "@/components/meta/meta-table";
 import { timeAgo } from "@/lib/core/dates";
 import { aggregateLevel, LEVELS, type Level, type LevelRow } from "@/lib/core/meta-levels";
-import { META_METRICS, type MetaColumnId, type MetaTableRow } from "@/lib/core/meta-metrics";
+import { META_METRICS, latestBudgetChanges, type MetaColumnId, type MetaTableRow } from "@/lib/core/meta-metrics";
 import type { ReportNode } from "@/lib/core/report";
 import { buildAdvancedIndex, scopeFromSpend } from "@/lib/core/meta-advanced";
 import { catalogOnlyRows, type CatalogEntry } from "@/lib/core/meta-catalog-rows";
@@ -61,13 +61,16 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   const adset = ID.test(one(sp.adset)) ? one(sp.adset) : null;
   const name = one(sp.q).slice(0, 80);
   const f = parseFilters({ ...sp, campaign: undefined, adset: undefined, ad: undefined }, ws.timezone, offerId);
-  const [report, accounts, adsResult, advancedData, pixelScope] = await Promise.all([
+  const [report, accounts, adsResult, advancedData, pixelScope, budgetLogs] = await Promise.all([
     loadReport(sb, ws, f),
     offerId ? listOfferAccounts(sb, offerId) : listAccounts(sb, ws.id),
     sb.from("meta_ads").select("account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, effective_status").eq("workspace_id", ws.id).limit(5000),
     loadMetaAdvanced(sb, ws, f),
     offerId ? loadPixelDerivation(sb, ws.id) : Promise.resolve(null),
+    sb.from("integration_logs").select("created_at, context").eq("workspace_id", ws.id).eq("code", "META_BUDGET_UPDATED").order("created_at", { ascending: false }).limit(500),
   ]);
+  const budgetChanges = latestBudgetChanges((budgetLogs.data ?? []) as { created_at: string; context: Record<string, unknown> | null }[]);
+  const changeOf = (lvl: MetaTableRow["level"], id: string) => (lvl === "campaign" || lvl === "adset" ? budgetChanges.get(id) ?? null : null);
   const advanced = buildAdvancedIndex(advancedData, scopeFromSpend(report.spendRows), { offerScoped: !!offerId, fx: advancedData.fx });
   if (adsResult.error) throw new Error(`meta_ads: ${adsResult.error.message}`);
   const catalog = (adsResult.data ?? []) as CatalogRow[];
@@ -125,6 +128,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
       status: statusOf(nodeLevel, node.id, catalog),
       lastSync: acc ? syncOf.get(acc) ?? null : null,
       ...advanced.extras(nodeLevel, node.id),
+      budgetChange: changeOf(nodeLevel, node.id),
       metrics: node.metrics,
       drillUrl,
       managerUrl: managerUrl(nodeLevel, row),
@@ -150,6 +154,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           status: statusOf(mappedLevel, row.id, catalog),
           lastSync: accountId ? syncOf.get(accountId) ?? null : null,
           ...advanced.extras(mappedLevel, row.id),
+          budgetChange: changeOf(mappedLevel, row.id),
           metrics: row.metrics,
           drillUrl: drill(row),
           managerUrl: managerUrl(mappedLevel, { id: row.id, accountId }),
@@ -175,6 +180,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         status: row.status,
         lastSync: syncOf.get(row.accountId) ?? null,
         ...advanced.extras(mappedLevel, row.id),
+        budgetChange: changeOf(mappedLevel, row.id),
         metrics: derive(emptySums()),
         drillUrl: level === "campanhas" ? link({ nivel: "conjuntos", campaign: row.id, adset: null, page: null }) : level === "conjuntos" ? link({ nivel: "anuncios", campaign: row.campaignId, adset: row.id, page: null }) : null,
         managerUrl: managerUrl(mappedLevel, { id: row.id, accountId: row.accountId }),
