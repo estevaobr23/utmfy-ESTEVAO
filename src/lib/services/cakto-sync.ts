@@ -25,7 +25,7 @@ export type SyncStats = {
 export async function syncCaktoOrders(
   db: Db,
   workspaceId: string,
-  opts: { from: string; to: string; mode: "sync" | "reconcile"; trigger: "manual" | "cron" },
+  opts: { from: string; to: string; mode: "sync" | "reconcile"; trigger: "manual" | "cron"; skipWebhookSync?: boolean },
 ): Promise<{ jobId: string | null; stats: SyncStats; error?: string }> {
   const kind = opts.mode === "reconcile" ? "cakto_reconcile" : "cakto_sync";
   const jobId = await startJob(db, workspaceId, kind, opts.trigger, { from: opts.from, to: opts.to });
@@ -39,10 +39,13 @@ export async function syncCaktoOrders(
   }
 
   // Produtos escolhidos nos webhooks de cada oferta definem para onde vão os pedidos históricos.
-  try {
-    await syncOfferWebhooks(db, workspaceId);
-  } catch (e) {
-    await logEvent(db, { workspaceId, level: "warn", code: "CAKTO_WEBHOOKS_READ_FAILED", provider: "cakto", message: (e as Error).message });
+  // (O "Atualizar" pula esta leitura — é lenta e o mapeamento já está salvo; ela roda depois, em segundo plano.)
+  if (!opts.skipWebhookSync) {
+    try {
+      await syncOfferWebhooks(db, workspaceId);
+    } catch (e) {
+      await logEvent(db, { workspaceId, level: "warn", code: "CAKTO_WEBHOOKS_READ_FAILED", provider: "cakto", message: (e as Error).message });
+    }
   }
 
   try {

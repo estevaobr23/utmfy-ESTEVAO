@@ -3,6 +3,7 @@ import type { Db } from "../supabase/types";
 import { addDays, todayIn } from "../core/dates";
 import { logEvent } from "./logs";
 import { syncCaktoOrders } from "./cakto-sync";
+import { syncOfferWebhooks } from "./offer-webhooks";
 import { syncMeta } from "./meta-sync";
 import { reattributePending } from "./orders";
 
@@ -12,7 +13,9 @@ const KINDS = ["meta_insights", "cakto_reconcile", "cakto_sync"];
 /** Um job "running" mais velho que isto é tratado como morto (função encerrada no meio). */
 const STALE_MS = 4 * 60_000;
 /** Depois de uma sincronização que acabou de terminar, outro clique não repete as chamadas. */
-export const DEBOUNCE_MS = 45_000;
+export const DEBOUNCE_MS = 15_000;
+/** As coletas de segundo plano (catálogo, alcance, vídeo…) não precisam rodar a cada clique. */
+const EXTRAS_EVERY_MS = 3 * 60_000;
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
@@ -26,18 +29,36 @@ export async function recentlyRefreshed(db: Db, workspaceId: string): Promise<bo
   return !!data?.length;
 }
 
-/** Meta e Cakto juntas; nunca lança (roda depois da resposta, ninguém receberia o erro). */
+/**
+ * Meta e Cakto juntas; nunca lança (roda depois da resposta, ninguém receberia o erro).
+ *
+ * Duas fases: a RÁPIDA (gasto de ontem+hoje e pedidos recentes) é o que o botão espera; o resto
+ * (catálogo, campanhas, conjuntos, vídeo, alcance, webhooks da Cakto) roda logo depois, sem segurar o botão.
+ */
 export async function runRefresh(db: Db, workspaceId: string, timezone: string) {
   const today = todayIn(timezone);
   try {
     await Promise.all([
-      syncMeta(db, workspaceId, { trigger: "manual" }),
-      syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -3)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual" }),
+      syncMeta(db, workspaceId, { trigger: "manual", mode: "fast" }),
+      syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -1)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual", skipWebhookSync: true }),
     ]);
     // Anúncio novo que a venda citava e ainda não estava no catálogo.
     await reattributePending(db, workspaceId).catch(() => null);
   } catch (e) {
     await logEvent(db, { workspaceId, level: "error", code: "REFRESH_FAILED", provider: "system", message: (e as Error).message.slice(0, 300) });
+  }
+}
+
+/** Segunda fase: o que o painel também usa, mas que não precisa travar o "Atualizar". */
+export async function runRefreshExtras(db: Db, workspaceId: string) {
+  try {
+    const { data: recent } = await db.from("sync_jobs").select("id").eq("workspace_id", workspaceId).eq("kind", "meta_catalog").in("status", ["running", "success", "partial"]).gte("started_at", ago(EXTRAS_EVERY_MS)).limit(1);
+    await Promise.all([
+      recent?.length ? null : syncMeta(db, workspaceId, { trigger: "manual", mode: "extras" }),
+      syncOfferWebhooks(db, workspaceId).catch((e) => logEvent(db, { workspaceId, level: "warn", code: "CAKTO_WEBHOOKS_READ_FAILED", provider: "cakto", message: (e as Error).message })),
+    ]);
+  } catch (e) {
+    await logEvent(db, { workspaceId, level: "warn", code: "REFRESH_EXTRAS_FAILED", provider: "system", message: (e as Error).message.slice(0, 300) });
   }
 }
 

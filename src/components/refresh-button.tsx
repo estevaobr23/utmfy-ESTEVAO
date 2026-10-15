@@ -7,7 +7,7 @@ import { startRefresh } from "@/app/actions";
 type Phase = "idle" | "starting" | "running";
 type Status = { running: boolean; done: boolean; rateLimited: boolean; errors: string[] };
 
-const POLL_MS = 2500;
+const POLL_MS = 700;
 /** Se o acompanhamento não fechar (função morta, etc.), libera o botão mesmo assim. */
 const GIVE_UP_MS = 150_000;
 

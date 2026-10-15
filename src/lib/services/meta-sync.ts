@@ -106,10 +106,17 @@ export async function discoverAccounts(db: Db, workspaceId: string, trigger: "ma
 
 export type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null; currency: string | null };
 
-async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string) {
+async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, parts = { catalog: true, insights: true }) {
   const stats = { ads: 0, insights: 0 };
   // 1) catálogo (campanha → conjunto → anúncio), inclusive anúncios sem gasto.
   //    Já traz o tipo de criativo: uma chamada só (antes eram duas, e a cota da Meta é pequena).
+  const catalog = parts.catalog ? await syncCatalog(db, workspaceId, client, acc) : [];
+  stats.ads = catalog.length;
+  if (!parts.insights) return stats;
+  return syncInsights(db, workspaceId, client, acc, since, until, catalog, stats);
+}
+
+async function syncCatalog(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow) {
   const ads = await client.getAll<{ id: string; name?: string; effective_status?: string; adset?: { id: string; name?: string }; campaign?: { id: string; name?: string }; creative?: { object_type?: string; video_id?: string } }>(
     `act_${acc.account_id}/ads`,
     { fields: "id,name,effective_status,adset{id,name},campaign{id,name},creative{object_type,video_id}", limit: 500 },
@@ -135,8 +142,10 @@ async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc:
     const { error } = await db.from("meta_ads").upsert(catalog.slice(i, i + 500), { onConflict: "workspace_id,ad_id" });
     if (error) throw new Error(`meta_ads: ${error.message}`);
   }
-  stats.ads = catalog.length;
+  return catalog;
+}
 
+async function syncInsights(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, catalog: { ad_id: string }[], stats: { ads: number; insights: number }) {
   // 2) insights diários por anúncio; períodos grandes → relatório assíncrono
   const base = { level: "ad", time_increment: 1, fields: INSIGHTS_FIELDS.join(","), limit: 500 };
   for (const win of chunkRange(since, until, 31)) {
@@ -283,26 +292,36 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
   return stats;
 }
 
-/** Sincroniza todas as contas monitoradas (active=true) do workspace. */
+/**
+ * Sincroniza todas as contas monitoradas (active=true) do workspace.
+ *
+ * `mode` divide o trabalho para o botão "Atualizar" responder rápido:
+ *  - "full" (padrão, cron e MCP): tudo — catálogo, insights, campanhas/conjuntos/vídeo/alcance, câmbio, vínculos.
+ *  - "fast": só o que o painel mostra na hora (gasto de ontem+hoje); sem descoberta de contas, catálogo nem coletas avançadas.
+ *  - "extras": o resto (catálogo + coletas avançadas + vínculos), registrado como `meta_catalog` para não segurar o botão.
+ */
 export async function syncMeta(
   db: Db,
   workspaceId: string,
-  opts: { since?: string; until?: string; trigger: "manual" | "cron"; accountIds?: string[] },
+  opts: { since?: string; until?: string; trigger: "manual" | "cron"; accountIds?: string[]; mode?: "full" | "fast" | "extras" },
 ) {
+  const mode = opts.mode ?? "full";
+  const fast = mode === "fast";
+  const extras = mode === "extras";
   const { data: ws } = await db.from("workspaces").select("timezone, currency").eq("id", workspaceId).maybeSingle();
   const today = todayIn(ws?.timezone ?? "America/Sao_Paulo");
-  const since = opts.since ?? addDays(today, -env.metaLookbackDays);
+  const since = opts.since ?? addDays(today, fast ? -1 : -env.metaLookbackDays);
   const until = opts.until ?? today;
 
   // Contas novas na Meta entram sozinhas (sem depender de clique em "Descobrir contas").
   // No botão "Atualizar" não repete a descoberta se ela já rodou há pouco (o cron sempre roda).
-  const recent = opts.trigger === "manual"
+  const recent = opts.trigger === "manual" || fast
     ? (await db.from("sync_jobs").select("id").eq("workspace_id", workspaceId).eq("kind", "meta_accounts").eq("status", "success")
         .gte("started_at", new Date(Date.now() - 30 * 60_000).toISOString()).limit(1)).data?.length
     : 0;
   const discovered = recent ? { stats: { skipped: "recent" } as Record<string, unknown> } : await discoverAccounts(db, workspaceId, opts.trigger);
 
-  const jobId = await startJob(db, workspaceId, "meta_insights", opts.trigger, { since, until });
+  const jobId = await startJob(db, workspaceId, extras ? "meta_catalog" : "meta_insights", opts.trigger, { since, until, mode });
   const stats: Record<string, unknown> = { accounts: 0, ads: 0, insights: 0, failed: [] as string[], discovered: discovered.stats, advanced: {} };
 
   const conns = await ensureEnvConnection(db, workspaceId);
@@ -331,14 +350,16 @@ export async function syncMeta(
       clients.set(conn.id, client);
     }
     try {
-      const s = await syncAccount(db, workspaceId, client, acc, since, until);
+      const s = await syncAccount(db, workspaceId, client, acc, since, until, { catalog: !fast, insights: !extras });
       stats.accounts = (stats.accounts as number) + 1;
       stats.ads = (stats.ads as number) + s.ads;
       stats.insights = (stats.insights as number) + s.insights;
-      const adv = await syncAdvanced(db, workspaceId, client, acc, since, until, ws?.timezone ?? "America/Sao_Paulo");
-      adv.creatives = s.ads; // o tipo de criativo agora vem junto do catálogo
-      if (adv.failures.some((f) => f.reason === "rate_limited")) { stats.rate_limited = true; rateLimited = true; }
-      (stats.advanced as Record<string, AdvancedStats>)[acc.account_id] = adv;
+      if (!fast) {
+        const adv = await syncAdvanced(db, workspaceId, client, acc, since, until, ws?.timezone ?? "America/Sao_Paulo");
+        adv.creatives = s.ads; // o tipo de criativo agora vem junto do catálogo
+        if (adv.failures.some((f) => f.reason === "rate_limited")) { stats.rate_limited = true; rateLimited = true; }
+        (stats.advanced as Record<string, AdvancedStats>)[acc.account_id] = adv;
+      }
       await db.from("meta_ad_accounts").update({ last_sync_at: new Date().toISOString(), last_error: null }).eq("id", acc.id);
       await db.from("meta_connections").update({ status: "active", last_sync_at: new Date().toISOString(), last_error: null }).eq("id", conn.id);
     } catch (e) {
@@ -361,7 +382,7 @@ export async function syncMeta(
 
   const wsCurrency = ws?.currency ?? "BRL";
   const foreign = [...new Set((accounts as AccountRow[]).map((a) => a.currency).filter((c): c is string => !!c && c !== wsCurrency))];
-  if (wsCurrency === "BRL") {
+  if (wsCurrency === "BRL" && !extras) {
     for (const cur of foreign) {
       try {
         // PTAX só muda 1× por dia útil: não busca de novo se a cotação foi baixada há menos de 6 h e a janela é recente.
@@ -376,13 +397,15 @@ export async function syncMeta(
   }
 
   // Oferta ↔ conta de anúncio sai do pixel: campanha nova com o pixel da oferta entra sozinha.
-  stats.auto_linked = await autoLinkOfferAccounts(db, workspaceId).catch(async (e) => {
-    await logEvent(db, { workspaceId, level: "warn", code: "OFFER_AUTO_LINK_FAILED", provider: "meta", message: (e as Error).message });
-    return 0;
-  });
+  if (!fast) {
+    stats.auto_linked = await autoLinkOfferAccounts(db, workspaceId).catch(async (e) => {
+      await logEvent(db, { workspaceId, level: "warn", code: "OFFER_AUTO_LINK_FAILED", provider: "meta", message: (e as Error).message });
+      return 0;
+    });
+  }
 
-  const re = await reattributePending(db, workspaceId).catch(() => ({ checked: 0, resolved: 0 }));
-  stats.reattributed = re;
+  // No "Atualizar" a reatribuição roda uma vez, depois da Meta e da Cakto (refresh.ts).
+  if (mode === "full") stats.reattributed = await reattributePending(db, workspaceId).catch(() => ({ checked: 0, resolved: 0 }));
   const failed = (stats.failed as string[]).length;
   await finishJob(db, jobId, failed === 0 ? "success" : failed < accounts.length ? "partial" : "failed", stats);
   return { jobId, stats, rateLimited };

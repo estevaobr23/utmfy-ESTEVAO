@@ -13,7 +13,7 @@ import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { discoverAccounts, syncMeta } from "@/lib/services/meta-sync";
 import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
 import { autoLinkOfferAccounts } from "@/lib/services/offer-auto-link";
-import { activeRefresh, recentlyRefreshed, runRefresh } from "@/lib/services/refresh";
+import { activeRefresh, recentlyRefreshed, runRefresh, runRefreshExtras } from "@/lib/services/refresh";
 import { updateMetaDailyBudget } from "@/lib/services/meta-budget";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
 import { seedDemo } from "@/lib/services/demo";
@@ -371,7 +371,10 @@ export async function startRefresh(): Promise<StartRefresh> {
   const workspaceId = s.workspace.id;
   const timezone = s.workspace.timezone;
   // Responde na hora; o trabalho pesado segue depois da resposta e a tela só acompanha.
-  after(() => runRefresh(admin, workspaceId, timezone));
+  after(async () => {
+    await runRefresh(admin, workspaceId, timezone);
+    await runRefreshExtras(admin, workspaceId);
+  });
   return { state: "started", since };
 }
 
