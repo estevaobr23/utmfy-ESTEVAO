@@ -6,7 +6,7 @@ const PRESETS: [string, string][] = [["today", "Hoje"], ["yesterday", "Ontem"], 
 export const STATUS_OPTIONS: [string, string][] = [["paid", "Pago"], ["pending", "Aguardando"], ["refunded", "Reembolsado"], ["chargedback", "Chargeback"], ["refund_requested", "Reembolso solicitado"], ["refused", "Recusado"], ["canceled", "Cancelado"], ["disputed", "Em disputa"]];
 
 function Control({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="min-w-36 flex-1 text-[10px] font-medium uppercase tracking-wide text-[#9aa6bb]">{label}{children}</label>;
+  return <label className="min-w-36 flex-1 text-[11px] font-medium text-copy">{label}{children}</label>;
 }
 
 export function FilterBar({ f, offers, accounts, catalog, hideOffer, extra, action }: {
@@ -20,18 +20,18 @@ export function FilterBar({ f, offers, accounts, catalog, hideOffer, extra, acti
 }) {
   const select = (name: string, value: string | null, options: Opt[], all: string) => <select name={name} defaultValue={value ?? ""} className={`${inputCls} mt-1 block w-full min-w-36`}><option value="">{all}</option>{options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select>;
   return (
-    <form method="get" action={action} className="mb-4 rounded-md border border-[#384662] bg-[#27334d] p-4 shadow-[0_8px_24px_rgba(4,9,20,0.08)]">
+    <form method="get" action={action} className="mb-4 rounded-md bg-surface p-5">
       <div className="flex flex-wrap items-end gap-2">
         <Control label="Período de visualização"><select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className={`${inputCls} mt-1 block w-full`}>{f.preset === "custom" && <option value="">Personalizado</option>}{PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Control>
         {!hideOffer && offers && <Control label="Oferta">{select("offer", f.offer, offers, "Todas as ofertas")}</Control>}
         {accounts && <Control label="Conta de anúncio">{select("account", f.account, accounts.map((account) => ({ id: account.account_id, name: account.account_name ?? account.account_id })), "Qualquer")}</Control>}
         <Control label="Fonte de tráfego"><input name="source" defaultValue={f.source ?? ""} placeholder="Qualquer" className={`${inputCls} mt-1 block w-full`} /></Control>
-        <Control label="Plataforma"><select disabled className={`${inputCls} mt-1 block w-full text-[#9aa6bb]`}><option>Meta Ads</option></select></Control>
-        {hideOffer && <Control label="Produto"><select disabled className={`${inputCls} mt-1 block w-full text-[#9aa6bb]`}><option>Oferta selecionada</option></select></Control>}
-        <button className="rounded-md bg-[#0874f9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0865d8]">Filtrar</button>
+        <Control label="Plataforma"><select disabled className={`${inputCls} mt-1 block w-full text-copy-muted`}><option>Meta Ads</option></select></Control>
+        {hideOffer && <Control label="Produto"><select disabled className={`${inputCls} mt-1 block w-full text-copy-muted`}><option>Oferta selecionada</option></select></Control>}
+        <button className="h-[34px] rounded bg-primary px-4 text-sm font-semibold text-white hover:bg-[var(--primary-hover)]">Filtrar</button>
       </div>
-      <details className="mt-3 border-t border-[#394761] pt-2">
-        <summary className="cursor-pointer text-right text-xs font-medium text-[#aab4c6]">Mais filtros</summary>
+      <details className="mt-3 border-t border-divider pt-2">
+        <summary className="flex cursor-pointer items-center justify-end gap-1 text-right text-xs font-medium text-copy"><span>Mais filtros</span><svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-none stroke-current stroke-[1.75]"><path d="m4 6 4 4 4-4" /></svg></summary>
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <Control label="Data inicial"><input type="date" name="from" defaultValue={f.preset === "custom" ? f.from : ""} className={`${inputCls} mt-1 block w-full`} /></Control>
           <Control label="Data final"><input type="date" name="to" defaultValue={f.preset === "custom" ? f.to : ""} className={`${inputCls} mt-1 block w-full`} /></Control>
