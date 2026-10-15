@@ -11,7 +11,7 @@ export function AskClaude({
 }: { prompt: string; label?: string; tone?: "default" | "problem"; copy?: boolean }) {
   const cls = tone === "problem"
     ? "bg-amber-400/10 text-amber-200 ring-1 ring-amber-400/35 hover:bg-amber-400/20"
-    : "bg-[#0874f9]/15 text-[#8cc4ff] ring-1 ring-[#0874f9]/40 hover:bg-[#0874f9]/25";
+    : "bg-primary/15 text-[var(--link)] ring-1 ring-primary/40 hover:bg-primary/25";
   return (
     <span className="inline-flex items-center gap-1">
       <a

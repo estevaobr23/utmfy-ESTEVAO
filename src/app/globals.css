@@ -3,37 +3,77 @@
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --color-app-bg: var(--app-bg);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-copy: var(--text);
+  --color-copy-strong: var(--text-strong);
+  --color-copy-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-active: var(--primary-active);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-danger-accessible: var(--danger-accessible);
+  --color-input-border: var(--input-border);
+  --color-divider: var(--divider);
 }
 
 :root {
   color-scheme: dark;
-  --app-bg: #11192d;
-  --app-bg-deep: #0d1527;
-  --sidebar: #222d46;
-  --sidebar-deep: #172137;
-  --surface: #27334d;
-  --surface-raised: #2d3a56;
-  --surface-soft: #202b43;
-  --border: #394761;
-  --border-soft: #303d57;
-  --text: #eef2f8;
-  --text-soft: #c7cfdd;
-  --muted: #94a0b6;
-  --blue: #0874f9;
-  --blue-hover: #0865d8;
-  --green: #19c779;
-  --red: #ff4d5f;
-  --amber: #f5b942;
+  --app-bg: #161d31;
+  --app-bg-deep: #161d31;
+  --surface: #283046;
+  --surface-hover: #2f3850;
+  --text: #d0d2d6;
+  --text-strong: #ffffff;
+  --muted: #a3a6b4;
+  --primary: #005ae3;
+  --primary-hover: #0052cf;
+  --primary-active: #0356d7;
+  --success: #28c76f;
+  --danger: #ee4542;
+  --danger-accessible: #ff6a67;
+  --warning: #ff9f43;
+  --input-border: #404656;
+  --divider: #3b4253;
+  --link: #5b9dff;
+  --tooltip: #1b2236;
 }
 
 * {
-  scrollbar-color: #4a5872 var(--app-bg-deep);
+  box-sizing: border-box;
+  scrollbar-color: var(--input-border) var(--app-bg);
+}
+
+html {
+  background: var(--app-bg);
 }
 
 body {
-  font-family: var(--font-sans);
+  min-width: 320px;
   background: var(--app-bg);
   color: var(--text);
+  font-family: var(--font-sans);
+}
+
+button,
+a,
+input,
+select,
+textarea,
+summary {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, transform 100ms ease;
+}
+
+button:active:not(:disabled),
+a:active {
+  transform: scale(.98);
+}
+
+:where(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: 2px;
 }
 
 details > summary::-webkit-details-marker {
@@ -41,7 +81,7 @@ details > summary::-webkit-details-marker {
 }
 
 ::selection {
-  background: rgb(8 116 249 / 38%);
+  background: color-mix(in srgb, var(--primary) 38%, transparent);
   color: white;
 }
 
@@ -51,43 +91,173 @@ textarea {
   color-scheme: dark;
 }
 
-/* Compatibilidade dark para telas antigas enquanto os componentes centrais
-   usam os tokens diretamente. Mantém toda a administração no mesmo tema. */
+.kpi-grid {
+  display: grid;
+  gap: 19px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.kpi-card {
+  animation: rise .45s cubic-bezier(.2, .7, .2, 1) both;
+  transition: background-color 150ms ease;
+}
+
+.kpi-card:hover {
+  background: var(--surface-hover);
+}
+
+.kpi-grid > :nth-child(1) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(1) { animation-delay: 0ms; }
+.kpi-grid > :nth-child(2) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(2) { animation-delay: 40ms; }
+.kpi-grid > :nth-child(3) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(3) { animation-delay: 80ms; }
+.kpi-grid > :nth-child(4) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(4) { animation-delay: 120ms; }
+.kpi-grid > :nth-child(5) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(5) { animation-delay: 160ms; }
+.kpi-grid > :nth-child(6) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(6) { animation-delay: 200ms; }
+.kpi-grid > :nth-child(7) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(7) { animation-delay: 240ms; }
+.kpi-grid > :nth-child(8) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(8) { animation-delay: 280ms; }
+.kpi-grid > :nth-child(9) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(9) { animation-delay: 320ms; }
+.kpi-grid > :nth-child(10) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(10) { animation-delay: 360ms; }
+.kpi-grid > :nth-child(11) .kpi-card,
+.kpi-grid > .kpi-card:nth-child(11) { animation-delay: 400ms; }
+
+.kpi-value {
+  transition: opacity 200ms ease;
+}
+
+.funnel-reveal {
+  animation: reveal-funnel 700ms ease-out both;
+}
+
+.funnel-percentages {
+  animation: fade-in 300ms ease-out 300ms both;
+}
+
+.refresh-spinner {
+  height: 14px;
+  width: 14px;
+  flex: none;
+  border: 2px solid rgb(255 255 255 / 35%);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: spin .7s linear infinite;
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-hover) 50%, var(--surface) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.tooltip-panel {
+  animation: fade-in 120ms ease-out both;
+}
+
+.summary-card > form {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 10px 20px 7px;
+  box-shadow: none;
+}
+
+.summary-card > form > details {
+  margin-top: 6px;
+  padding-top: 4px;
+}
+
+@media (min-width: 768px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .kpi-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, .65fr) minmax(0, 1fr);
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes reveal-funnel {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* Compatibilidade dark para as telas secundárias. Os componentes centrais
+   usam os mesmos tokens diretamente, mantendo a paleta como fonte única. */
 body .bg-white { background-color: var(--surface); }
 body .bg-slate-50 { background-color: var(--app-bg); }
-body .bg-slate-100 { background-color: var(--surface-soft); }
-body .bg-slate-200 { background-color: var(--surface-raised); }
+body .bg-slate-100,
+body .bg-slate-200 { background-color: var(--surface-hover); }
 body .border-slate-100,
 body .border-slate-200,
-body .border-slate-300 { border-color: var(--border); }
-body .divide-slate-100 > :not(:last-child) { border-color: var(--border-soft); }
+body .border-slate-300 { border-color: var(--divider); }
+body .divide-slate-100 > :not(:last-child) { border-color: var(--divider); }
 body .text-slate-900,
-body .text-slate-800 { color: var(--text); }
+body .text-slate-800 { color: var(--text-strong); }
 body .text-slate-700,
-body .text-slate-600 { color: var(--text-soft); }
+body .text-slate-600 { color: var(--text); }
 body .text-slate-500,
 body .text-slate-400 { color: var(--muted); }
 body .ring-slate-200,
-body .ring-slate-300 { --tw-ring-color: var(--border); }
+body .ring-slate-300 { --tw-ring-color: var(--divider); }
 body .hover\:bg-slate-50:hover,
 body .hover\:bg-slate-100:hover,
-body .hover\:bg-slate-200:hover { background-color: var(--surface-raised); }
+body .hover\:bg-slate-200:hover { background-color: var(--surface-hover); }
 
 body .bg-emerald-50,
-body .bg-emerald-100 { background-color: rgb(25 199 121 / 13%); }
+body .bg-emerald-100 { background-color: color-mix(in srgb, var(--success) 13%, transparent); }
 body .bg-amber-50,
-body .bg-amber-100 { background-color: rgb(245 185 66 / 12%); }
-body .bg-rose-50 { background-color: rgb(255 77 95 / 12%); }
-body .bg-sky-50 { background-color: rgb(8 116 249 / 12%); }
+body .bg-amber-100 { background-color: color-mix(in srgb, var(--warning) 12%, transparent); }
+body .bg-rose-50 { background-color: color-mix(in srgb, var(--danger) 12%, transparent); }
+body .bg-sky-50 { background-color: color-mix(in srgb, var(--primary) 12%, transparent); }
 body .text-emerald-700,
 body .text-emerald-800,
-body .text-emerald-900 { color: #35d991; }
+body .text-emerald-900 { color: var(--success); }
 body .text-amber-700,
 body .text-amber-800,
-body .text-amber-900 { color: #f7c95f; }
+body .text-amber-900 { color: var(--warning); }
 body .text-rose-600,
 body .text-rose-700,
 body .text-rose-800,
-body .text-rose-900 { color: #ff7180; }
+body .text-rose-900 { color: var(--danger-accessible); }
 body .text-sky-700,
-body .text-sky-900 { color: #54a3ff; }
+body .text-sky-900 { color: var(--link); }

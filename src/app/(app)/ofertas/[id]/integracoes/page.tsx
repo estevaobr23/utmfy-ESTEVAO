@@ -143,22 +143,22 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
             <Notice tone="warn">O pixel {primaryPixelId} também está vinculado a outra oferta, então o gasto não pode ser separado. Use um pixel exclusivo para cada oferta.</Notice>
           ) : (
             <>
-              <p className="mb-2 text-sm text-[#aeb8c9]">
+              <p className="mb-2 text-sm text-copy">
                 Pixel <Code>{primaryPixelId}</Code>: campanhas e conjuntos que usam esse pixel entram nesta oferta automaticamente, inclusive os novos (a cada sincronização da Meta).
               </p>
               <div className="mb-2 flex flex-wrap gap-2 text-xs"><Badge tone="ok">{autoCampaigns.length} campanha(s)</Badge><Badge tone="ok">{autoAdsets.length} conjunto(s)</Badge></div>
-              <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-[#e2e7ef]">
+              <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-copy-strong">
                 {autoCampaigns.map((campaign) => <li key={`${campaign.account_id}:${campaign.campaign_id}`} className="truncate">{campaign.campaign_name ?? "Sem nome"} <Code>{campaign.campaign_id}</Code></li>)}
-                {!autoCampaigns.length && <li className="text-[#8f9bb1]">Nenhum conjunto sincronizado usa esse pixel ainda. Suba um anúncio com ele e sincronize a Meta.</li>}
+                {!autoCampaigns.length && <li className="text-copy-muted">Nenhum conjunto sincronizado usa esse pixel ainda. Suba um anúncio com ele e sincronize a Meta.</li>}
               </ul>
             </>
           )}
         </Card>
 
         <details className="lg:col-span-2">
-          <summary className="cursor-pointer text-sm text-[#9ca8bb]">Avançado: vínculo manual de campanhas (só para exceções, o pixel já faz isso sozinho)</summary>
+          <summary className="cursor-pointer text-sm text-copy-muted">Avançado: vínculo manual de campanhas (só para exceções, o pixel já faz isso sozinho)</summary>
         <Card title="Contas, campanhas e conjuntos (Meta)">
-          <p className="mb-3 text-sm text-[#aeb8c9]">Use só para campanha sem pixel de conversão. Conjuntos com o pixel de uma oferta sempre pertencem a ela, independente do que for marcado aqui.</p>
+          <p className="mb-3 text-sm text-copy">Use só para campanha sem pixel de conversão. Conjuntos com o pixel de uma oferta sempre pertencem a ela, independente do que for marcado aqui.</p>
           {bindingsUnavailable && <div className="mb-3"><Notice tone="warn">A migration de associações explícitas ainda não foi aplicada. Os vínculos legados continuam preservados.</Notice></div>}
           {accounts?.length ? <div className="space-y-3">
             {accounts.map((account) => {
@@ -170,24 +170,24 @@ export default async function OfferIntegrations({ params, searchParams }: PagePr
               const accountAdsets = adsets.filter((adset) => adset.account_id === account.account_id);
               const suggestedAdsets = new Set(accountAdsets.filter((adset) => primaryPixelId && promotedPixel(adset.promoted_object) === primaryPixelId).map((adset) => adset.adset_id));
               const suggestedCampaigns = new Set(accountAdsets.filter((adset) => suggestedAdsets.has(adset.adset_id)).map((adset) => adset.campaign_id));
-              return <details key={account.id} open={!!linked} className="rounded-md border border-[#3d4a65] bg-[#202b43]">
+              return <details key={account.id} open={!!linked} className="rounded-md border border-divider bg-app-bg">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm">
                   <span><b>{account.account_name ?? account.account_id}</b> <Code>act_{account.account_id}</Code></span>
                   <span className="flex items-center gap-2">{linked ? <Badge tone={confirmedCampaigns.size || confirmedAdsets.size ? "ok" : "warn"}>{confirmedCampaigns.size + confirmedAdsets.size || "pendente"}</Badge> : <Badge>não vinculada</Badge>}</span>
                 </summary>
-                <form action={saveMetaBindings} className="border-t border-[#3d4a65] p-3">
+                <form action={saveMetaBindings} className="border-t border-divider p-3">
                   <input type="hidden" name="offer_id" value={id} /><input type="hidden" name="ad_account_id" value={account.id} />
                   <div className="grid gap-4 md:grid-cols-2">
-                    <fieldset><legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9ca8bb]">Campanhas</legend><div className="max-h-56 space-y-1 overflow-y-auto">
-                      {accountCampaigns.map((campaign) => <label key={campaign.campaign_id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs hover:bg-[#2b3853]"><input type="checkbox" name="campaign_ids" value={campaign.campaign_id} defaultChecked={confirmedCampaigns.has(campaign.campaign_id)} className="mt-0.5" /><span className="min-w-0"><span className="block truncate text-[#e2e7ef]">{campaign.campaign_name ?? "Sem nome"}</span><Code>{campaign.campaign_id}</Code>{suggestedCampaigns.has(campaign.campaign_id) && <span className="ml-2 text-emerald-300">sugerida pelo pixel</span>}</span></label>)}
-                      {!accountCampaigns.length && <p className="text-xs text-[#8f9bb1]">Nenhuma campanha sincronizada.</p>}
+                    <fieldset><legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-copy-muted">Campanhas</legend><div className="max-h-56 space-y-1 overflow-y-auto">
+                      {accountCampaigns.map((campaign) => <label key={campaign.campaign_id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-hover"><input type="checkbox" name="campaign_ids" value={campaign.campaign_id} defaultChecked={confirmedCampaigns.has(campaign.campaign_id)} className="mt-0.5" /><span className="min-w-0"><span className="block truncate text-copy-strong">{campaign.campaign_name ?? "Sem nome"}</span><Code>{campaign.campaign_id}</Code>{suggestedCampaigns.has(campaign.campaign_id) && <span className="ml-2 text-emerald-300">sugerida pelo pixel</span>}</span></label>)}
+                      {!accountCampaigns.length && <p className="text-xs text-copy-muted">Nenhuma campanha sincronizada.</p>}
                     </div></fieldset>
-                    <fieldset><legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#9ca8bb]">Conjuntos (mais específico)</legend><div className="max-h-56 space-y-1 overflow-y-auto">
-                      {accountAdsets.map((adset) => <label key={adset.adset_id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs hover:bg-[#2b3853]"><input type="checkbox" name="adset_ids" value={adset.adset_id} defaultChecked={confirmedAdsets.has(adset.adset_id)} className="mt-0.5" /><span className="min-w-0"><span className="block truncate text-[#e2e7ef]">{adset.name ?? "Sem nome"}</span><Code>{adset.adset_id}</Code>{suggestedAdsets.has(adset.adset_id) && <span className="ml-2 text-emerald-300">pixel {primaryPixelId}</span>}</span></label>)}
-                      {!accountAdsets.length && <p className="text-xs text-[#8f9bb1]">Nenhum conjunto sincronizado.</p>}
+                    <fieldset><legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-copy-muted">Conjuntos (mais específico)</legend><div className="max-h-56 space-y-1 overflow-y-auto">
+                      {accountAdsets.map((adset) => <label key={adset.adset_id} className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-xs hover:bg-surface-hover"><input type="checkbox" name="adset_ids" value={adset.adset_id} defaultChecked={confirmedAdsets.has(adset.adset_id)} className="mt-0.5" /><span className="min-w-0"><span className="block truncate text-copy-strong">{adset.name ?? "Sem nome"}</span><Code>{adset.adset_id}</Code>{suggestedAdsets.has(adset.adset_id) && <span className="ml-2 text-emerald-300">pixel {primaryPixelId}</span>}</span></label>)}
+                      {!accountAdsets.length && <p className="text-xs text-copy-muted">Nenhum conjunto sincronizado.</p>}
                     </div></fieldset>
                   </div>
-                  <details className="mt-3 rounded border border-[#3d4a65] p-2 text-xs text-[#aeb8c9]"><summary className="cursor-pointer">Associação manual por ID</summary><div className="mt-2 grid gap-2 md:grid-cols-2"><label>IDs de campanhas<input name="campaign_ids" inputMode="numeric" placeholder="IDs separados por vírgula" className={`${inputCls} mt-1 w-full`} /></label><label>IDs de conjuntos<input name="adset_ids" inputMode="numeric" placeholder="IDs separados por vírgula" className={`${inputCls} mt-1 w-full`} /></label></div></details>
+                  <details className="mt-3 rounded border border-divider p-2 text-xs text-copy"><summary className="cursor-pointer">Associação manual por ID</summary><div className="mt-2 grid gap-2 md:grid-cols-2"><label>IDs de campanhas<input name="campaign_ids" inputMode="numeric" placeholder="IDs separados por vírgula" className={`${inputCls} mt-1 w-full`} /></label><label>IDs de conjuntos<input name="adset_ids" inputMode="numeric" placeholder="IDs separados por vírgula" className={`${inputCls} mt-1 w-full`} /></label></div></details>
                   {w && <div className="mt-3 flex items-center justify-between gap-2"><SubmitButton pendingText="Salvando vínculos…">Salvar vínculos</SubmitButton>{linked && <button formAction={unlinkAdAccount} className="text-xs text-rose-300">Desassociar conta</button>}</div>}
                 </form>
               </details>;

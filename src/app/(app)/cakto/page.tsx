@@ -61,7 +61,7 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
       />
       <Flash sp={sp} />
 
-      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#aeb8c9]">
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-copy">
         <span>Conexão com a Cakto:</span>
         <Badge tone={missingCreds.length || conn?.status === "error" ? "error" : conn?.status === "active" ? "ok" : "warn"}>
           {missingCreds.length ? "credenciais ausentes" : conn?.status === "error" ? "com erro" : conn?.status === "active" ? "ativa" : "sem conexão"}
@@ -108,27 +108,27 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
                 </div>
               }
             >
-              <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">URL do webhook desta oferta</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-copy-muted">URL do webhook desta oferta</div>
               <div className="mt-1">{o.webhook_token ? <CodeBlock code={offerWebhookUrl(env.appUrl, o.webhook_token)} /> : <Notice tone="warn">Esta oferta ainda não tem URL (migration pendente).</Notice>}</div>
               {h.hint && <p className="mt-2 text-sm text-amber-200">{h.hint}</p>}
 
               <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">Produtos desta oferta</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-copy-muted">Produtos desta oferta</div>
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {products.map((p) => <Badge key={`${p.cakto_product_id}`} tone="muted">{p.product_name ?? p.label ?? p.cakto_product_id}</Badge>)}
-                    {!products.length && <span className="text-[#8f9bb1]">nenhum</span>}
+                    {!products.length && <span className="text-copy-muted">nenhum</span>}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[#8f9bb1]">Último evento recebido</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-copy-muted">Último evento recebido</div>
                   <div className="mt-1 flex items-center gap-2">
-                    {last ? <><OrderStatusBadge status={last.status} /><span className="text-[#aeb8c9]">{timeAgo(last.at)}</span></> : <span className="text-[#8f9bb1]">nenhum ainda</span>}
+                    {last ? <><OrderStatusBadge status={last.status} /><span className="text-copy">{timeAgo(last.at)}</span></> : <span className="text-copy-muted">nenhum ainda</span>}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#3a4762] pt-3">
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-divider pt-3">
                 {s.canWrite && (
                   <form action={checkOfferWebhook}>
                     <input type="hidden" name="offer_id" value={o.id} /><input type="hidden" name="back" value="cakto" />
@@ -136,7 +136,7 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
                   </form>
                 )}
                 <Link href={`/ofertas/${o.id}/integracoes`} className="text-xs text-sky-300 hover:underline">abrir oferta</Link>
-                {o.cakto_webhook_checked_at && <span className="text-xs text-[#8f9bb1]">verificado {timeAgo(o.cakto_webhook_checked_at)}</span>}
+                {o.cakto_webhook_checked_at && <span className="text-xs text-copy-muted">verificado {timeAgo(o.cakto_webhook_checked_at)}</span>}
               </div>
             </Card>
           );
@@ -144,8 +144,8 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
       </div>
 
       <Card title="Como criar o webhook de uma oferta nova" className="mt-6" actions={<AskClaude prompt={ask.novaOferta()} label="Fazer isso com o Claude" />}>
-        <p className="mb-3 text-sm text-[#aeb8c9]">Caminho rápido: clique em <b>Fazer isso com o Claude</b>. Ele cria a oferta, o webhook e o pixel; você só confirma. O passo a passo manual abaixo continua valendo.</p>
-        <ol className="space-y-3 text-sm text-[#dce2ec]">
+        <p className="mb-3 text-sm text-copy">Caminho rápido: clique em <b>Fazer isso com o Claude</b>. Ele cria a oferta, o webhook e o pixel; você só confirma. O passo a passo manual abaixo continua valendo.</p>
+        <ol className="space-y-3 text-sm text-copy">
           <li><b>1. Crie a oferta no UTMFY.</b> A URL do webhook nasce sozinha e aparece nesta página. <Link href="/ofertas" className="text-sky-300 underline">Criar oferta</Link></li>
           <li>
             <b>2. Na Cakto, vá em Integrações → Webhooks → Adicionar.</b> Cole a URL da oferta, marque <b>só os produtos dela</b> e estes eventos:
@@ -153,7 +153,7 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
           </li>
           <li><b>3. Volte aqui e clique em “Verificar na Cakto”.</b> Quando o selo da oferta ficar verde, falta só a primeira venda para confirmar.</li>
         </ol>
-        <p className="mt-3 text-xs text-[#8f9bb1]">Atenção: produto que não está marcado no webhook vende e não aparece no painel.</p>
+        <p className="mt-3 text-xs text-copy-muted">Atenção: produto que não está marcado no webhook vende e não aparece no painel.</p>
       </Card>
     </>
   );
