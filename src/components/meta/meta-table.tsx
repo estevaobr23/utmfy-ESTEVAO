@@ -65,7 +65,7 @@ function returnTone(row: MetaTableRow, id: "roas" | "roi", spendReliable: boolea
   const value = id === "roas" ? row.metrics.roas : row.metrics.roi;
   if (!spendReliable || value == null || !Number.isFinite(value) || !row.metrics.spend) return "";
   const breakEven = id === "roas" ? 1 : 0;
-  return value > breakEven ? "text-[#25d17f]" : value < breakEven ? "text-[#ff5b6b]" : "";
+  return value > breakEven ? "text-success" : value < breakEven ? "text-danger-accessible" : "";
 }
 
 function displayValue(row: MetaTableRow, metric: MetaMetricDefinition, currency: string, spendReliable: boolean) {
@@ -105,14 +105,14 @@ function statusRank(status: string | null) {
 }
 
 function StatusIndicator({ status }: { status: string | null }) {
-  if (!status) return <span className="text-[#7f8ca4]">—</span>;
+  if (!status) return <span className="text-copy-muted">—</span>;
   const active = status === "ACTIVE";
   return (
     <span
       role="img"
       aria-label={`Status Meta: ${status}. Somente leitura.`}
       title={`Meta: ${status} · somente leitura`}
-      className={`inline-flex h-5 w-9 items-center rounded-full p-0.5 ${active ? "justify-end bg-[#0874f9]" : "justify-start bg-[#536079]"}`}
+      className={`inline-flex h-5 w-9 items-center rounded-full p-0.5 ${active ? "justify-end bg-primary" : "justify-start bg-input-border"}`}
     >
       <span className="h-4 w-4 rounded-full bg-white" />
     </span>
@@ -300,36 +300,36 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
 
   return (
     <div>
-      <div className="flex flex-wrap items-end gap-2 border-b border-[#394761] bg-[#222e47] px-4 py-3">
-        <label className="min-w-48 flex-1 text-[11px] text-[#9aa6bb]">
+      <div className="flex flex-wrap items-end gap-2 border-b border-divider bg-surface px-5 py-3">
+        <label className="min-w-48 flex-1 text-[11px] text-copy">
           Nome
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Filtrar por nome" className="mt-1 block w-full max-w-xs rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-white outline-none placeholder:text-[#718098] focus:border-[#0874f9]" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Filtrar por nome" className="mt-1 block h-[34px] w-full max-w-xs rounded border border-input-border bg-transparent px-3 text-sm text-white outline-none placeholder:text-copy-muted focus:border-primary" />
         </label>
-        <label className="text-[11px] text-[#9aa6bb]">
+        <label className="text-[11px] text-copy">
           Status
-          <select value={status} onChange={(event) => { const value = event.target.value; setStatus(value); setPage(1); updateQuery(router, new URLSearchParams(searchParams.toString()), path, { meta_status: value || null, page: null }); }} className="mt-1 block rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-white">
+          <select value={status} onChange={(event) => { const value = event.target.value; setStatus(value); setPage(1); updateQuery(router, new URLSearchParams(searchParams.toString()), path, { meta_status: value || null, page: null }); }} className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white">
             <option value="">Qualquer</option><option value="ACTIVE">Ativo</option><option value="PAUSED">Pausado</option><option value="RESTRICTED">Com restrições</option>
           </select>
         </label>
         {expandableKeys.length > 0 && (
-          <button type="button" onClick={() => setExpanded(expanded.size ? new Set() : new Set(expandableKeys))} className="rounded border border-[#46546e] bg-[#2d3a56] px-3 py-2 text-xs font-medium text-[#dce2ec] hover:bg-[#344461]">
+          <button type="button" onClick={() => setExpanded(expanded.size ? new Set() : new Set(expandableKeys))} className="h-[34px] rounded border border-input-border bg-surface-hover px-3 text-xs font-medium text-copy hover:bg-app-bg">
             {expanded.size ? "Recolher tudo" : "Expandir tudo"}
           </button>
         )}
         <details className="relative">
-          <summary className="cursor-pointer list-none rounded border border-[#46546e] bg-[#2d3a56] px-3 py-2 text-xs font-medium text-[#dce2ec] hover:bg-[#344461]">Personalizar colunas</summary>
-          <div className="absolute right-0 z-40 mt-1 w-80 rounded-md border border-[#46546e] bg-[#202c45] p-3 shadow-2xl shadow-black/40">
-            <input value={columnSearch} onChange={(event) => setColumnSearch(event.target.value)} placeholder="Buscar métrica" className="mb-2 w-full rounded border border-[#46546e] bg-[#172137] px-2 py-1.5 text-sm text-white outline-none" />
+          <summary className="grid h-[34px] cursor-pointer list-none place-items-center rounded border border-input-border bg-surface-hover px-3 text-xs font-medium text-copy hover:bg-app-bg">Personalizar colunas</summary>
+          <div className="absolute right-0 z-40 mt-1 w-80 rounded-md border border-divider bg-surface p-3 shadow-2xl shadow-black/40">
+            <input value={columnSearch} onChange={(event) => setColumnSearch(event.target.value)} placeholder="Buscar métrica" className="mb-2 h-[34px] w-full rounded border border-input-border bg-app-bg px-2 text-sm text-white outline-none" />
             <div className="mb-2 flex gap-1">
-              <button type="button" onClick={() => setPreset("essential")} className="rounded bg-[#34415e] px-2 py-1 text-xs">Essencial</button>
-              <button type="button" onClick={() => setPreset("complete")} className="rounded bg-[#34415e] px-2 py-1 text-xs">Completo</button>
-              <button type="button" onClick={() => setPreset("creative")} className="rounded bg-[#34415e] px-2 py-1 text-xs">Criativos</button>
+              <button type="button" onClick={() => setPreset("essential")} className="rounded bg-surface-hover px-2 py-1 text-xs">Essencial</button>
+              <button type="button" onClick={() => setPreset("complete")} className="rounded bg-surface-hover px-2 py-1 text-xs">Completo</button>
+              <button type="button" onClick={() => setPreset("creative")} className="rounded bg-surface-hover px-2 py-1 text-xs">Criativos</button>
             </div>
             <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
               {configurable.map((metric) => (
-                <label key={metric.id} className="flex items-start gap-2 rounded px-1.5 py-1 text-xs hover:bg-[#2d3a56]" title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
+                <label key={metric.id} className="flex items-start gap-2 rounded px-1.5 py-1 text-xs hover:bg-surface-hover" title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
                   <input type="checkbox" checked={columns.includes(metric.id)} onChange={() => toggleColumn(metric.id)} className="mt-0.5" />
-                  <span className="flex-1"><span className="block text-[#e2e7ef]">{metric.label}</span><span className={metric.availability === "unavailable" ? "text-amber-300" : metric.availability === "partial" ? "text-blue-300" : "text-[#7f8ca4]"}>{metric.availability === "unavailable" ? "Indisponível" : metric.availability === "partial" ? "Fonte parcial" : metric.source}</span></span>
+                  <span className="flex-1"><span className="block text-copy-strong">{metric.label}</span><span className={metric.availability === "unavailable" ? "text-amber-300" : metric.availability === "partial" ? "text-blue-300" : "text-copy-muted"}>{metric.availability === "unavailable" ? "Indisponível" : metric.availability === "partial" ? "Fonte parcial" : metric.source}</span></span>
                 </label>
               ))}
             </div>
@@ -338,17 +338,17 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
       </div>
 
       <div className="max-h-[68vh] overflow-auto">
-        <table className="border-separate border-spacing-0 text-[12px] text-[#e6ebf3]" style={{ tableLayout: "fixed", width: visibleColumns.reduce((sum, metric) => sum + widthOf(metric.id), 0) }}>
+        <table className="border-separate border-spacing-0 text-[12px] text-copy" style={{ tableLayout: "fixed", width: visibleColumns.reduce((sum, metric) => sum + widthOf(metric.id), 0) }}>
           <colgroup>
             {visibleColumns.map((metric) => <col key={metric.id} style={{ width: widthOf(metric.id) }} />)}
           </colgroup>
           <thead className="sticky top-0 z-30">
-            <tr className="bg-[#35425f]">
+            <tr className="bg-app-bg">
               {visibleColumns.map((metric) => (
-                <th key={metric.id} className={`overflow-hidden text-ellipsis whitespace-nowrap border-b border-r border-[#46536d] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-[#d4dbe7] ${STICKY[metric.id] ?? "relative"} ${metric.format !== "text" && metric.id !== "status" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
+                <th key={metric.id} className={`h-11 overflow-hidden text-ellipsis whitespace-nowrap border-b border-divider px-3 py-2 text-left text-xs font-semibold text-copy ${STICKY[metric.id] ?? "relative"} ${metric.format !== "text" && metric.id !== "status" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
                   {metric.sortable ? <button type="button" onClick={() => changeSort(metric.id)} className="whitespace-nowrap hover:text-white">{metric.label} {sort === metric.id ? (direction === "desc" ? "↓" : "↑") : ""}</button> : metric.label}
                   {!FIXED_COLUMNS.has(metric.id) && (
-                    <span role="separator" aria-orientation="vertical" aria-label={`Ajustar largura de ${metric.label}`} title="Arraste para ajustar a largura · duplo clique restaura" onPointerDown={(event) => startResize(metric.id, event)} onDoubleClick={() => resetWidth(metric.id)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none select-none hover:bg-[#54a8ff]/60 active:bg-[#54a8ff]" />
+                    <span role="separator" aria-orientation="vertical" aria-label={`Ajustar largura de ${metric.label}`} title="Arraste para ajustar a largura · duplo clique restaura" onPointerDown={(event) => startResize(metric.id, event)} onDoubleClick={() => resetWidth(metric.id)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none select-none hover:bg-primary/60 active:bg-primary" />
                   )}
                 </th>
               ))}
@@ -356,17 +356,17 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
           </thead>
           <tbody>
             {visibleRows.map(({ row, depth }) => (
-              <tr key={`${row.level}:${row.id}`} className={`${depth ? "bg-[#222e47]" : "bg-[#27334d]"} hover:bg-[#2d3a56]`}>
+              <tr key={`${row.level}:${row.id}`} className="bg-surface hover:bg-surface-hover">
                 {visibleColumns.map((metric) => {
-                  const base = `overflow-hidden text-ellipsis border-b border-r border-[#394761] px-3 py-2 ${STICKY[metric.id] ?? ""}`;
+                  const base = `h-11 overflow-hidden text-ellipsis border-b border-divider px-3 py-2 ${STICKY[metric.id] ?? ""}`;
                   if (metric.id === "select") return <td key={metric.id} className={base}><input type="checkbox" aria-label={`Selecionar ${row.name}`} /></td>;
                   if (metric.id === "status") return <td key={metric.id} className={`${base} text-center`}><StatusIndicator status={row.status} /></td>;
                   if (metric.id === "name") return (
                     <td key={metric.id} className={base}>
                       <div className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: depth * 16 }}>
-                        {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="w-4 shrink-0 text-[#8fa1bb] hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
-                        {row.drillUrl ? <Link href={row.drillUrl} className="min-w-0 truncate font-semibold text-white hover:text-[#54a8ff]" title={row.name}>{row.name}</Link> : <span className="min-w-0 truncate font-semibold" title={row.name}>{row.name}</span>}
-                        {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="text-[#7f91aa] hover:text-[#54a8ff]">↗</a>}
+                        {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="w-4 shrink-0 text-copy-muted hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
+                        {row.drillUrl ? <Link href={row.drillUrl} className="min-w-0 truncate font-semibold text-white hover:text-[var(--link)]" title={row.name}>{row.name}</Link> : <span className="min-w-0 truncate font-semibold" title={row.name}>{row.name}</span>}
+                        {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="text-copy-muted hover:text-[var(--link)]">↗</a>}
                       </div>
                     </td>
                   );
@@ -375,32 +375,32 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                       {displayValue(row, metric, currency, spendReliable)}
                       {row.budgetChange && (
                         <span className="mt-0.5 block text-[10px] leading-tight">
-                          <span className="text-[#9fb3d1]">Orçamento </span>
-                          <span className="text-[#aab4c6]">{formatMoney(row.budgetChange.before, row.budgetChange.currency)}</span>
-                          <span className="text-[#8fa1bb]"> → </span>
-                          <span className={row.budgetChange.after >= row.budgetChange.before ? "font-semibold text-[#25d17f]" : "font-semibold text-[#ffb347]"}>{formatMoney(row.budgetChange.after, row.budgetChange.currency)}</span>
-                          <span className="block text-[#7f8ca4]">alterado em {formatChangeDate(row.budgetChange.at)}</span>
+                          <span className="text-copy">Orçamento </span>
+                          <span className="text-copy">{formatMoney(row.budgetChange.before, row.budgetChange.currency)}</span>
+                          <span className="text-copy-muted"> → </span>
+                          <span className={row.budgetChange.after >= row.budgetChange.before ? "font-semibold text-success" : "font-semibold text-warning"}>{formatMoney(row.budgetChange.after, row.budgetChange.currency)}</span>
+                          <span className="block text-copy-muted">alterado em {formatChangeDate(row.budgetChange.at)}</span>
                         </span>
                       )}
                     </td>
                   );
                   const value = displayValue(row, metric, currency, spendReliable);
-                  const tone = metric.id === "profit" ? (row.metrics.profit > 0 ? "text-[#25d17f]" : row.metrics.profit < 0 ? "text-[#ff5b6b]" : "") : metric.id === "roas" || metric.id === "roi" ? returnTone(row, metric.id, spendReliable) : metric.availability === "unavailable" || value === "N/D" ? "text-[#758299]" : "";
+                  const tone = metric.id === "profit" ? (row.metrics.profit > 0 ? "text-success" : row.metrics.profit < 0 ? "text-danger-accessible" : "") : metric.id === "roas" || metric.id === "roi" ? returnTone(row, metric.id, spendReliable) : metric.availability === "unavailable" || value === "N/D" ? "text-copy-muted" : "";
                   const badge = metric.format === "budget" && row.budget?.amount != null
-                    ? <span className="mr-1.5 rounded bg-[#34415e] px-1 py-0.5 text-[9px] font-semibold text-[#9fb3d1]">{row.budget.mode}</span>
+                    ? <span className="mr-1.5 rounded bg-surface-hover px-1 py-0.5 text-[9px] font-semibold text-copy">{row.budget.mode}</span>
                     : null;
                   const editable = canWrite && metric.format === "budget" && row.budget?.amount != null && row.budget.period === "daily";
                   return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}{editable && <BudgetEditor row={row} back={backUrl} currency={currency} />}</td>;
                 })}
               </tr>
             ))}
-            {!visibleRows.length && <tr><td colSpan={visibleColumns.length} className="bg-[#27334d] px-6 py-12 text-center text-sm text-[#8f9bb1]">Nenhum resultado para os filtros atuais.</td></tr>}
+            {!visibleRows.length && <tr><td colSpan={visibleColumns.length} className="bg-surface px-6 py-12 text-center text-sm text-copy-muted">Nenhum resultado para os filtros atuais.</td></tr>}
           </tbody>
           {filtered.length > 0 && (
             <tfoot className="sticky bottom-0 z-30">
-              <tr className="bg-[#3a4865] font-semibold text-white">
+              <tr className="bg-app-bg font-semibold text-white">
                 {visibleColumns.map((metric) => {
-                  const base = `border-t border-r border-[#53617c] px-3 py-2 ${STICKY[metric.id] ?? ""}`;
+                  const base = `h-11 border-t border-divider px-3 py-2 ${STICKY[metric.id] ?? ""}`;
                   if (metric.id === "select" || metric.id === "status") return <td key={metric.id} className={base}>—</td>;
                   if (metric.id === "name") return <td key={metric.id} className={base}>{filtered.length} resultado(s)</td>;
                   return <td key={metric.id} className={`${base} whitespace-nowrap text-right tabular-nums ${metric.id === "roas" || metric.id === "roi" ? returnTone(totalRow, metric.id, spendReliable) : ""}`}>{displayValue(totalRow, metric, currency, spendReliable)}</td>;
@@ -411,13 +411,13 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#394761] bg-[#202b43] px-4 py-3 text-xs text-[#aab4c6]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-divider bg-app-bg px-4 py-3 text-xs text-copy">
         <span>{filtered.length ? `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} de ${filtered.length} resultados` : "0 resultados"} · totais de todos os resultados filtrados</span>
         <div className="flex items-center gap-2">
-          <label>Por página <select value={pageSize} onChange={(event) => { const value = Number(event.target.value); setPageSize(value); setPage(1); updateQuery(router, new URLSearchParams(searchParams.toString()), path, { page_size: String(value), page: null }); }} className="ml-1 rounded border border-[#46546e] bg-[#27334d] px-2 py-1"><option>10</option><option>25</option><option>50</option></select></label>
-          <button type="button" disabled={safePage <= 1} onClick={() => changePage(safePage - 1)} className="rounded border border-[#46546e] px-2 py-1 disabled:opacity-40">Anterior</button>
+          <label>Por página <select value={pageSize} onChange={(event) => { const value = Number(event.target.value); setPageSize(value); setPage(1); updateQuery(router, new URLSearchParams(searchParams.toString()), path, { page_size: String(value), page: null }); }} className="ml-1 rounded border border-input-border bg-surface px-2 py-1"><option>10</option><option>25</option><option>50</option></select></label>
+          <button type="button" disabled={safePage <= 1} onClick={() => changePage(safePage - 1)} className="rounded border border-input-border px-2 py-1 disabled:opacity-40">Anterior</button>
           <span>{safePage}/{pageCount}</span>
-          <button type="button" disabled={safePage >= pageCount} onClick={() => changePage(safePage + 1)} className="rounded border border-[#46546e] px-2 py-1 disabled:opacity-40">Próxima</button>
+          <button type="button" disabled={safePage >= pageCount} onClick={() => changePage(safePage + 1)} className="rounded border border-input-border px-2 py-1 disabled:opacity-40">Próxima</button>
         </div>
       </div>
     </div>

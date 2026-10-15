@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import { createPixel, deletePixel } from "@/app/actions";
 import { CodeBlock, SubmitButton } from "@/components/client";
 
-const dialogCls = "m-auto w-[min(34rem,calc(100%-2rem))] rounded-lg border border-[#46546e] bg-[#202b43] p-0 text-[#e8edf5] shadow-2xl backdrop:bg-black/70";
-const inputCls = "mt-1 w-full rounded-md border border-[#53617b] bg-[#172137] px-3 py-2 text-sm text-white outline-none placeholder:text-[#738098] focus:border-[#0874f9]";
-const labelCls = "block text-sm font-medium text-[#d9e0ea]";
-const ghostBtn = "rounded-md bg-[#34415e] px-3 py-1.5 text-sm text-[#dce2ec] hover:bg-[#3d4b68]";
+const dialogCls = "m-auto w-[min(34rem,calc(100%-2rem))] rounded-lg border border-divider bg-surface p-0 text-copy shadow-2xl backdrop:bg-black/70";
+const inputCls = "mt-1 w-full rounded-md border border-input-border bg-app-bg px-3 py-2 text-sm text-white outline-none placeholder:text-copy-muted focus:border-primary";
+const labelCls = "block text-sm font-medium text-copy";
+const ghostBtn = "rounded-md bg-surface-hover px-3 py-1.5 text-sm text-copy hover:bg-surface";
 
 /** Abre um <dialog> nativo (e fecha ao clicar fora). */
 function useDialog(openOnMount = false) {
@@ -30,13 +30,13 @@ export function NewPixelDialog({ offers }: { offers: OfferOption[] }) {
   const { ref, open, close, backdropClose } = useDialog();
   return (
     <>
-      <button type="button" onClick={open} className="inline-flex items-center gap-1 rounded-md bg-[#0874f9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0865d8]">
+      <button type="button" onClick={open} className="inline-flex items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-hover)]">
         + Cadastrar novo pixel
       </button>
       <dialog ref={ref} onClick={backdropClose} className={dialogCls}>
         <form action={createPixel} className="p-5">
           <h3 className="text-base font-semibold">Cadastrar novo pixel</h3>
-          <p className="mt-1 text-sm text-[#9aa6bb]">Pixel da Meta. Ao salvar, você recebe o código para colar no topo da sua página.</p>
+          <p className="mt-1 text-sm text-copy-muted">Pixel da Meta. Ao salvar, você recebe o código para colar no topo da sua página.</p>
 
           <label className={`mt-4 ${labelCls}`}>Nome
             <input name="name" maxLength={120} placeholder="Ex.: Pixel Calistenia" className={inputCls} />
@@ -46,7 +46,7 @@ export function NewPixelDialog({ offers }: { offers: OfferOption[] }) {
           </label>
           <label className={`mt-3 ${labelCls}`}>Token da API de Conversões
             <input name="token" type="password" required minLength={20} autoComplete="off" placeholder="Cole o token gerado no Gerenciador de Eventos da Meta" className={inputCls} />
-            <span className="mt-1 block text-xs font-normal text-[#8f9bb1]">Guardado no cofre (Vault); nunca aparece de volta na tela.</span>
+            <span className="mt-1 block text-xs font-normal text-copy-muted">Guardado no cofre (Vault); nunca aparece de volta na tela.</span>
           </label>
           {offers.length > 0 ? (
             <label className={`mt-3 ${labelCls}`}>Oferta deste pixel
@@ -54,7 +54,7 @@ export function NewPixelDialog({ offers }: { offers: OfferOption[] }) {
                 <option value="" disabled>Selecione a oferta…</option>
                 {offers.map((o) => <option key={o.id} value={o.id}>{o.name}{o.hasPixel ? " · já tem pixel" : ""}</option>)}
               </select>
-              <span className="mt-1 block text-xs font-normal text-[#8f9bb1]">Um pixel exclusivo por oferta: é assim que o gasto e as vendas caem na oferta certa.</span>
+              <span className="mt-1 block text-xs font-normal text-copy-muted">Um pixel exclusivo por oferta: é assim que o gasto e as vendas caem na oferta certa.</span>
             </label>
           ) : (
             <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
@@ -83,7 +83,7 @@ export function PixelCodeDialog({
   const snippet = (offerId: string) => `<script src="${appUrl}/t.js" data-offer="${offerId}" data-pixel="${externalPixelId}" async></script>`;
   return (
     <>
-      <button type="button" onClick={open} className="rounded-md bg-[#34415e] px-2.5 py-1 text-xs font-medium text-[#dce2ec] ring-1 ring-[#4a5872] hover:bg-[#3d4b68]">
+      <button type="button" onClick={open} className="rounded-md bg-surface-hover px-2.5 py-1 text-xs font-medium text-copy ring-1 ring-input-border hover:bg-surface">
         Ver código
       </button>
       <dialog ref={ref} onClick={backdropClose} onClose={() => { if (defaultOpen) router.replace("/pixels"); }} className={dialogCls}>
@@ -95,18 +95,18 @@ export function PixelCodeDialog({
             </p>
           ) : (
             <>
-              <p className="mt-1 text-sm text-[#aeb8c9]">
-                Cole <b>uma linha</b> no <code className="rounded bg-[#1a2439] px-1 text-xs">&lt;head&gt;</code> (topo) de <b>todas as páginas do funil</b>. Ela carrega o pixel da Meta, registra PageView e InitiateCheckout e leva as UTMs até o checkout.
+              <p className="mt-1 text-sm text-copy">
+                Cole <b>uma linha</b> no <code className="rounded bg-app-bg px-1 text-xs">&lt;head&gt;</code> (topo) de <b>todas as páginas do funil</b>. Ela carrega o pixel da Meta, registra PageView e InitiateCheckout e leva as UTMs até o checkout.
               </p>
               <div className="mt-3 space-y-3">
                 {offers.map((o) => (
                   <div key={o.offerId}>
-                    {offers.length > 1 && <div className="mb-1 text-xs font-semibold text-[#cbd3df]">{o.offerName}</div>}
+                    {offers.length > 1 && <div className="mb-1 text-xs font-semibold text-copy">{o.offerName}</div>}
                     <CodeBlock code={snippet(o.offerId)} />
                   </div>
                 ))}
               </div>
-              <p className="mt-3 text-xs text-[#8f9bb1]">
+              <p className="mt-3 text-xs text-copy-muted">
                 Não instale outro código do pixel da Meta nem o da UTMify na mesma página: os eventos dobram.
               </p>
             </>
@@ -134,7 +134,7 @@ export function DeletePixelDialog({
         <form action={deletePixel} className="p-5">
           <input type="hidden" name="pixel_id" value={pixelId} />
           <h3 className="text-base font-semibold">Excluir este pixel?</h3>
-          <p className="mt-2 text-sm leading-relaxed text-[#aeb8c9]">
+          <p className="mt-2 text-sm leading-relaxed text-copy">
             <b>{pixelName}</b> ({externalPixelId}) será removido do UTMFY junto com {offerCount} vínculo(s) de oferta, {dispatchCount} evento(s) do histórico de envio e o token salvo.
             Pedidos e gasto da Meta não são afetados, e o pixel continua existindo na Meta.
           </p>

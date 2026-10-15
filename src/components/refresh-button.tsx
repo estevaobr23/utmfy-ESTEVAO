@@ -80,8 +80,9 @@ export function RefreshButton() {
   const busy = phase !== "idle";
   return (
     <span className="inline-flex items-center gap-2">
-      {note && <span className={`text-xs ${note.tone === "warn" ? "text-amber-300" : "text-[#7fe0b0]"}`} role="status">{note.text}</span>}
-      <button type="button" onClick={onClick} disabled={busy} aria-busy={busy} className="inline-flex items-center rounded-md bg-[#0874f9] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#0865d8] disabled:cursor-wait disabled:opacity-70">
+      {note && <span className={`text-xs ${note.tone === "warn" ? "text-warning" : "text-success"}`} role="status">{note.text}</span>}
+      <button type="button" onClick={onClick} disabled={busy} aria-busy={busy} className="inline-flex h-[34px] w-[126px] items-center justify-center gap-2 rounded bg-primary px-3 text-sm font-semibold text-white hover:bg-[var(--primary-hover)] disabled:cursor-wait disabled:opacity-70">
+        {busy && <span className="refresh-spinner" aria-hidden="true" />}
         {busy ? `Atualizando… ${elapsed ? `${elapsed}s` : ""}` : "Atualizar"}
       </button>
     </span>

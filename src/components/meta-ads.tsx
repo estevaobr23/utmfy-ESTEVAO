@@ -199,49 +199,49 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   const pageSize = [10, 25, 50].includes(requestedSize) ? requestedSize : 25;
 
   return (
-    <div className="overflow-hidden rounded-md border border-[#384662] bg-[#202b43] text-[#eef2f8] shadow-[0_14px_38px_rgba(4,9,20,0.18)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#394761] bg-[#27334d] px-4 py-3">
+    <div className="overflow-hidden rounded-md bg-surface text-copy">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-divider bg-surface px-5 py-3">
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className={`rounded-full px-2.5 py-1 font-semibold ${report.spendStatus.reliable ? "bg-[#19b972] text-white" : "bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/30"}`}>
+          <span className={`rounded-full px-2.5 py-1 font-semibold ${report.spendStatus.reliable ? "bg-success text-white" : "bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/30"}`}>
             {report.spendStatus.reliable ? "✓ Dados financeiros completos" : "⚠ Qualidade de dados pendente"}
           </span>
-          <span className="text-[#9aa6bb]">Dados da Meta somente leitura (orçamento editável pelo lápis) · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
+          <span className="text-copy-muted">Dados da Meta somente leitura (orçamento editável pelo lápis) · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
         </div>
         {canWrite && (
           <RefreshButton />
         )}
       </div>
 
-      <form method="get" action={path} className="flex flex-wrap items-end gap-2 border-b border-[#394761] bg-[#27334d] px-4 py-3">
+      <form method="get" action={path} className="flex flex-wrap items-end gap-2 border-b border-divider bg-surface px-5 py-3">
         <input type="hidden" name="nivel" value={level} />
         {campaign && <input type="hidden" name="campaign" value={campaign} />}
         {adset && <input type="hidden" name="adset" value={adset} />}
-        <label className="text-[11px] text-[#9aa6bb]">Período<select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-1 block rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-white">{f.preset === "custom" && <option value="">{f.from} → {f.to}</option>}{PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <label className="text-[11px] text-[#9aa6bb]">Conta de anúncio<select name="account" defaultValue={f.account ?? ""} className="mt-1 block max-w-56 rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-white"><option value="">Qualquer</option>{accounts.map((account) => <option key={account.account_id} value={account.account_id}>{account.account_name ?? account.account_id}</option>)}</select></label>
-        <label className="text-[11px] text-[#9aa6bb]">Fonte<select disabled className="mt-1 block rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-[#9aa6bb]"><option>Meta Ads</option></select></label>
-        <label className="text-[11px] text-[#9aa6bb]">Produto<select disabled className="mt-1 block max-w-48 rounded border border-[#46546e] bg-[#1b263d] px-3 py-2 text-sm text-[#9aa6bb]"><option>Oferta selecionada</option></select></label>
-        <button className="rounded bg-[#0874f9] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0865d8]">Filtrar</button>
+        <label className="text-[11px] text-copy">Período<select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white">{f.preset === "custom" && <option value="">{f.from} → {f.to}</option>}{PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label className="text-[11px] text-copy">Conta de anúncio<select name="account" defaultValue={f.account ?? ""} className="mt-1 block h-[34px] max-w-56 rounded border border-input-border bg-transparent px-3 text-sm text-white"><option value="">Qualquer</option>{accounts.map((account) => <option key={account.account_id} value={account.account_id}>{account.account_name ?? account.account_id}</option>)}</select></label>
+        <label className="text-[11px] text-copy">Fonte<select disabled className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-copy-muted"><option>Meta Ads</option></select></label>
+        <label className="text-[11px] text-copy">Produto<select disabled className="mt-1 block h-[34px] max-w-48 rounded border border-input-border bg-transparent px-3 text-sm text-copy-muted"><option>Oferta selecionada</option></select></label>
+        <button className="h-[34px] rounded bg-primary px-4 text-sm font-semibold text-white hover:bg-[var(--primary-hover)]">Filtrar</button>
       </form>
 
-      <nav className="grid grid-cols-4 gap-3 bg-[#11192d] pt-3">
+      <nav className="grid grid-cols-2 gap-3 bg-app-bg pt-3 sm:grid-cols-4">
         {LEVELS.map(([key, label]) => (
-          <Link key={key} href={link({ nivel: key, campaign: key === "conjuntos" || key === "anuncios" ? campaign : null, adset: key === "anuncios" ? adset : null, page: null })} className={`rounded-t-md border border-b-0 px-5 py-3 text-left text-sm font-semibold transition ${key === level ? "border-[#3b4964] bg-[#27334d] text-[#1681ff] shadow-[inset_0_-2px_0_#0874f9]" : "border-[#303d57] bg-[#27334d]/75 text-[#b3bdcd] hover:bg-[#2d3a56]"}`}>
+          <Link key={key} href={link({ nivel: key, campaign: key === "conjuntos" || key === "anuncios" ? campaign : null, adset: key === "anuncios" ? adset : null, page: null })} className={`rounded-t-md px-5 py-3 text-left text-sm font-semibold ${key === level ? "bg-surface text-[var(--link)] shadow-[inset_0_-2px_0_var(--primary)]" : "bg-surface/75 text-copy hover:bg-surface-hover"}`}>
             <span className="mr-2 text-base" aria-hidden>{LEVEL_ICON[key]}</span>{label}
           </Link>
         ))}
       </nav>
 
       {(advancedData.errors.length > 0 || f.preset === "custom") && (
-        <div className="border-b border-[#394761] bg-[#222e47] px-4 py-2 text-xs text-[#9aa6bb]">
+        <div className="border-b border-divider bg-app-bg px-4 py-2 text-xs text-copy-muted">
           {advancedData.errors.length > 0
             ? "ⓘ Orçamento, lance, vídeo e frequência ainda não estão disponíveis (dados avançados não sincronizados). Gasto e vendas não são afetados."
             : "ⓘ Alcance e frequência exatos só existem nos períodos predefinidos (o alcance não pode ser somado entre dias). Em período personalizado eles aparecem como N/D."}
         </div>
       )}
       {(campaign || adset || !report.spendStatus.reliable) && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#394761] bg-[#222e47] px-4 py-2 text-xs">
-          {campaign && <Link href={link({ nivel: "campanhas", campaign: null, adset: null, page: null })} className="rounded-full bg-[#34415e] px-2 py-1 text-[#dce2ec]">Campanha: {parentCampaign ?? campaign} ×</Link>}
-          {adset && <Link href={link({ nivel: "conjuntos", adset: null, page: null })} className="rounded-full bg-[#34415e] px-2 py-1 text-[#dce2ec]">Conjunto: {parentAdset ?? adset} ×</Link>}
+        <div className="flex flex-wrap items-center gap-2 border-b border-divider bg-app-bg px-4 py-2 text-xs">
+          {campaign && <Link href={link({ nivel: "campanhas", campaign: null, adset: null, page: null })} className="rounded-full bg-surface-hover px-2 py-1 text-copy">Campanha: {parentCampaign ?? campaign} ×</Link>}
+          {adset && <Link href={link({ nivel: "conjuntos", adset: null, page: null })} className="rounded-full bg-surface-hover px-2 py-1 text-copy">Conjunto: {parentAdset ?? adset} ×</Link>}
           {!report.spendStatus.reliable && <span className="text-amber-200">⚠ {report.spendStatus.message}</span>}
         </div>
       )}
