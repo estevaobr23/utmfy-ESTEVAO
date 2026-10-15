@@ -171,6 +171,7 @@ function LastUpdateCell({ row, synced }: { row: MetaTableRow; synced: string }) 
           {snap?.profit != null && <Pill label="Lucro" tone={gainTone(snap.profit, 0)}>{formatMoney(snap.profit, c.currency)}</Pill>}
           {snap?.roi != null && <Pill label="ROI" tone={gainTone(snap.roi, 0)}>{formatNumber(snap.roi, 2)}</Pill>}
           {snap?.roas != null && <Pill label="ROAS" tone={gainTone(snap.roas, 1)}>{formatNumber(snap.roas, 2)}</Pill>}
+          {snap?.sales != null && <Pill label="Vendas">{snap.sales}</Pill>}
           <span className="whitespace-nowrap text-[11px] text-copy-muted">alterado em {formatChangeDate(c.at)}{snap?.period ? ` · ${snap.period}` : ""}</span>
         </>
       )}

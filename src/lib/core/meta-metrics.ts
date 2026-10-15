@@ -107,7 +107,7 @@ export function parseBudgetSnapshot(raw: unknown): BudgetSnapshot | null {
     profit: num(r.profit), roi: num(r.roi), roas: num(r.roas), spend: num(r.spend), sales: num(r.sales),
     period: typeof r.period === "string" ? r.period.slice(0, 40) : null,
   };
-  return snap.profit == null && snap.roi == null && snap.roas == null ? null : snap;
+  return snap.profit == null && snap.roi == null && snap.roas == null && snap.sales == null ? null : snap;
 }
 
 /** Última mudança de orçamento por objeto Meta, a partir dos logs META_BUDGET_UPDATED (mais recentes primeiro). */
