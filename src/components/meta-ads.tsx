@@ -255,6 +255,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         totalReach={advanced.totalReach({ campaign, adset, accountIds: [...new Set(levelRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
         initial={{ query: name, status: one(sp.meta_status), sort, direction, page, pageSize }}
         canWrite={canWrite}
+        periodLabel={f.preset === "custom" ? `${f.from} → ${f.to}` : PRESETS.find(([key]) => key === f.preset)?.[1] ?? null}
       />
     </div>
   );

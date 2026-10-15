@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { addDays, isIsoDate, todayIn } from "@/lib/core/dates";
 import { hint } from "@/lib/core/hash";
+import { parseBudgetSnapshot } from "@/lib/core/meta-metrics";
 import { adminClient } from "@/lib/supabase/admin";
 import { serverClient } from "@/lib/supabase/server";
 import { requireWorkspace, requireSession, WS_COOKIE } from "@/lib/session";
@@ -334,7 +335,9 @@ export async function updateMetaBudget(fd: FormData) {
   const level = str(fd, "level");
   if (level !== "campaign" && level !== "adset") return back(path, "Nível inválido.", "error");
   const requested = Number(str(fd, "amount").replace(/\./g, "").replace(",", "."));
-  const r = await updateMetaDailyBudget(adminClient(), s.workspace.id, { level, objectId: str(fd, "object_id"), requested, workspaceCurrency: s.workspace.currency });
+  let snapshot = null;
+  try { snapshot = parseBudgetSnapshot(JSON.parse(str(fd, "snapshot") || "null")); } catch { /* sem foto: a mudança vale do mesmo jeito */ }
+  const r = await updateMetaDailyBudget(adminClient(), s.workspace.id, { level, objectId: str(fd, "object_id"), requested, workspaceCurrency: s.workspace.currency, snapshot });
   if (!r.ok) return back(path, r.error, "error");
   const unit = (minor: number) => (minor / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   back(path, `Orçamento de “${r.update.name}” atualizado na Meta: ${r.update.currency} ${unit(r.update.beforeMinor)} → ${unit(r.update.afterMinor)}/dia`);

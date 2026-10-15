@@ -1,6 +1,7 @@
 import "server-only";
 import type { Db } from "../supabase/types";
 import { planBudgetChange } from "../core/meta-advanced";
+import type { BudgetSnapshot } from "../core/meta-metrics";
 import { ensureEnvConnection, getMetaToken } from "./meta-sync";
 import { MetaApiError, MetaClient } from "./meta-client";
 import { logEvent } from "./logs";
@@ -14,7 +15,7 @@ export type BudgetUpdate = { name: string; currency: string; beforeMinor: number
 export async function updateMetaDailyBudget(
   db: Db,
   workspaceId: string,
-  input: { level: "campaign" | "adset"; objectId: string; requested: number; workspaceCurrency: string },
+  input: { level: "campaign" | "adset"; objectId: string; requested: number; workspaceCurrency: string; snapshot?: BudgetSnapshot | null },
 ): Promise<{ ok: true; update: BudgetUpdate } | { ok: false; error: string }> {
   if (!/^\d{1,30}$/.test(input.objectId)) return { ok: false, error: "ID Meta inválido." };
   const table = input.level === "campaign" ? "meta_campaigns" : "meta_adsets";
@@ -58,6 +59,7 @@ export async function updateMetaDailyBudget(
       level: input.level, object_id: input.objectId, before_minor: current, after_minor: plan.newMinor, currency, rate, requested: input.requested, workspace_currency: input.workspaceCurrency,
       // Valores na moeda do painel (o que o usuário vê na tabela), para mostrar "de → para" sem refazer conta.
       before_target: rate ? (current / 100) * rate : current / 100, after_target: input.requested,
+      snapshot: input.snapshot ?? null,
     },
   });
   return { ok: true, update };

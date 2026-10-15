@@ -5,11 +5,11 @@ import { createPortal } from "react-dom";
 import { updateMetaBudget } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { MAX_BUDGET_INCREASE } from "@/lib/core/meta-advanced";
-import type { MetaTableRow } from "@/lib/core/meta-metrics";
+import type { BudgetSnapshot, MetaTableRow } from "@/lib/core/meta-metrics";
 import { formatMoney } from "@/lib/core/money";
 
 /** Lápis do orçamento diário: digita em reais, revisa e só então grava na Meta. */
-export function BudgetEditor({ row, back, currency }: { row: MetaTableRow; back: string; currency: string }) {
+export function BudgetEditor({ row, back, currency, spendReliable = true, periodLabel = null }: { row: MetaTableRow; back: string; currency: string; spendReliable?: boolean; periodLabel?: string | null }) {
   const budget = row.budget;
   const [open, setOpen] = useState(false);
   const [review, setReview] = useState(false);
@@ -40,6 +40,10 @@ export function BudgetEditor({ row, back, currency }: { row: MetaTableRow; back:
   const pct = valid ? (parsed / budget.amount - 1) * 100 : null;
   const canReview = valid && !unchanged;
   const up = parsed >= budget.amount;
+  // Foto dos números como estavam na tela quando o orçamento foi mexido (só se o gasto está completo).
+  const snapshot: BudgetSnapshot | null = spendReliable
+    ? { profit: row.metrics.profit, roi: row.metrics.roi, roas: row.metrics.roas, spend: row.metrics.spend, sales: row.metrics.approved_count, period: periodLabel }
+    : null;
 
   const dialog = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-label="Orçamento diário" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
@@ -51,6 +55,7 @@ export function BudgetEditor({ row, back, currency }: { row: MetaTableRow; back:
         <input type="hidden" name="level" value={row.level} />
         <input type="hidden" name="object_id" value={row.id} />
         <input type="hidden" name="back" value={back} />
+        <input type="hidden" name="snapshot" value={snapshot ? JSON.stringify(snapshot) : ""} />
 
         <header className="flex items-start justify-between gap-3 border-b border-divider px-5 py-4">
           <div className="min-w-0">

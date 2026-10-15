@@ -94,7 +94,21 @@ export type MetaTableRow = {
   children: MetaTableRow[];
 };
 
-export type BudgetChange = { at: string; before: number; after: number; currency: string };
+/** Foto dos números da campanha/conjunto no instante da mudança de orçamento (período que estava na tela). */
+export type BudgetSnapshot = { profit: number | null; roi: number | null; roas: number | null; spend: number | null; sales: number | null; period: string | null };
+export type BudgetChange = { at: string; before: number; after: number; currency: string; snapshot?: BudgetSnapshot | null };
+
+/** Aceita só números finitos e texto curto: o valor vem do navegador e vai para o log. */
+export function parseBudgetSnapshot(raw: unknown): BudgetSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 1e12 ? v : null);
+  const snap: BudgetSnapshot = {
+    profit: num(r.profit), roi: num(r.roi), roas: num(r.roas), spend: num(r.spend), sales: num(r.sales),
+    period: typeof r.period === "string" ? r.period.slice(0, 40) : null,
+  };
+  return snap.profit == null && snap.roi == null && snap.roas == null ? null : snap;
+}
 
 /** Última mudança de orçamento por objeto Meta, a partir dos logs META_BUDGET_UPDATED (mais recentes primeiro). */
 export function latestBudgetChanges(logs: { created_at: string; context: Record<string, unknown> | null }[]): Map<string, BudgetChange> {
@@ -108,7 +122,7 @@ export function latestBudgetChanges(logs: { created_at: string; context: Record<
     const before = num(c.before_target) ?? (num(c.before_minor) != null ? num(c.before_minor)! / 100 * rate : null);
     const after = num(c.after_target) ?? num(c.requested);
     if (before == null || after == null) continue;
-    out.set(id, { at: log.created_at, before, after, currency: typeof c.workspace_currency === "string" ? c.workspace_currency : "BRL" });
+    out.set(id, { at: log.created_at, before, after, currency: typeof c.workspace_currency === "string" ? c.workspace_currency : "BRL", snapshot: parseBudgetSnapshot(c.snapshot) });
   }
   return out;
 }

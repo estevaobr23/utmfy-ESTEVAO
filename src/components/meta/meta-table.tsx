@@ -9,6 +9,7 @@ import {
   metaMetricValue,
   totalMetaRows,
   totalVideoRows,
+  type BudgetChange,
   type MetaColumnId,
   type MetaMetricDefinition,
   type MetaTableRow,
@@ -28,11 +29,13 @@ type Props = {
   initial: { query: string; status: string; sort: MetaColumnId; direction: "asc" | "desc"; page: number; pageSize: number };
   /** Mostra o lápis de orçamento (grava na Meta). */
   canWrite?: boolean;
+  /** Nome do período em tela (Hoje, 7 dias…): vai junto da foto de lucro/ROI de cada mudança de orçamento. */
+  periodLabel?: string | null;
 };
 
 /** Larguras padrão (px) e limites do redimensionamento por arrasto. */
 const DEFAULT_WIDTH = 112;
-const COLUMN_WIDTH: Partial<Record<MetaColumnId, number>> = { select: 40, status: 64, name: 280, last_sync: 200, budget: 150 };
+const COLUMN_WIDTH: Partial<Record<MetaColumnId, number>> = { select: 40, status: 64, name: 280, last_sync: 300, budget: 150 };
 const FIXED_COLUMNS = new Set<MetaColumnId>(["select", "status"]);
 const MIN_WIDTH = 72;
 const MAX_WIDTH = 640;
@@ -139,8 +142,41 @@ const formatChangeDate = (iso: string) => {
   return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
 };
 
-const budgetChangeTitle = (c: { at: string; before: number; after: number; currency: string }) =>
-  `Orçamento diário alterado por aqui em ${formatChangeDate(c.at)}: ${formatMoney(c.before, c.currency)} → ${formatMoney(c.after, c.currency)}`;
+const budgetChangeTitle = (c: BudgetChange) => {
+  const s = c.snapshot;
+  const snap = s ? ` · No momento${s.period ? ` (${s.period})` : ""}: ${[s.profit != null ? `lucro ${formatMoney(s.profit, c.currency)}` : null, s.roi != null ? `ROI ${formatNumber(s.roi, 2)}` : null, s.roas != null ? `ROAS ${formatNumber(s.roas, 2)}` : null, s.spend != null ? `gasto ${formatMoney(s.spend, c.currency)}` : null, s.sales != null ? `${s.sales} venda(s)` : null].filter(Boolean).join(" · ")}` : "";
+  return `Orçamento diário alterado por aqui em ${formatChangeDate(c.at)}: ${formatMoney(c.before, c.currency)} → ${formatMoney(c.after, c.currency)}${snap}`;
+};
+
+const gainTone = (value: number | null, breakEven: number) => (value == null ? "text-copy" : value > breakEven ? "text-success" : value < breakEven ? "text-danger-accessible" : "text-copy");
+
+/** Pílula "rótulo valor" da foto da mudança; nunca quebra por dentro, quebra de linha só entre pílulas. */
+function Pill({ label, children, tone = "text-copy" }: { label: string; children: React.ReactNode; tone?: string }) {
+  return <span className="inline-flex items-baseline gap-1 whitespace-nowrap rounded bg-surface-hover px-1.5 py-0.5 text-[11px] leading-tight"><span className="text-copy-muted">{label}</span><b className={`font-semibold ${tone}`}>{children}</b></span>;
+}
+
+/**
+ * Data da sincronização + (se houve) a última mudança de orçamento com a foto do lucro/ROI/ROAS daquele momento.
+ * Tudo numa fila que quebra por pílula: coluna larga = tudo em uma linha, estreita = empilha, sem cortar palavra.
+ */
+function LastUpdateCell({ row, synced }: { row: MetaTableRow; synced: string }) {
+  const c = row.budgetChange;
+  const snap = c?.snapshot ?? null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="whitespace-nowrap">{synced}</span>
+      {c && (
+        <>
+          <Pill label="Orçamento"><span className="font-normal text-copy">{formatMoney(c.before, c.currency)}</span><span className="font-normal text-copy-muted"> → </span><span className={c.after >= c.before ? "text-success" : "text-warning"}>{formatMoney(c.after, c.currency)}</span></Pill>
+          {snap?.profit != null && <Pill label="Lucro" tone={gainTone(snap.profit, 0)}>{formatMoney(snap.profit, c.currency)}</Pill>}
+          {snap?.roi != null && <Pill label="ROI" tone={gainTone(snap.roi, 0)}>{formatNumber(snap.roi, 2)}</Pill>}
+          {snap?.roas != null && <Pill label="ROAS" tone={gainTone(snap.roas, 1)}>{formatNumber(snap.roas, 2)}</Pill>}
+          <span className="whitespace-nowrap text-[11px] text-copy-muted">alterado em {formatChangeDate(c.at)}{snap?.period ? ` · ${snap.period}` : ""}</span>
+        </>
+      )}
+    </div>
+  );
+}
 
 function cellTitle(row: MetaTableRow, metric: MetaMetricDefinition) {
   if (metric.format === "budget" && row.budget) {
@@ -152,7 +188,7 @@ function cellTitle(row: MetaTableRow, metric: MetaMetricDefinition) {
   return undefined;
 }
 
-export function MetaTable({ rows, level, currency, path, spendReliable, totalReach, initial, canWrite = false }: Props) {
+export function MetaTable({ rows, level, currency, path, spendReliable, totalReach, initial, canWrite = false, periodLabel = null }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const backUrl = (() => {
@@ -345,7 +381,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
           <thead className="sticky top-0 z-30">
             <tr className="bg-app-bg">
               {visibleColumns.map((metric) => (
-                <th key={metric.id} className={`h-11 overflow-hidden text-ellipsis whitespace-nowrap border-b border-divider px-3 py-2 text-left text-xs font-semibold text-copy ${STICKY[metric.id] ?? "relative"} ${metric.format !== "text" && metric.id !== "status" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
+                <th key={metric.id} className={`h-11 overflow-hidden text-ellipsis whitespace-nowrap border-b border-divider px-3 py-2 text-left text-xs font-semibold text-copy ${STICKY[metric.id] ?? "relative"} ${metric.format !== "text" && metric.id !== "status" && metric.id !== "last_sync" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
                   {metric.sortable ? <button type="button" onClick={() => changeSort(metric.id)} className="whitespace-nowrap hover:text-white">{metric.label} {sort === metric.id ? (direction === "desc" ? "↓" : "↑") : ""}</button> : metric.label}
                   {!FIXED_COLUMNS.has(metric.id) && (
                     <span role="separator" aria-orientation="vertical" aria-label={`Ajustar largura de ${metric.label}`} title="Arraste para ajustar a largura · duplo clique restaura" onPointerDown={(event) => startResize(metric.id, event)} onDoubleClick={() => resetWidth(metric.id)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none select-none hover:bg-primary/60 active:bg-primary" />
@@ -371,17 +407,8 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                     </td>
                   );
                   if (metric.id === "last_sync") return (
-                    <td key={metric.id} className={`${base} whitespace-nowrap text-right tabular-nums`} title={row.budgetChange ? budgetChangeTitle(row.budgetChange) : undefined}>
-                      {displayValue(row, metric, currency, spendReliable)}
-                      {row.budgetChange && (
-                        <span className="mt-0.5 block text-[10px] leading-tight">
-                          <span className="text-copy">Orçamento </span>
-                          <span className="text-copy">{formatMoney(row.budgetChange.before, row.budgetChange.currency)}</span>
-                          <span className="text-copy-muted"> → </span>
-                          <span className={row.budgetChange.after >= row.budgetChange.before ? "font-semibold text-success" : "font-semibold text-warning"}>{formatMoney(row.budgetChange.after, row.budgetChange.currency)}</span>
-                          <span className="block text-copy-muted">alterado em {formatChangeDate(row.budgetChange.at)}</span>
-                        </span>
-                      )}
+                    <td key={metric.id} className={`${base} tabular-nums`} title={row.budgetChange ? budgetChangeTitle(row.budgetChange) : undefined}>
+                      <LastUpdateCell row={row} synced={displayValue(row, metric, currency, spendReliable)} />
                     </td>
                   );
                   const value = displayValue(row, metric, currency, spendReliable);
@@ -390,7 +417,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                     ? <span className="mr-1.5 rounded bg-surface-hover px-1 py-0.5 text-[9px] font-semibold text-copy">{row.budget.mode}</span>
                     : null;
                   const editable = canWrite && metric.format === "budget" && row.budget?.amount != null && row.budget.period === "daily";
-                  return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}{editable && <BudgetEditor row={row} back={backUrl} currency={currency} />}</td>;
+                  return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}{editable && <BudgetEditor row={row} back={backUrl} currency={currency} spendReliable={spendReliable} periodLabel={periodLabel} />}</td>;
                 })}
               </tr>
             ))}
