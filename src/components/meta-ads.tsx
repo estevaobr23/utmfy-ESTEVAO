@@ -9,8 +9,8 @@ import type { ReportNode } from "@/lib/core/report";
 import { buildAdvancedIndex, scopeFromSpend } from "@/lib/core/meta-advanced";
 import { catalogOnlyRows, type CatalogEntry } from "@/lib/core/meta-catalog-rows";
 import { derive, emptySums } from "@/lib/core/metrics";
-import { adsetPixelId } from "@/lib/core/offer-pixel-scope";
 import { listAccounts, listOfferAccounts, loadMetaAdvanced, loadReport, parseFilters } from "@/lib/queries";
+import { loadPixelDerivation } from "@/lib/services/offer-auto-link";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 import { timed } from "@/lib/perf";
@@ -61,12 +61,12 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   const adset = ID.test(one(sp.adset)) ? one(sp.adset) : null;
   const name = one(sp.q).slice(0, 80);
   const f = parseFilters({ ...sp, campaign: undefined, adset: undefined, ad: undefined }, ws.timezone, offerId);
-  const [report, accounts, adsResult, advancedData, offerPixels] = await Promise.all([
+  const [report, accounts, adsResult, advancedData, pixelScope] = await Promise.all([
     loadReport(sb, ws, f),
     offerId ? listOfferAccounts(sb, offerId) : listAccounts(sb, ws.id),
     sb.from("meta_ads").select("account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, effective_status").eq("workspace_id", ws.id).limit(5000),
     loadMetaAdvanced(sb, ws, f),
-    offerId ? sb.from("offer_pixels").select("pixel_id").eq("offer_id", offerId).eq("active", true) : Promise.resolve({ data: null }),
+    offerId ? loadPixelDerivation(sb, ws.id) : Promise.resolve(null),
   ]);
   const advanced = buildAdvancedIndex(advancedData, scopeFromSpend(report.spendRows), { offerScoped: !!offerId, fx: advancedData.fx });
   if (adsResult.error) throw new Error(`meta_ads: ${adsResult.error.message}`);
@@ -161,8 +161,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   // Campanha/conjunto/anúncio no ar que ainda não gastou nem vendeu no período (ex.: agendado) aparece zerado,
   // senão o painel parece não enxergar a campanha nova. Na visão de uma oferta, só os conjuntos do pixel dela.
   if (level !== "contas") {
-    const pixels = new Set((offerPixels.data ?? []).map((row) => String(row.pixel_id)));
-    const adsetIds = offerId ? new Set(advancedData.adsets.filter((a) => { const pixel = adsetPixelId(a.promoted_object); return !!pixel && pixels.has(pixel); }).map((a) => a.adset_id)) : null;
+    const adsetIds = offerId ? new Set((pixelScope?.bindings ?? []).filter((b) => b.offerId === offerId).map((b) => b.objectId)) : null;
     const mappedLevel: MetaTableRow["level"] = level === "campanhas" ? "campaign" : level === "conjuntos" ? "adset" : "ad";
     const waiting = catalogOnlyRows(level, catalog, new Set(levelRows.map((row) => row.id)), { account: f.account, campaign, adset, adsetIds, name });
     for (const row of waiting) {

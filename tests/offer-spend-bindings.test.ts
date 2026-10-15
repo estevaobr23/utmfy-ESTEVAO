@@ -55,3 +55,16 @@ describe("escopo de gasto por vínculo explícito", () => {
     expect(scoped.rows.map((item) => item.ad_id)).toEqual(["A1"]);
   });
 });
+
+describe("conta compartilhada por duas ofertas, só com vínculo pelo pixel", () => {
+  // Caso real (15/10/2026): CONTA 1 serve os gatos e uma oferta arquivada; não existe vínculo manual.
+  const rows = [row("C1", "S1", "A1", 10), row("C9", "S9", "A9", 99)];
+  const pixelOnly: OfferMetaBinding[] = [{ offerId: "gatos", accountId: "999", level: "adset", objectId: "S1" }];
+
+  it("a conta fica confirmada (sem 'associação pendente') e só entra o conjunto do pixel da oferta", () => {
+    const scoped = scopeOfferSpendRowsByBindings(rows, "gatos", ["999"], pixelOnly, []);
+    expect(scoped.pendingAccounts).toEqual([]);
+    expect(scoped.confirmedAccounts).toEqual(["999"]);
+    expect(scoped.rows.map((item) => item.ad_id)).toEqual(["A1"]);
+  });
+});

@@ -112,10 +112,13 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
   const exclusiveAccounts = links
     .map((link) => link.accountId)
     .filter((accountId) => accountOfferIds.get(accountId)?.size === 1);
+  // Sem a tabela de vínculos manuais (offer_meta_bindings) o escopo continua valendo pelo pixel da oferta:
+  // só volta ao modo antigo (por conta/nome) quando também não há nenhum vínculo por pixel.
+  const bindingsUsable = !bindingResult.error || pixelBindings.length > 0;
   const scoped = f.offer
-    ? bindingResult.error
-      ? scopeOfferSpendRows(rawSpendRows, links, exclusiveAccounts)
-      : scopeOfferSpendRowsByBindings(rawSpendRows, f.offer, links.map((link) => link.accountId), bindings, exclusiveAccounts)
+    ? bindingsUsable
+      ? scopeOfferSpendRowsByBindings(rawSpendRows, f.offer, links.map((link) => link.accountId), bindings, exclusiveAccounts)
+      : scopeOfferSpendRows(rawSpendRows, links, exclusiveAccounts)
     : { rows: rawSpendRows, pendingAccounts: [] as string[], confirmedAccounts: [] as string[] };
   const spendRows = scoped.rows;
   const orderRows = (orders.data ?? []) as OrderRow[];
