@@ -52,6 +52,14 @@ const ND_WHEN_EMPTY = new Set<MetaColumnId>([
   "page_views", "checkouts", "cpv", "cpi",
 ]);
 
+/** ROAS/ROI em verde quando dão retorno, vermelho quando perdem (mesmas cores do Lucro); sem gasto, sem cor. */
+function returnTone(row: MetaTableRow, id: "roas" | "roi", spendReliable: boolean) {
+  const value = id === "roas" ? row.metrics.roas : row.metrics.roi;
+  if (!spendReliable || value == null || !Number.isFinite(value) || !row.metrics.spend) return "";
+  const breakEven = id === "roas" ? 1 : 0;
+  return value > breakEven ? "text-[#25d17f]" : value < breakEven ? "text-[#ff5b6b]" : "";
+}
+
 function displayValue(row: MetaTableRow, metric: MetaMetricDefinition, currency: string, spendReliable: boolean) {
   if (metric.availability === "unavailable") return "N/D";
   if (!spendReliable && SPEND_DEPENDENT.has(metric.id)) return "—";
@@ -293,7 +301,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                     </td>
                   );
                   const value = displayValue(row, metric, currency, spendReliable);
-                  const tone = metric.id === "profit" ? (row.metrics.profit > 0 ? "text-[#25d17f]" : row.metrics.profit < 0 ? "text-[#ff5b6b]" : "") : metric.availability === "unavailable" || value === "N/D" ? "text-[#758299]" : "";
+                  const tone = metric.id === "profit" ? (row.metrics.profit > 0 ? "text-[#25d17f]" : row.metrics.profit < 0 ? "text-[#ff5b6b]" : "") : metric.id === "roas" || metric.id === "roi" ? returnTone(row, metric.id, spendReliable) : metric.availability === "unavailable" || value === "N/D" ? "text-[#758299]" : "";
                   const badge = metric.format === "budget" && row.budget?.amount != null
                     ? <span className="mr-1.5 rounded bg-[#34415e] px-1 py-0.5 text-[9px] font-semibold text-[#9fb3d1]">{row.budget.mode}</span>
                     : null;
@@ -311,7 +319,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                   const base = `border-t border-r border-[#53617c] px-3 py-2 ${STICKY[metric.id] ?? ""}`;
                   if (metric.id === "select" || metric.id === "status") return <td key={metric.id} className={base}>—</td>;
                   if (metric.id === "name") return <td key={metric.id} className={base}>{filtered.length} resultado(s)</td>;
-                  return <td key={metric.id} className={`${base} whitespace-nowrap text-right tabular-nums`}>{displayValue(totalRow, metric, currency, spendReliable)}</td>;
+                  return <td key={metric.id} className={`${base} whitespace-nowrap text-right tabular-nums ${metric.id === "roas" || metric.id === "roi" ? returnTone(totalRow, metric.id, spendReliable) : ""}`}>{displayValue(totalRow, metric, currency, spendReliable)}</td>;
                 })}
               </tr>
             </tfoot>
