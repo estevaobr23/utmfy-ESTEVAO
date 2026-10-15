@@ -375,8 +375,8 @@ export async function startRefresh(): Promise<StartRefresh> {
   const timezone = s.workspace.timezone;
   // Responde na hora; o trabalho pesado segue depois da resposta e a tela só acompanha.
   after(async () => {
-    await runRefresh(admin, workspaceId, timezone);
-    await runRefreshExtras(admin, workspaceId);
+    const metaFast = runRefresh(admin, workspaceId);
+    await Promise.all([metaFast, runRefreshExtras(admin, workspaceId, timezone, metaFast)]);
   });
   return { state: "started", since };
 }

@@ -7,15 +7,20 @@ import { syncOfferWebhooks } from "./offer-webhooks";
 import { syncMeta } from "./meta-sync";
 import { reattributePending } from "./orders";
 
-// "Atualizar" dos painéis: Meta + Cakto em segundo plano, com trava contra cliques repetidos.
+// "Atualizar" dos painéis. O botão espera SÓ o gasto da Meta (ontem+hoje, ~1–2 s): a venda já chega na hora pelo
+// webhook da Cakto e fica no banco. A API da Cakto (token e listagem oscilam de 0,5 s a 30 s) roda DEPOIS, em segundo
+// plano, só como rede de segurança — nunca no caminho do botão. Trava contra cliques repetidos.
 
-const KINDS = ["meta_insights", "cakto_reconcile", "cakto_sync"];
+/** O que o botão acompanha: só o job rápido da Meta. */
+const KINDS = ["meta_insights"];
 /** Um job "running" mais velho que isto é tratado como morto (função encerrada no meio). */
 const STALE_MS = 4 * 60_000;
 /** Depois de uma sincronização que acabou de terminar, outro clique não repete as chamadas. */
 export const DEBOUNCE_MS = 15_000;
 /** As coletas de segundo plano (catálogo, alcance, vídeo…) não precisam rodar a cada clique. */
 const EXTRAS_EVERY_MS = 3 * 60_000;
+/** Reconciliação da Cakto em segundo plano: no máximo uma por minuto. */
+const CAKTO_EVERY_MS = 60_000;
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
@@ -29,34 +34,37 @@ export async function recentlyRefreshed(db: Db, workspaceId: string): Promise<bo
   return !!data?.length;
 }
 
-/**
- * Meta e Cakto juntas; nunca lança (roda depois da resposta, ninguém receberia o erro).
- *
- * Duas fases: a RÁPIDA (gasto de ontem+hoje e pedidos recentes) é o que o botão espera; o resto
- * (catálogo, campanhas, conjuntos, vídeo, alcance, webhooks da Cakto) roda logo depois, sem segurar o botão.
- */
-export async function runRefresh(db: Db, workspaceId: string, timezone: string) {
-  const today = todayIn(timezone);
+/** Fase que o botão espera: gasto da Meta de ontem+hoje. Nunca lança (roda depois da resposta, ninguém receberia o erro). */
+export async function runRefresh(db: Db, workspaceId: string) {
   try {
-    await Promise.all([
-      syncMeta(db, workspaceId, { trigger: "manual", mode: "fast" }),
-      syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -1)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual", skipWebhookSync: true, skipUnchanged: true }),
-    ]);
-    // Anúncio novo que a venda citava e ainda não estava no catálogo.
-    await reattributePending(db, workspaceId).catch(() => null);
+    await syncMeta(db, workspaceId, { trigger: "manual", mode: "fast" });
   } catch (e) {
     await logEvent(db, { workspaceId, level: "error", code: "REFRESH_FAILED", provider: "system", message: (e as Error).message.slice(0, 300) });
   }
 }
 
-/** Segunda fase: o que o painel também usa, mas que não precisa travar o "Atualizar". */
-export async function runRefreshExtras(db: Db, workspaceId: string) {
+/**
+ * Segundo plano, sem segurar o botão: reconciliação da Cakto (só reprocessa pedido novo/alterado), webhooks da Cakto,
+ * catálogo/campanhas/vídeo/alcance da Meta (depois do job rápido, para não disputar a cota) e reatribuição.
+ */
+export async function runRefreshExtras(db: Db, workspaceId: string, timezone: string, metaFast: Promise<unknown> = Promise.resolve()) {
+  const today = todayIn(timezone);
+  const recentJob = async (kind: string, ms: number) =>
+    !!(await db.from("sync_jobs").select("id").eq("workspace_id", workspaceId).eq("kind", kind).in("status", ["running", "success", "partial"]).gte("started_at", ago(ms)).limit(1)).data?.length;
   try {
-    const { data: recent } = await db.from("sync_jobs").select("id").eq("workspace_id", workspaceId).eq("kind", "meta_catalog").in("status", ["running", "success", "partial"]).gte("started_at", ago(EXTRAS_EVERY_MS)).limit(1);
     await Promise.all([
-      recent?.length ? null : syncMeta(db, workspaceId, { trigger: "manual", mode: "extras" }),
+      (async () => {
+        if (await recentJob("cakto_reconcile", CAKTO_EVERY_MS)) return;
+        await syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -1)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual", skipWebhookSync: true, skipUnchanged: true });
+      })(),
       syncOfferWebhooks(db, workspaceId).catch((e) => logEvent(db, { workspaceId, level: "warn", code: "CAKTO_WEBHOOKS_READ_FAILED", provider: "cakto", message: (e as Error).message })),
+      (async () => {
+        await metaFast.catch(() => null);
+        if (!(await recentJob("meta_catalog", EXTRAS_EVERY_MS))) await syncMeta(db, workspaceId, { trigger: "manual", mode: "extras" });
+      })(),
     ]);
+    // Anúncio novo que a venda citava e ainda não estava no catálogo.
+    await reattributePending(db, workspaceId).catch(() => null);
   } catch (e) {
     await logEvent(db, { workspaceId, level: "warn", code: "REFRESH_EXTRAS_FAILED", provider: "system", message: (e as Error).message.slice(0, 300) });
   }
@@ -64,7 +72,7 @@ export async function runRefreshExtras(db: Db, workspaceId: string) {
 
 export type RefreshStatus = {
   running: boolean;
-  /** Os dois jobs (Meta e Cakto) começaram depois de `since` e já terminaram. */
+  /** O job rápido da Meta começou depois de `since` e já terminou (a Cakto segue em segundo plano). */
   done: boolean;
   rateLimited: boolean;
   errors: string[];
@@ -75,8 +83,7 @@ export async function refreshStatus(db: Db, workspaceId: string, since: string):
   const jobs = data ?? [];
   const running = jobs.some((j) => j.status === "running" && Date.now() - new Date(j.started_at as string).getTime() < STALE_MS);
   const hasMeta = jobs.some((j) => j.kind === "meta_insights");
-  const hasCakto = jobs.some((j) => j.kind !== "meta_insights");
   const rateLimited = jobs.some((j) => (j.stats as { rate_limited?: boolean } | null)?.rate_limited === true);
-  const errors = jobs.filter((j) => j.status === "failed" && j.error).map((j) => `${j.kind === "meta_insights" ? "Meta" : "Cakto"}: ${String(j.error).slice(0, 160)}`);
-  return { running, done: !running && hasMeta && hasCakto, rateLimited, errors };
+  const errors = jobs.filter((j) => j.status === "failed" && j.error).map((j) => `Meta: ${String(j.error).slice(0, 160)}`);
+  return { running, done: !running && hasMeta, rateLimited, errors };
 }
