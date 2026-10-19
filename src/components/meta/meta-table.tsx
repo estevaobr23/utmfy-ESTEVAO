@@ -133,11 +133,12 @@ function rowValue(row: MetaTableRow, column: MetaColumnId) {
   return metaMetricValue(row, column);
 }
 
-function flattenExpanded(rows: MetaTableRow[], expanded: Set<string>, depth = 0): { row: MetaTableRow; depth: number }[] {
+function flattenExpanded(rows: MetaTableRow[], expanded: Set<string>, showRemoved: boolean, depth = 0): { row: MetaTableRow; depth: number }[] {
   const output: { row: MetaTableRow; depth: number }[] = [];
   for (const row of rows) {
+    if (!showRemoved && isRemovedStatus(row.status)) continue;
     output.push({ row, depth });
-    if (row.children.length && expanded.has(`${row.level}:${row.id}`)) output.push(...flattenExpanded(row.children, expanded, depth + 1));
+    if (row.children.length && expanded.has(`${row.level}:${row.id}`)) output.push(...flattenExpanded(row.children, expanded, showRemoved, depth + 1));
   }
   return output;
 }
@@ -307,6 +308,8 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
     const list = rows.filter((row) => {
       const nameMatches = !normalized || row.name.toLocaleLowerCase("pt-BR").includes(normalized);
       const removed = isRemovedStatus(row.status);
+      // Arquivada/excluída na Meta não é listada (some do Gerenciador); só aparece se o filtro de status pedir.
+      if (removed && status !== "REMOVED") return false;
       const statusMatches = !status || (status === "ACTIVE" ? row.status === "ACTIVE" : status === "PAUSED" ? row.status?.includes("PAUSED") : status === "REMOVED" ? removed : !!row.status && row.status !== "ACTIVE" && !row.status.includes("PAUSED") && !removed);
       return nameMatches && statusMatches && (!onlySelected || selected.has(row.id));
     });
@@ -324,7 +327,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
   const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const visibleRows = flattenExpanded(pageRows, expanded);
+  const visibleRows = flattenExpanded(pageRows, expanded, status === "REMOVED");
   const totals = totalMetaRows(filtered);
   const totalRow: MetaTableRow = { id: "__total", level: "campaign", name: `${filtered.length} resultados`, accountId: null, campaignId: null, adsetId: null, status: null, lastSync: null, budget: null, bidCap: null, reach: filtered.length === rows.length ? totalReach.reach : null, frequency: filtered.length === rows.length ? totalReach.frequency : null, video: totalVideoRows(filtered), metrics: totals, drillUrl: null, managerUrl: null, children: [] };
   const visibleColumns = META_METRICS.filter((metric) => columns.includes(metric.id));
