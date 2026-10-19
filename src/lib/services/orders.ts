@@ -225,9 +225,13 @@ export async function ingestOrder(
   const hasIncoming = [incoming.utm_source, incoming.utm_medium, incoming.utm_campaign, incoming.utm_content, incoming.utm_term].some(Boolean);
   const utms = hasIncoming || !existing ? { ...incoming, fbc: incoming.fbc ?? existing?.fbc ?? null, fbp: incoming.fbp ?? existing?.fbp ?? null } : { ...existing, fbc: existing.fbc ?? incoming.fbc, fbp: existing.fbp ?? incoming.fbp };
 
+  // A API da Cakto não devolve `callback` (só o webhook): sem isto o sync regravava a atribuição sem a sessão do tracker.
+  // O pedido guarda o callback (upsert_order faz coalesce), então reaproveitamos o que já está gravado.
+  const callback = o.callback ?? ((await db.from("orders").select("callback").eq("id", r.order_id).maybeSingle()).data?.callback ?? null);
+
   let attrStatus = "UNKNOWN";
   try {
-    const a = await attributeOrder(db, { workspaceId, orderId: r.order_id, offerId, utms, callback: o.callback, externalOrderId: o.external_order_id });
+    const a = await attributeOrder(db, { workspaceId, orderId: r.order_id, offerId, utms, callback, externalOrderId: o.external_order_id });
     attrStatus = a.status;
   } catch (e) {
     await logEvent(db, { workspaceId, level: "error", code: "ATTRIBUTION_FAILED", provider: "cakto", message: (e as Error).message, context: { order_id: o.external_order_id, reason: "exception" } });
