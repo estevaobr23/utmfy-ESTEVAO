@@ -320,6 +320,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
       if (av == null) return 1;
       if (bv == null) return -1;
       const order = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv), "pt-BR");
+      if (order === 0 && sort === "sales") return b.metrics.spend - a.metrics.spend; // mesmas vendas: quem gastou mais primeiro
       return direction === "asc" ? order : -order;
     });
   }, [direction, onlySelected, query, rows, selected, sort, status]);

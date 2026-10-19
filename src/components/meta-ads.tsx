@@ -192,7 +192,8 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   const parentCampaign = campaign ? aggregateLevel("campanhas", report.spendRows, report.orderRows, { campaign }).rows[0]?.name : null;
   const parentAdset = adset ? aggregateLevel("conjuntos", report.spendRows, report.orderRows, { adset }).rows[0]?.name : null;
   const sortCandidate = one(sp.sort) as MetaColumnId;
-  const sort = META_METRICS.some((metric) => metric.id === sortCandidate && metric.sortable) ? sortCandidate : "spend";
+  // Sem ordenação escolhida: quem vendeu vem primeiro (desempate por gasto, na tabela).
+  const sort = META_METRICS.some((metric) => metric.id === sortCandidate && metric.sortable) ? sortCandidate : "sales";
   const direction = one(sp.dir) === "asc" ? "asc" : "desc";
   const page = Math.max(1, Number.parseInt(one(sp.page), 10) || 1);
   const requestedSize = Number.parseInt(one(sp.page_size), 10);
