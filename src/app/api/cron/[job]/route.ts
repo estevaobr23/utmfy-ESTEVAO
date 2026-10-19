@@ -12,7 +12,8 @@ import { syncMeta } from "@/lib/services/meta-sync";
 //   meta-sync        hoje + ontem + retroativo (META_LOOKBACK_DAYS)
 //   cakto-reconcile  pedidos atualizados nos últimos 3 dias
 //   capi-dispatch    fila de conversões (só com CAPI_ENABLED=true)
-//   all              os três
+//   purge-sessions   retenção do IP/sessões do tracker
+//   all              todos
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -38,13 +39,15 @@ async function run(job: string) {
     results[ws.id] = r;
   }
   if (job === "capi-dispatch" || job === "all") results.capi = await processDispatches(db, { trigger: "cron" });
+  // LGPD: apaga o IP guardado após 30 dias e as sessões após 90 (a Meta só aceita evento de até 7 dias).
+  if (job === "purge-sessions" || job === "all") results.purge = (await db.rpc("purge_tracking_pii", { p_ip_days: 30, p_session_days: 90 })).data ?? null;
   return results;
 }
 
 async function handler(request: Request, ctx: { params: Promise<{ job: string }> }) {
   if (!authorized(request)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const { job } = await ctx.params;
-  if (!["meta-sync", "cakto-reconcile", "capi-dispatch", "all"].includes(job)) return NextResponse.json({ error: "unknown_job" }, { status: 404 });
+  if (!["meta-sync", "cakto-reconcile", "capi-dispatch", "purge-sessions", "all"].includes(job)) return NextResponse.json({ error: "unknown_job" }, { status: 404 });
   return NextResponse.json({ ok: true, job, results: await run(job) });
 }
 

@@ -70,6 +70,15 @@ describe("tracker public/t.js", () => {
     expect(T.sessionId()).toMatch(/^[A-Za-z0-9._~-]{8,64}$/);
   });
 
+  it("manda a sessão como sck no checkout (a Cakto devolve no webhook); sck existente é respeitado; data-sck=false desliga", () => {
+    const { T } = makeEnv(AD);
+    expect(new URL(T.decorate("https://pay.cakto.com.br/a8BcHrY")).searchParams.get("sck")).toBe(T.sessionId());
+    expect(new URL(T.decorate("https://pay.cakto.com.br/a8BcHrY?sck=meu-codigo")).searchParams.get("sck")).toBe("meu-codigo");
+    expect(new URL(T.decorate("https://pagina.com/obrigado")).searchParams.has("sck")).toBe(false); // só no checkout
+    const off = makeEnv(AD, { attrs: { "data-sck": "false" } });
+    expect(new URL(off.T.decorate("https://pay.cakto.com.br/a8BcHrY")).searchParams.has("sck")).toBe(false);
+  });
+
   it("não destrói parâmetros existentes nem duplica ao decorar de novo", () => {
     const { T } = makeEnv(AD);
     const once = T.decorate("https://pay.cakto.com.br/a8BcHrY?utm_source=site&coupon=X");
@@ -161,7 +170,7 @@ describe("pixel da Meta no t.js (data-pixel)", () => {
   it("com data-pixel carrega o fbevents, faz init e dispara PageView", () => {
     const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL } });
     expect(e.inserted[0]?.src).toBe("https://connect.facebook.net/en_US/fbevents.js");
-    expect(events(e)).toEqual([["init", PIXEL], ["track", "PageView"]]);
+    expect(events(e)).toEqual([["init", PIXEL, { external_id: e.T.sessionId() }], ["track", "PageView"]]);
   });
 
   it("InitiateCheckout dispara no clique do checkout (domínio ou data-checkout), 1× por clique", () => {
@@ -178,7 +187,7 @@ describe("pixel da Meta no t.js (data-pixel)", () => {
     const e = makeEnv(AD, { attrs: { "data-pixel": PIXEL, "data-initiate-checkout": "false" } });
     e.click("https://pay.cakto.com.br/abc");
     e.click("https://outro.site/ir", { "data-checkout": "" });
-    expect(events(e)).toEqual([["init", PIXEL], ["track", "PageView"]]);
+    expect(events(e)).toEqual([["init", PIXEL, { external_id: e.T.sessionId() }], ["track", "PageView"]]);
   });
 
   it("link comum (nem checkout nem data-checkout) não dispara InitiateCheckout", () => {

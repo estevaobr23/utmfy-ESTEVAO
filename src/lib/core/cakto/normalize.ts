@@ -4,6 +4,7 @@
 //  * valores: baseAmount/amount/fees = number; discount/charged_fees/interest = string
 //  * checkout_abandonment tem forma própria (sem id/status) → ignorado aqui
 import { sha256Hex } from "../hash";
+import { hashForMeta, splitName } from "../capi";
 import { toMoney } from "../money";
 
 export type OrderStatus =
@@ -137,6 +138,8 @@ export type NormalizedOrder = {
   callback: string | null;
   customer_email_sha256: string | null;
   customer_phone_sha256: string | null;
+  customer_fn_sha256: string | null;
+  customer_ln_sha256: string | null;
   provider_created_at: string | null;
   paid_at: string | null;
   refund_requested_at: string | null;
@@ -200,6 +203,8 @@ export function normalizeCaktoOrder(
   const fees = gross != null && producerNet != null ? Math.round((gross - producerNet) * 100) / 100 : toMoney(data.fees);
   const email = normalizeEmail(customer.email);
   const phone = normalizePhone(customer.phone);
+  // Nome só entra como hash (primeiro e último): a Meta o usa para casar a compra; o texto em claro nunca é gravado.
+  const name = splitName(str(customer.name) ?? str(data.customerName));
 
   const statusTs =
     status === "paid" ? iso(data.paidAt)
@@ -234,6 +239,8 @@ export function normalizeCaktoOrder(
     callback: str(data.callback),
     customer_email_sha256: email ? sha256Hex(email) : null,
     customer_phone_sha256: phone ? sha256Hex(phone) : null,
+    customer_fn_sha256: hashForMeta(name.first),
+    customer_ln_sha256: hashForMeta(name.last),
     provider_created_at: iso(data.createdAt),
     paid_at: iso(data.paidAt),
     refund_requested_at: iso(refundRequest.requestedAt) ?? iso(data.refundRequestedAt),

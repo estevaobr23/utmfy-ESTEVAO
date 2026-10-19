@@ -228,6 +228,11 @@ export async function ingestOrder(
   // A API da Cakto não devolve `callback` (só o webhook): sem isto o sync regravava a atribuição sem a sessão do tracker.
   // O pedido guarda o callback (upsert_order faz coalesce), então reaproveitamos o que já está gravado.
   const callback = o.callback ?? ((await db.from("orders").select("callback").eq("id", r.order_id).maybeSingle()).data?.callback ?? null);
+  // Hash do nome (CAPI): grava na primeira vez que o pedido aparece. Melhor esforço: sem a migration
+  // 20261019000001 a coluna não existe e o erro é ignorado de propósito (nunca derruba a venda).
+  if (r.inserted && (o.customer_fn_sha256 || o.customer_ln_sha256)) {
+    await db.from("orders").update({ customer_fn_sha256: o.customer_fn_sha256, customer_ln_sha256: o.customer_ln_sha256 }).eq("id", r.order_id);
+  }
 
   let attrStatus = "UNKNOWN";
   try {

@@ -24,7 +24,7 @@ export function pickTrackerParams(search: string | URLSearchParams): Record<stri
 export function decorateCheckoutUrl(
   checkoutUrl: string,
   params: Record<string, string>,
-  opts: { sessionId?: string | null; callback?: boolean; domains?: string[] } = {},
+  opts: { sessionId?: string | null; callback?: boolean; sck?: boolean; domains?: string[] } = {},
 ): { url: string; added: string[]; kept: string[]; isCheckout: boolean } {
   const u = new URL(checkoutUrl);
   const isCheckout = isCheckoutHost(u.hostname, opts.domains);
@@ -45,6 +45,15 @@ export function decorateCheckoutUrl(
     else {
       u.searchParams.set("callback", opts.sessionId);
       added.push("callback");
+    }
+  }
+  // sck = sessão: a Cakto devolve no webhook; é a chave que liga a venda ao IP/navegador do clique (CAPI).
+  if (opts.sck !== false && opts.sessionId) {
+    if (u.searchParams.has("sck")) {
+      if (!kept.includes("sck")) kept.push("sck");
+    } else {
+      u.searchParams.set("sck", opts.sessionId);
+      added.push("sck");
     }
   }
   return { url: added.length ? u.toString() : checkoutUrl, added, kept, isCheckout };

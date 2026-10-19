@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildPurchaseEvent, purchaseEventId } from "@/lib/core/capi";
+import { buildPurchaseEvent, normalizePlace, purchaseEventId, splitName } from "@/lib/core/capi";
+import { sha256Hex } from "@/lib/core/hash";
 import { chunkRange, classifyMetaError, normalizeInsight } from "@/lib/core/meta";
 import { buildMetaUrlParameters, lintTemplate } from "@/lib/core/utm-template";
 
@@ -61,8 +62,37 @@ describe("CAPI (preparado)", () => {
     expect(r.event).toMatchObject({ event_name: "Purchase", event_id: "cakto:XYZ:Purchase", action_source: "website", custom_data: { value: 32.9, currency: "BRL" } });
     expect(r.event.user_data).toMatchObject({ em: ["a".repeat(64)], ph: ["b".repeat(64)], fbc: "fb.1.1.abc", client_user_agent: "Mozilla/5.0" });
   });
-  it("regras da Meta: > 7 dias ignora; website sem user agent falha", () => {
+  it("regras da Meta: > 7 dias ignora; website sem sessão do tracker (sem user agent/página) é ignorado", () => {
     expect(buildPurchaseEvent({ ...base, paid_at: "2026-09-01T00:00:00Z" }, now)).toEqual({ skip: "event_too_old" });
-    expect(buildPurchaseEvent({ ...base, client_user_agent: null }, now)).toEqual({ error: "missing_client_user_agent" });
+    expect(buildPurchaseEvent({ ...base, client_user_agent: null }, now)).toEqual({ skip: "no_tracker_session" });
+    expect(buildPurchaseEvent({ ...base, event_source_url: null }, now)).toEqual({ skip: "no_tracker_session" });
+  });
+  it("enriquecimento: nome, cidade/estado/país, IP e external_id entram com hash só onde a Meta pede", () => {
+    const r = buildPurchaseEvent(
+      { ...base, customer_fn_sha256: "c".repeat(64), customer_ln_sha256: "d".repeat(64), client_ip: "2804:14d:1::1", geo_country: "BR", geo_region: "SP", geo_city: "São Paulo", external_id: "sabc123xyz" },
+      now,
+    );
+    if (!("event" in r)) throw new Error("esperava evento");
+    const u = r.event.user_data;
+    expect(u.fn).toEqual(["c".repeat(64)]);
+    expect(u.ln).toEqual(["d".repeat(64)]);
+    expect(u.client_ip_address).toBe("2804:14d:1::1"); // IP nunca com hash
+    expect(u.ct).toEqual([sha256Hex("saopaulo")]);
+    expect(u.st).toEqual([sha256Hex("sp")]);
+    expect(u.country).toEqual([sha256Hex("br")]);
+    expect(u.external_id).toEqual([sha256Hex("sabc123xyz")]);
+    expect(JSON.stringify(r.event)).not.toContain("São Paulo");
+  });
+  it("sem os campos novos o evento sai como antes (retrocompatível)", () => {
+    const r = buildPurchaseEvent(base, now);
+    if (!("event" in r)) throw new Error("esperava evento");
+    expect(Object.keys(r.event.user_data).sort()).toEqual(["client_user_agent", "em", "fbc", "fbp", "ph"]);
+  });
+  it("normaliza nome e lugar como a Meta pede", () => {
+    expect(splitName("  Maria  da Silva ")).toEqual({ first: "maria", last: "silva" });
+    expect(splitName("João")).toEqual({ first: "joao", last: null });
+    expect(splitName(null)).toEqual({ first: null, last: null });
+    expect(normalizePlace("São José dos Campos")).toBe("saojosedoscampos");
+    expect(normalizePlace(null)).toBeNull();
   });
 });

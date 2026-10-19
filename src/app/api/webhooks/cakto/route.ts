@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { adminClient } from "@/lib/supabase/admin";
+import { processDispatches } from "@/lib/services/capi-dispatch";
 import { handleCaktoWebhook } from "@/lib/services/cakto-webhook";
 import { TOKEN_RE } from "@/lib/services/offer-webhooks";
 
@@ -34,6 +35,13 @@ export async function POST(request: Request) {
       offerToken: TOKEN_RE.test(url.searchParams.get("o") ?? "") ? url.searchParams.get("o") : null,
     },
   );
+  // Venda aprovada: envia a conversão à Meta logo, sem atrasar a resposta à Cakto (a fila de 5 min segue de rede de segurança).
+  // Com CAPI_ENABLED=false isto não faz nada.
+  if (out.httpStatus === 200 && env.capiEnabled) {
+    after(async () => {
+      await processDispatches(adminClient(), { limit: 20, trigger: "cron" }).catch(() => null);
+    });
+  }
   return NextResponse.json(out.body, { status: out.httpStatus });
 }
 

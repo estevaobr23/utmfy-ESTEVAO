@@ -5,6 +5,7 @@
  *   data-checkout-domains="pay.cakto.com.br"     (lista separada por vírgula)
  *   data-callback="false"                        (não enviar ?callback=<sessão> ao checkout)
  *   data-beacon="false"                          (não enviar sessão ao servidor)
+ *   data-sck="false"                             (não enviar ?sck=<sessão> ao checkout; por padrão vai, a Cakto devolve no webhook)
  *   data-pixel="<ID_DO_PIXEL_META>"              (carrega o pixel da Meta: PageView + InitiateCheckout no clique do
  *                                                 checkout. Use SÓ em páginas sem outro pixel da Meta instalado;
  *                                                 se a página já tiver `fbq`, o t.js não mexe no pixel)
@@ -34,6 +35,7 @@
     endpoint: attr("data-endpoint", scriptOrigin ? scriptOrigin + "/api/track" : ""),
     domains: String(attr("data-checkout-domains", "pay.cakto.com.br")).split(",").map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean),
     callback: attr("data-callback", "true") !== "false",
+    sck: attr("data-sck", "true") !== "false",
     beacon: attr("data-beacon", "true") !== "false",
     pixel: /^\d{5,30}$/.test(attr("data-pixel", "")) ? attr("data-pixel", "") : "",
     initiateCheckout: attr("data-initiate-checkout", "true") !== "false",
@@ -133,7 +135,8 @@
       s.src = "https://connect.facebook.net/en_US/fbevents.js";
       var first = d.getElementsByTagName("script")[0];
       if (first && first.parentNode) first.parentNode.insertBefore(s, first); else (d.head || d.documentElement).appendChild(s);
-      n("init", id);
+      // external_id = sessão do tracker: o servidor manda o mesmo id (com hash) na CAPI, o que reforça o casamento.
+      n("init", id, { external_id: state.sid });
       n("track", "PageView");
       pixelOwned = true;
     } catch (e) { /* nunca quebra a página */ }
@@ -174,6 +177,11 @@
       }
       if (checkout && cfg.callback && !u.searchParams.has("callback")) {
         u.searchParams.set("callback", state.sid);
+        changed = true;
+      }
+      // sck = sessão: a Cakto grava e devolve no webhook, e é a chave para recuperar IP/navegador do clique na CAPI.
+      if (checkout && cfg.sck && !u.searchParams.has("sck")) {
+        u.searchParams.set("sck", state.sid);
         changed = true;
       }
       return changed ? u.toString() : href;

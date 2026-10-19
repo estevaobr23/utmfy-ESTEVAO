@@ -4,15 +4,41 @@
 // Regras (docs Meta, lidas em 2026-09-30):
 //  * event_time: unix (s), até 7 dias no passado
 //  * action_source=website exige event_source_url e client_user_agent
-//  * em/ph: SHA-256 após normalizar (e-mail trim+lowercase; telefone só dígitos com DDI)
+//  * em/ph/fn/ln/ct/st/country/external_id: SHA-256 após normalizar (e-mail trim+lowercase; telefone só dígitos com DDI;
+//    nomes/cidade/estado/país em minúsculas, sem espaços nas pontas)
 //  * fbc/fbp/client_user_agent/client_ip_address: sem hash
 //  * event_id determinístico para deduplicação
+
+import { sha256Hex } from "./hash";
 
 export const CAPI_MAX_AGE_SECONDS = 7 * 24 * 3600;
 
 export function purchaseEventId(provider: string, externalOrderId: string, eventName = "Purchase"): string {
   return `${provider}:${externalOrderId}:${eventName}`;
 }
+
+/** Texto para o hash da Meta: minúsculas, sem acento solto, sem pontuação e sem espaços repetidos. */
+export function normalizeForMatch(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const s = v.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  return s || null;
+}
+
+/** Cidade e estado na regra da Meta: só letras e números, sem espaços (ex.: "São Paulo" → "saopaulo"). */
+export function normalizePlace(v: string | null | undefined): string | null {
+  const s = normalizeForMatch(v);
+  return s ? s.replace(/ /g, "") : null;
+}
+
+/** "Maria da Silva" → primeiro nome e último sobrenome, já normalizados. */
+export function splitName(full: string | null | undefined): { first: string | null; last: string | null } {
+  const n = normalizeForMatch(full);
+  if (!n) return { first: null, last: null };
+  const parts = n.split(" ");
+  return { first: parts[0], last: parts.length > 1 ? parts[parts.length - 1] : null };
+}
+
+export const hashForMeta = (v: string | null | undefined): string | null => (v ? sha256Hex(v) : null);
 
 export type CapiOrderInput = {
   provider: string;
@@ -27,6 +53,15 @@ export type CapiOrderInput = {
   client_user_agent: string | null;
   event_source_url: string | null;
   product_external_id: string | null;
+  // Enriquecimento (opcionais: sem eles o evento sai como antes, só com menos pontos de casamento)
+  customer_fn_sha256?: string | null;
+  customer_ln_sha256?: string | null;
+  client_ip?: string | null;
+  geo_country?: string | null;
+  geo_region?: string | null;
+  geo_city?: string | null;
+  /** Id da sessão do tracker: é o mesmo `external_id` que o t.js manda ao pixel no navegador. */
+  external_id?: string | null;
 };
 
 export type CapiEvent = {
@@ -48,12 +83,23 @@ export function buildPurchaseEvent(o: CapiOrderInput, nowSeconds = Math.floor(Da
   if (!Number.isFinite(eventTime)) return { error: "invalid_paid_at" };
   if (nowSeconds - eventTime > CAPI_MAX_AGE_SECONDS) return { skip: "event_too_old" };
   if (o.gross_amount == null) return { error: "missing_value" };
-  if (!o.event_source_url) return { error: "missing_event_source_url" };
-  if (!o.client_user_agent) return { error: "missing_client_user_agent" };
+  // Sem a sessão do tracker não há user-agent nem página: a Meta recusaria o evento. Não é falha a repetir.
+  if (!o.client_user_agent) return { skip: "no_tracker_session" };
+  if (!o.event_source_url) return { skip: "no_tracker_session" };
 
   const user_data: Record<string, string | string[]> = { client_user_agent: o.client_user_agent };
   if (o.customer_email_sha256) user_data.em = [o.customer_email_sha256];
   if (o.customer_phone_sha256) user_data.ph = [o.customer_phone_sha256];
+  if (o.customer_fn_sha256) user_data.fn = [o.customer_fn_sha256];
+  if (o.customer_ln_sha256) user_data.ln = [o.customer_ln_sha256];
+  const ct = hashForMeta(normalizePlace(o.geo_city));
+  const st = hashForMeta(normalizePlace(o.geo_region));
+  const country = hashForMeta(normalizePlace(o.geo_country));
+  if (ct) user_data.ct = [ct];
+  if (st) user_data.st = [st];
+  if (country) user_data.country = [country];
+  if (o.client_ip) user_data.client_ip_address = o.client_ip;
+  if (o.external_id) user_data.external_id = [sha256Hex(o.external_id)];
   if (o.fbc) user_data.fbc = o.fbc;
   if (o.fbp) user_data.fbp = o.fbp;
 

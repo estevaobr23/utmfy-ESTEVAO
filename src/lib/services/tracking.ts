@@ -1,5 +1,6 @@
 import "server-only";
 import type { Db } from "../supabase/types";
+import { isIP } from "node:net";
 import { z } from "zod";
 import { parseUtms } from "../core/utm";
 
@@ -41,7 +42,25 @@ function stripQuery(u: string | null | undefined) {
   }
 }
 
-export async function recordTrack(db: Db, p: TrackPayload, userAgent: string | null) {
+/** IP e localização do visitante, lidos dos cabeçalhos da Vercel no beacon (a Meta usa para casar a compra com o clique). */
+export type ClientNet = { ip: string | null; country: string | null; region: string | null; city: string | null };
+
+export function clientNetFrom(h: { get(name: string): string | null }): ClientNet {
+  const first = (v: string | null) => (v ?? "").split(",")[0].trim();
+  const ip = first(h.get("x-vercel-forwarded-for")) || first(h.get("x-forwarded-for")) || first(h.get("x-real-ip"));
+  const dec = (v: string | null) => {
+    if (!v) return null;
+    try { return decodeURIComponent(v).slice(0, 128) || null; } catch { return v.slice(0, 128); }
+  };
+  return {
+    ip: isIP(ip) ? ip : null,
+    country: dec(h.get("x-vercel-ip-country")),
+    region: dec(h.get("x-vercel-ip-country-region")),
+    city: dec(h.get("x-vercel-ip-city")),
+  };
+}
+
+export async function recordTrack(db: Db, p: TrackPayload, userAgent: string | null, net: ClientNet | null = null) {
   if (!p.offer) return { ok: false, reason: "no_offer" };
   const { data: offer } = await db.from("offers").select("id, workspace_id").eq("id", p.offer).maybeSingle();
   if (!offer) return { ok: false, reason: "unknown_offer" };
@@ -64,6 +83,10 @@ export async function recordTrack(db: Db, p: TrackPayload, userAgent: string | n
       ad_id: parsed.ad.id,
       placement: parsed.placement,
       user_agent: userAgent?.slice(0, 400) ?? null,
+      client_ip: net?.ip ?? null,
+      geo_country: net?.country ?? null,
+      geo_region: net?.region ?? null,
+      geo_city: net?.city ?? null,
     },
   });
   if (error) return { ok: false, reason: error.message };

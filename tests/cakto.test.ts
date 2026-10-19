@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { caktoOrder, caktoWebhook } from "@/lib/core/cakto/fixtures";
 import { isUnchangedOrder, normalizeCaktoOrder, normalizePhone, pickMappedOffer, normalizeStatus, offerIdFromCheckoutUrl, parseEnvelope, redactPayload } from "@/lib/core/cakto/normalize";
 import { parseSignatureHeader, verifyCaktoWebhook } from "@/lib/core/cakto/signature";
+import { sha256Hex } from "@/lib/core/hash";
 import { toMoney } from "@/lib/core/money";
 
 const SECRET = "whsec-test-123";
@@ -126,6 +127,22 @@ describe("envelope e normalização", () => {
     expect(s).not.toContain("12345678909");
     expect(s).not.toContain("000201");
     expect((red.data.customer as Record<string, unknown>).email_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("nome do comprador só como hash (CAPI)", () => {
+  it("primeiro e último nome com hash; o nome em claro não aparece no pedido normalizado", () => {
+    const r = normalizeCaktoOrder(caktoOrder({ customer: { id: 1, name: "Maria da Silva", email: "m@x.com", phone: "34999999999" } }) as Record<string, unknown>, {});
+    if (!("order" in r)) throw new Error("esperava pedido");
+    expect(r.order.customer_fn_sha256).toBe(sha256Hex("maria"));
+    expect(r.order.customer_ln_sha256).toBe(sha256Hex("silva"));
+    expect(JSON.stringify(r.order)).not.toMatch(/maria/i);
+  });
+  it("sem nome, sem hash", () => {
+    const r = normalizeCaktoOrder(caktoOrder({ customer: { id: 1, email: "m@x.com" } }) as Record<string, unknown>, {});
+    if (!("order" in r)) throw new Error("esperava pedido");
+    expect(r.order.customer_fn_sha256).toBeNull();
+    expect(r.order.customer_ln_sha256).toBeNull();
   });
 });
 
