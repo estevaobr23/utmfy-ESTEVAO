@@ -3,6 +3,16 @@
 Estado: **plano, nada implementado** (diagnóstico feito em 18/10/2026, só leitura).
 Origem: chat `TRAQUEMAENTO-AVANÇADO.MD` + os containers GTM em `Desktop\TRAQUEAMENTO\` (`Web-Cakto.json`, `Server-Cakto.json`).
 
+## 0. Andamento (19/10/2026)
+
+- Publicado: `t.js` com `sck=<sessão>` e `external_id`; correção do `callback` (93/146 vendas agora ligadas à sessão); IP+geo nas sessões;
+  hash do nome; Purchase enriquecido; envio imediato após a venda aprovada; limpeza de IP (30d) e sessões (90d). Migration `20261019000001` aplicada.
+- Teste da CAPI (`test_event_code`): Purchase de servidor aceito pela Meta (`events_received: 1`, sem avisos).
+- Fila antiga: 102 envios marcados `skipped` (`pre_capi_backlog`).
+- Ligado: `pixels.server_tracking_enabled = true` (pixel 4126700287461816) e variável `CAPI_ENABLED` na Vercel (confirmar valor `true`).
+- Próximo: conferir o 1º Purchase real enviado, o `sck` nas vendas novas e, em ~24 h, a razão compras Meta ÷ vendas UTMFY
+  (perto de 100% = ok; bem acima = duplicidade com o pixel da Cakto → tirar o Purchase do pixel da Cakto).
+
 ## 1. Veredito
 
 **Não precisamos de Stape, GTM nem Cloudflare.** A UTMFY (Vercel + Supabase) já é o "servidor": recebe o webhook da
