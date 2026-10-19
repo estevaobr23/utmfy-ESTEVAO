@@ -81,7 +81,7 @@ Opções: `--conta act_N` (padrão **CONTA 1 ADS EUA** `act_2094401681297034`), 
   Depois de configurar, confira no Meta Pixel Helper se o checkout dispara InitiateCheckout: se disparar, desligue o
   do site (ver `data-initiate-checkout` na seção 7) para não contar em dobro.
 - **Token da API de Conversões (CAPI) do pixel**: ainda é manual. O envio server-side está desligado
-  (`CAPI_ENABLED=false`), então isso não bloqueia o rastreio pelo navegador.
+  (`CAPI_ENABLED=false`), então isso não bloqueia o rastreio pelo navegador. (19/10/2026: a CAPI da UTMFY foi construída; ver seção 2.3.)
 - A **1ª venda real**: é a prova final do webhook.
 
 **Regras que não mudam:** nunca imprima token; nunca apague webhook de outro papel sem ordem do
@@ -98,6 +98,38 @@ usuário; **antes de criar pixel, o helper já confere a Meta** (não crie à m�
 | Compartilhar pixel novo com as outras 2 contas (`shared_accounts`) | melhor esforço: se a Meta recusar, o helper avisa e o compartilhamento é manual |
 | Token CAPI automático (atribuir o usuário `gerenciador-api` ao pixel) | **não implementado**; a Meta só gera o token por Gerenciador de Eventos ou Business Extension |
 | Pixel + token CAPI no checkout da Cakto, oferta `100-gatos-marcenaria` (pixel `4126700287461816`) | **configurado pelo usuário em 15/10/2026** (informado, ainda não comprovado: sem venda). Quem envia o **Purchase** (navegador + servidor) é a **Cakto**. Por isso o envio server-side do UTMFY fica **desligado** (`CAPI_ENABLED=false`): ligar os dois manda o Purchase em dobro, porque os `event_id` são diferentes e a Meta não deduplica. Para trocar de lado, desligue um antes de ligar o outro. Conferir com a 1ª venda (Gerenciador de Eventos: Purchase por "Navegador e servidor") |
+
+## 2.3 Traqueamento Avançado (CAPI completa) — construído em 19/10/2026
+
+Sistema próprio, dentro da UTMFY (sem Stape/GTM/Cloudflare). Plano, medição e andamento: `PLANO-TRAQUEAMENTO-AVANCADO.md`.
+
+**Fluxo:** `t.js` guarda a sessão e põe `sck=<sessão>` (e `callback`) nos links do checkout → `/api/track` grava IP, geo
+(cabeçalhos da Vercel), user-agent, `fbc`, `fbp` → a Cakto devolve `sck`/`callback` no webhook → a venda é ligada à sessão
+(`order_attribution.session_id`) → `capi-dispatch` monta o Purchase (em, ph, fn, ln, ct, st, country, IP, UA, `external_id`,
+`fbc`, `fbp`; valor bruto) e envia à Meta logo após o webhook (`after()`), com fila e retry.
+
+**Dados novos:** `tracking_sessions.client_ip/geo_*`, `orders.customer_fn_sha256/ln_sha256` (nome só como hash),
+`purge_tracking_pii()` (IP 30 dias, sessão 90; rota `/api/cron/purge-sessions`). Venda sem sessão do tracker vira
+`skipped: no_tracker_session` (a Meta exige user-agent e página).
+
+**Estado em 19/10/2026:** código, migration e teste (`test_event_code`, aceito) feitos; 102 envios antigos `skipped`
+(`pre_capi_backlog`); `pixels.server_tracking_enabled=true` e `CAPI_ENABLED=true` foram ligados, **mas nenhum envio real
+ocorreu** e a ativação está **em espera** por causa do risco abaixo.
+
+**⚠️ Purchase em dobro:** o pixel no checkout da Cakto já tem o token da CAPI e envia Purchase (navegador + servidor) desde
+15/10. Os dois remetentes usam `event_id` diferentes (Cakto x `cakto:<pedido>:Purchase`). Opções: (1) Cakto remetente, UTMFY
+desligada; (2) trocar de lado: desligar Purchase/CAPI na Cakto e ligar a UTMFY; (3) os dois, com `event_id` igual (precisa ver
+o `event_id` do Purchase da Cakto no Gerenciador de Eventos). Desligue um lado antes de ligar o outro.
+
+**Medição:** razão = compras da Meta ÷ vendas pagas da UTMFY (mesma janela, fuso de NY da conta de anúncio). Em 11–17/10 foi
+75% (72/96); ~100% = ok, bem acima = duplicidade. 87,5% das vendas são PIX.
+
+**Não automatizado ainda (Fase 5):** `oferta-nova` e `verificar` do `utmfy.mjs` não ligam token/flag nem checam sck/IP/CAPI.
+Só o pixel `4126700287461816` (100 GATOS) tem tracking.
+
+**Permissões:** o classificador do Claude Code barra escrita em flag/mass update (mesmo com regra allow; `apply_migration` e
+`execute_sql` são ferramentas separadas); o MCP da Vercel não enxerga o projeto. SQL: peça ao usuário para rodar em
+`https://supabase.com/dashboard/project/kjstjqxebejeihlzaiky/sql/new`.
 
 ## 2.2 Botão "Pedir ao Claude" no painel
 

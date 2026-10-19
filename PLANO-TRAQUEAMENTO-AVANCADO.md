@@ -9,9 +9,13 @@ Origem: chat `TRAQUEMAENTO-AVANÇADO.MD` + os containers GTM em `Desktop\TRAQUEA
   hash do nome; Purchase enriquecido; envio imediato após a venda aprovada; limpeza de IP (30d) e sessões (90d). Migration `20261019000001` aplicada.
 - Teste da CAPI (`test_event_code`): Purchase de servidor aceito pela Meta (`events_received: 1`, sem avisos).
 - Fila antiga: 102 envios marcados `skipped` (`pre_capi_backlog`).
-- Ligado: `pixels.server_tracking_enabled = true` (pixel 4126700287461816) e variável `CAPI_ENABLED` na Vercel (confirmar valor `true`).
-- Próximo: conferir o 1º Purchase real enviado, o `sck` nas vendas novas e, em ~24 h, a razão compras Meta ÷ vendas UTMFY
-  (perto de 100% = ok; bem acima = duplicidade com o pixel da Cakto → tirar o Purchase do pixel da Cakto).
+- Interruptores ligados em 19/10: `pixels.server_tracking_enabled = true` (pixel 4126700287461816) e `CAPI_ENABLED=true` na Vercel. **Nenhum envio real
+  ocorreu** (0 vendas depois do deploy).
+- ⚠️ Descoberto depois: o pixel **no checkout da Cakto já envia Purchase (navegador + servidor, token CAPI) desde 15/10** (`INTEGRACAO-CHATS.md`).
+  Os `event_id` são diferentes: ligar a CAPI da UTMFY junto **dobra** o Purchase. **Ativação em espera até decidir**: (1) Cakto remetente e UTMFY
+  desligada; (2) trocar de lado (desligar Purchase/CAPI na Cakto); (3) os dois com `event_id` igual (ver o `event_id` de um Purchase da Cakto no
+  Gerenciador de Eventos). Desligar um lado antes de ligar o outro.
+- Depois: razão compras Meta ÷ vendas UTMFY (perto de 100% = ok; bem acima = duplicidade).
 
 ## 1. Veredito
 
