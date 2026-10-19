@@ -17,6 +17,9 @@ import {
 import { formatMoney, formatNumber, formatPct } from "@/lib/core/money";
 import { formatBudgetPeriod } from "@/lib/core/meta-advanced";
 import { BudgetEditor } from "@/components/meta/budget-editor";
+import { bulkMetaStatus } from "@/app/actions";
+import { SubmitButton } from "@/components/client";
+import { isRemovedStatus, removedLabel, STATUS_OPS, type StatusLevel, type StatusOp } from "@/lib/core/meta-status";
 
 type Props = {
   rows: MetaTableRow[];
@@ -109,6 +112,8 @@ function statusRank(status: string | null) {
 
 function StatusIndicator({ status }: { status: string | null }) {
   if (!status) return <span className="text-copy-muted">—</span>;
+  const removed = removedLabel(status);
+  if (removed) return <span title={`Meta: ${status} · a Meta não lista mais este item`} className="inline-block rounded bg-surface-hover px-1 py-0.5 text-[9px] font-semibold leading-tight text-copy-muted">{removed}</span>;
   const active = status === "ACTIVE";
   return (
     <span
@@ -209,6 +214,22 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const [columns, setColumns] = useState<MetaColumnId[]>(META_COLUMN_PRESETS.complete);
   const [columnSearch, setColumnSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Seleção (só linhas do nível da tabela): id → nome. Some ao trocar de nível e depois de cada ação aplicada.
+  const selectableLevel: StatusLevel | null = level === "campanhas" ? "campaign" : level === "conjuntos" ? "adset" : level === "anuncios" ? "ad" : null;
+  const [selected, setSelected] = useState<Map<string, string>>(new Map());
+  const [onlySelected, setOnlySelected] = useState(false);
+  const [pendingOp, setPendingOp] = useState<StatusOp | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [seenLevel, setSeenLevel] = useState(level);
+  const flash = searchParams.get("ok") ?? searchParams.get("error") ?? "";
+  const [seenFlash, setSeenFlash] = useState(flash);
+  if (seenLevel !== level || seenFlash !== flash) {
+    setSeenLevel(level);
+    setSeenFlash(flash);
+    setSelected(new Map());
+    setOnlySelected(false);
+    setPendingOp(null);
+  }
   const [widths, setWidths] = useState<Partial<Record<MetaColumnId, number>>>({});
   const widthsRef = useRef(widths);
   useEffect(() => { widthsRef.current = widths; }, [widths]);
@@ -285,8 +306,9 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     const list = rows.filter((row) => {
       const nameMatches = !normalized || row.name.toLocaleLowerCase("pt-BR").includes(normalized);
-      const statusMatches = !status || (status === "ACTIVE" ? row.status === "ACTIVE" : status === "PAUSED" ? row.status?.includes("PAUSED") : !!row.status && row.status !== "ACTIVE" && !row.status.includes("PAUSED"));
-      return nameMatches && statusMatches;
+      const removed = isRemovedStatus(row.status);
+      const statusMatches = !status || (status === "ACTIVE" ? row.status === "ACTIVE" : status === "PAUSED" ? row.status?.includes("PAUSED") : status === "REMOVED" ? removed : !!row.status && row.status !== "ACTIVE" && !row.status.includes("PAUSED") && !removed);
+      return nameMatches && statusMatches && (!onlySelected || selected.has(row.id));
     });
     return [...list].sort((a, b) => {
       const av = rowValue(a, sort);
@@ -297,7 +319,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
       const order = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv), "pt-BR");
       return direction === "asc" ? order : -order;
     });
-  }, [direction, query, rows, sort, status]);
+  }, [direction, onlySelected, query, rows, selected, sort, status]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount);
@@ -333,6 +355,25 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
       return next;
     });
   };
+  const isSelectable = (row: MetaTableRow, depth: number) => depth === 0 && !!selectableLevel && row.level !== "account" && !row.id.startsWith("__") && !isRemovedStatus(row.status);
+  const selectedIds = rows.filter((row) => selected.has(row.id)).map((row) => row.id);
+  const pageSelectable = pageRows.filter((row) => isSelectable(row, 0));
+  const allPageSelected = pageSelectable.length > 0 && pageSelectable.every((row) => selected.has(row.id));
+  const toggleSelected = (row: MetaTableRow) => setSelected((current) => {
+    const next = new Map(current);
+    if (next.has(row.id)) next.delete(row.id); else next.set(row.id, row.name);
+    return next;
+  });
+  const togglePage = () => setSelected((current) => {
+    const next = new Map(current);
+    for (const row of pageSelectable) { if (allPageSelected) next.delete(row.id); else next.set(row.id, row.name); }
+    return next;
+  });
+  const clearSelection = () => { setSelected(new Map()); setOnlySelected(false); setPendingOp(null); };
+  const copyIds = async () => {
+    try { await navigator.clipboard.writeText(selectedIds.join("\n")); setCopied(true); window.setTimeout(() => setCopied(false), 1800); } catch { /* sem permissão de área de transferência */ }
+  };
+  const noun = level === "campanhas" ? "campanha(s)" : level === "conjuntos" ? "conjunto(s)" : "anúncio(s)";
   const expandableKeys = pageRows.flatMap((row) => [row, ...row.children]).filter((row) => row.children.length).map((row) => `${row.level}:${row.id}`);
 
   return (
@@ -345,7 +386,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
         <label className="text-[11px] text-copy">
           Status
           <select value={status} onChange={(event) => { const value = event.target.value; setStatus(value); setPage(1); updateQuery(router, new URLSearchParams(searchParams.toString()), path, { meta_status: value || null, page: null }); }} className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white">
-            <option value="">Qualquer</option><option value="ACTIVE">Ativo</option><option value="PAUSED">Pausado</option><option value="RESTRICTED">Com restrições</option>
+            <option value="">Qualquer</option><option value="ACTIVE">Ativo</option><option value="PAUSED">Pausado</option><option value="RESTRICTED">Com restrições</option><option value="REMOVED">Arquivado/excluído</option>
           </select>
         </label>
         {expandableKeys.length > 0 && (
@@ -374,6 +415,35 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
         </details>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="border-b border-divider bg-primary/10 px-5 py-2.5 text-xs text-copy">
+          <div className="flex flex-wrap items-center gap-2">
+            <b className="text-white">{selectedIds.length} {noun} selecionada(s)</b>
+            <button type="button" onClick={copyIds} className="rounded border border-input-border bg-surface-hover px-2.5 py-1 font-medium text-copy hover:bg-app-bg">{copied ? "IDs copiados ✓" : "Copiar IDs"}</button>
+            <button type="button" onClick={() => setOnlySelected((v) => !v)} className="rounded border border-input-border bg-surface-hover px-2.5 py-1 font-medium text-copy hover:bg-app-bg">{onlySelected ? "Mostrar todas" : "Filtrar selecionadas"}</button>
+            {canWrite && selectableLevel && (["activate", "pause", "delete"] as const).map((op) => (
+              <button key={op} type="button" onClick={() => setPendingOp(pendingOp === op ? null : op)} aria-pressed={pendingOp === op} className={`rounded border px-2.5 py-1 font-medium ${op === "delete" ? "border-rose-400/40 bg-rose-400/10 text-rose-300 hover:bg-rose-400/20" : "border-input-border bg-surface-hover text-copy hover:bg-app-bg"} ${pendingOp === op ? "ring-1 ring-primary" : ""}`}>{STATUS_OPS[op].label}</button>
+            ))}
+            <button type="button" onClick={clearSelection} className="ml-auto rounded px-2 py-1 text-copy-muted hover:text-white">Limpar seleção</button>
+          </div>
+          {pendingOp && canWrite && selectableLevel && (
+            <form action={bulkMetaStatus} className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-divider bg-app-bg px-3 py-2">
+              <input type="hidden" name="level" value={selectableLevel} />
+              <input type="hidden" name="op" value={pendingOp} />
+              <input type="hidden" name="ids" value={selectedIds.join(",")} />
+              <input type="hidden" name="back" value={backUrl} />
+              <p className="min-w-0 flex-1 break-words text-[12px]">
+                <b className="text-white">{STATUS_OPS[pendingOp].label} {selectedIds.length} {noun}?</b>{" "}
+                {STATUS_OPS[pendingOp].confirm}{" "}
+                <span className="text-copy-muted">{selectedIds.slice(0, 4).map((id) => selected.get(id)).join(" · ")}{selectedIds.length > 4 ? ` · +${selectedIds.length - 4}` : ""}</span>
+              </p>
+              <button type="button" onClick={() => setPendingOp(null)} className="rounded-md px-3 py-1.5 text-sm text-copy hover:text-white">Cancelar</button>
+              <SubmitButton variant={pendingOp === "delete" ? "danger" : "primary"} pendingText="Aplicando na Meta...">{pendingOp === "delete" ? "Excluir definitivamente" : `Confirmar: ${STATUS_OPS[pendingOp].label.toLowerCase()}`}</SubmitButton>
+            </form>
+          )}
+        </div>
+      )}
+
       <div className="max-h-[68vh] overflow-auto">
         <table className="border-separate border-spacing-0 text-[12px] text-copy" style={{ tableLayout: "fixed", width: visibleColumns.reduce((sum, metric) => sum + widthOf(metric.id), 0) }}>
           <colgroup>
@@ -383,7 +453,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
             <tr className="bg-app-bg">
               {visibleColumns.map((metric) => (
                 <th key={metric.id} className={`h-11 overflow-hidden text-ellipsis whitespace-nowrap border-b border-divider px-3 py-2 text-left text-xs font-semibold text-copy ${STICKY[metric.id] ?? "relative"} ${metric.format !== "text" && metric.id !== "status" && metric.id !== "last_sync" ? "text-right" : ""}`} title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
-                  {metric.sortable ? <button type="button" onClick={() => changeSort(metric.id)} className="whitespace-nowrap hover:text-white">{metric.label} {sort === metric.id ? (direction === "desc" ? "↓" : "↑") : ""}</button> : metric.label}
+                  {metric.id === "select" ? (selectableLevel ? <input type="checkbox" aria-label="Selecionar todas desta página" checked={allPageSelected} onChange={togglePage} disabled={!pageSelectable.length} /> : null) : metric.sortable ? <button type="button" onClick={() => changeSort(metric.id)} className="whitespace-nowrap hover:text-white">{metric.label} {sort === metric.id ? (direction === "desc" ? "↓" : "↑") : ""}</button> : metric.label}
                   {!FIXED_COLUMNS.has(metric.id) && (
                     <span role="separator" aria-orientation="vertical" aria-label={`Ajustar largura de ${metric.label}`} title="Arraste para ajustar a largura · duplo clique restaura" onPointerDown={(event) => startResize(metric.id, event)} onDoubleClick={() => resetWidth(metric.id)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize touch-none select-none hover:bg-primary/60 active:bg-primary" />
                   )}
@@ -396,7 +466,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
               <tr key={`${row.level}:${row.id}`} className="bg-surface hover:bg-surface-hover">
                 {visibleColumns.map((metric) => {
                   const base = `h-11 overflow-hidden text-ellipsis border-b border-divider px-3 py-2 ${STICKY[metric.id] ?? ""}`;
-                  if (metric.id === "select") return <td key={metric.id} className={base}><input type="checkbox" aria-label={`Selecionar ${row.name}`} /></td>;
+                  if (metric.id === "select") return <td key={metric.id} className={base}>{isSelectable(row, depth) ? <input type="checkbox" aria-label={`Selecionar ${row.name}`} checked={selected.has(row.id)} onChange={() => toggleSelected(row)} /> : null}</td>;
                   if (metric.id === "status") return <td key={metric.id} className={`${base} text-center`}><StatusIndicator status={row.status} /></td>;
                   if (metric.id === "name") return (
                     <td key={metric.id} className={base}>

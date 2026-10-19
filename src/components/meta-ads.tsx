@@ -205,7 +205,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           <span className={`rounded-full px-2.5 py-1 font-semibold ${report.spendStatus.reliable ? "bg-success text-white" : "bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/30"}`}>
             {report.spendStatus.reliable ? "✓ Dados financeiros completos" : "⚠ Qualidade de dados pendente"}
           </span>
-          <span className="text-copy-muted">Dados da Meta somente leitura (orçamento editável pelo lápis) · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
+          <span className="text-copy-muted">Dados da Meta (orçamento pelo lápis · selecione linhas para ativar, desativar ou excluir) · última sincronização {lastSync ? timeAgo(lastSync) : "nunca"}</span>
         </div>
         {canWrite && (
           <RefreshButton />

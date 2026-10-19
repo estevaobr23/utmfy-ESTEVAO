@@ -16,6 +16,8 @@ import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
 import { autoLinkOfferAccounts } from "@/lib/services/offer-auto-link";
 import { activeRefresh, recentlyRefreshed, runRefresh, runRefreshExtras } from "@/lib/services/refresh";
 import { updateMetaDailyBudget } from "@/lib/services/meta-budget";
+import { updateMetaStatus } from "@/lib/services/meta-status";
+import { isStatusLevel, isStatusOp, MAX_BULK, parseBulkIds, STATUS_OPS } from "@/lib/core/meta-status";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
 import { seedDemo } from "@/lib/services/demo";
 import { logEvent } from "@/lib/services/logs";
@@ -341,6 +343,27 @@ export async function updateMetaBudget(fd: FormData) {
   if (!r.ok) return back(path, r.error, "error");
   const unit = (minor: number) => (minor / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   back(path, `Orçamento de “${r.update.name}” atualizado na Meta: ${r.update.currency} ${unit(r.update.beforeMinor)} → ${unit(r.update.afterMinor)}/dia`);
+}
+
+/** Seleção na tabela Meta Ads: ativar, desativar ou excluir várias campanhas/conjuntos/anúncios de uma vez (botão + confirmação na tela). */
+export async function bulkMetaStatus(fd: FormData) {
+  const s = await writer();
+  const raw = str(fd, "back");
+  const path = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/meta-ads";
+  const level = str(fd, "level");
+  const op = str(fd, "op");
+  if (!isStatusLevel(level)) return back(path, "Nível inválido.", "error");
+  if (!isStatusOp(op)) return back(path, "Operação inválida.", "error");
+  const ids = parseBulkIds(str(fd, "ids"));
+  if (!ids) return back(path, `Selecione de 1 a ${MAX_BULK} itens.`, "error");
+  const r = await updateMetaStatus(adminClient(), s.workspace.id, { level, ids, op });
+  if (!r.ok) return back(path, r.error, "error");
+  const done = r.results.filter((x) => x.ok);
+  const failed = r.results.filter((x) => !x.ok);
+  const noun = level === "campaign" ? "campanha(s)" : level === "adset" ? "conjunto(s)" : "anúncio(s)";
+  if (!failed.length) return back(path, `${done.length} ${noun} ${STATUS_OPS[op].done} na Meta.`);
+  const detail = failed.slice(0, 3).map((x) => `“${x.name}”: ${x.error}`).join(" · ");
+  back(path, `${done.length} de ${r.results.length} ${noun} ${STATUS_OPS[op].done}. Falhou: ${detail}${failed.length > 3 ? ` (+${failed.length - 3})` : ""}`, "error");
 }
 
 export async function syncMetaNow(fd: FormData) {

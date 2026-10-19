@@ -7,6 +7,7 @@ import type { Db } from "@/lib/supabase/types";
 function fakeDb() {
   const tables = new Map<string, Map<string, Record<string, unknown>>>();
   const logs: Record<string, unknown>[] = [];
+  const updates: { table: string; patch: Record<string, unknown> }[] = [];
   const keyCols: Record<string, string[]> = {};
   const builder = (table: string) => {
     const chain = {
@@ -24,15 +25,17 @@ function fakeDb() {
         if (table === "integration_logs") logs.push(row);
         return Promise.resolve({ error: null });
       },
+      update(patch: Record<string, unknown>) { updates.push({ table, patch }); return chain; },
       select() { return chain; },
       delete() { return chain; },
+      not() { return chain; },
       eq() { return chain; },
       lt() { return chain; },
       then(resolve: (v: { data: unknown[]; error: null }) => void) { resolve({ data: [], error: null }); },
     };
     return chain;
   };
-  return { db: { from: builder } as unknown as Db, tables, logs };
+  return { db: { from: builder } as unknown as Db, tables, logs, updates };
 }
 
 const ACC: AccountRow = { id: "u1", account_id: "111", connection_id: null, timezone: "America/New_York", currency: "USD" };
@@ -45,12 +48,13 @@ const video = (ad: string, date: string, extra: Record<string, unknown> = {}) =>
   ...extra,
 });
 
-function fakeClient(opts: { failStep?: string; rejectField?: string } = {}) {
+function fakeClient(opts: { failStep?: string; rejectField?: string; emptyCampaigns?: boolean } = {}) {
   const calls: { path: string; params: Record<string, unknown> }[] = [];
   const client = {
     async getAll(path: string, params: Record<string, unknown>) {
       calls.push({ path, params });
       if (opts.failStep && path.endsWith(opts.failStep)) throw new MetaApiError("no_permission", 200, "sem permissão", 403);
+      if (path.endsWith("/campaigns") && opts.emptyCampaigns) return [];
       if (path.endsWith("/campaigns")) return [{ id: "C1", name: "CBO", daily_budget: "401", bid_strategy: "LOWEST_COST_WITHOUT_CAP" }];
       if (path.endsWith("/adsets")) return [{ id: "S1", campaign_id: "C1", bid_strategy: "LOWEST_COST_WITHOUT_CAP" }];
       if (path.endsWith("/ads")) return [
@@ -113,6 +117,17 @@ describe("syncAdvanced (mocks)", () => {
     expect(s.failures).toEqual([{ step: "video", reason: "field_rejected", message: "video_continuous_2_sec_watched_actions" }]);
     expect(tables.get("meta_video_daily")!.size).toBe(2);
     expect(calls.filter((c) => c.params.time_increment).length).toBe(2);
+  });
+
+  it("marca como arquivado o que a Meta deixou de listar (e não mexe em nada se a lista vier vazia)", async () => {
+    const full = fakeDb();
+    await syncAdvanced(full.db, "ws", fakeClient().client, ACC, "2026-10-10", "2026-10-11", "America/Sao_Paulo");
+    const archived = full.updates.filter((u) => u.patch.effective_status === "ARCHIVED").map((u) => u.table).sort();
+    expect(archived).toEqual(["meta_adsets", "meta_campaigns"]);
+
+    const empty = fakeDb();
+    await syncAdvanced(empty.db, "ws", fakeClient({ emptyCampaigns: true }).client, ACC, "2026-10-10", "2026-10-11", "America/Sao_Paulo");
+    expect(empty.updates.some((u) => u.table === "meta_campaigns")).toBe(false);
   });
 
   it("só faz chamadas de leitura (GET) — nunca escreve na Meta", async () => {

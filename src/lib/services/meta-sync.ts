@@ -116,7 +116,21 @@ async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc:
   return syncInsights(db, workspaceId, client, acc, since, until, catalog, stats);
 }
 
+/**
+ * A Meta só lista o que não foi arquivado nem excluído. O que sumiu da listagem completa desta sincronização continua
+ * no banco com o último status conhecido (ex.: ACTIVE) — por isso o painel contava campanha que já não existe.
+ * Marca como ARCHIVED; se a Meta voltar a listar, o próximo upsert traz o status real. Sem itens na listagem
+ * não mexe em nada (uma resposta vazia não prova que tudo foi arquivado).
+ */
+async function markUnlisted(db: Db, table: "meta_ads" | "meta_adsets" | "meta_campaigns", workspaceId: string, accountId: string, since: string, listed: number) {
+  if (!listed) return;
+  const touched = table === "meta_ads" ? "updated_at" : "synced_at";
+  const { error } = await db.from(table).update({ effective_status: "ARCHIVED" }).eq("workspace_id", workspaceId).eq("account_id", accountId).lt(touched, since).not("effective_status", "in", "(ARCHIVED,DELETED)");
+  if (error) throw new Error(`${table} (arquivados): ${error.message}`);
+}
+
 async function syncCatalog(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow) {
+  const startedAt = new Date().toISOString();
   const ads = await client.getAll<{ id: string; name?: string; effective_status?: string; adset?: { id: string; name?: string }; campaign?: { id: string; name?: string }; creative?: { object_type?: string; video_id?: string } }>(
     `act_${acc.account_id}/ads`,
     { fields: "id,name,effective_status,adset{id,name},campaign{id,name},creative{object_type,video_id}", limit: 500 },
@@ -142,6 +156,7 @@ async function syncCatalog(db: Db, workspaceId: string, client: MetaClient, acc:
     const { error } = await db.from("meta_ads").upsert(catalog.slice(i, i + 500), { onConflict: "workspace_id,ad_id" });
     if (error) throw new Error(`meta_ads: ${error.message}`);
   }
+  await markUnlisted(db, "meta_ads", workspaceId, acc.account_id, startedAt, catalog.length);
   return catalog;
 }
 
@@ -221,18 +236,22 @@ export async function syncAdvanced(db: Db, workspaceId: string, client: MetaClie
 
   // As etapas são independentes (tabelas e chamadas diferentes) e isoladas por `step`: rodam juntas.
   const sCampaigns = step("campaigns", async () => {
+    const startedAt = now();
     const raw = await client.getAll<RawCampaign>(`act_${acc.account_id}/campaigns`, { fields: CAMPAIGN_FIELDS, limit: 500 }, 50);
     const rows = raw.map((r) => normalizeCampaign(r, acc.account_id, acc.currency)).filter((r): r is CampaignConfig => !!r)
       .map((r) => ({ ...r, workspace_id: workspaceId, synced_at: now() }));
     await upsertChunks(db, "meta_campaigns", rows, "workspace_id,campaign_id");
+    await markUnlisted(db, "meta_campaigns", workspaceId, acc.account_id, startedAt, rows.length);
     stats.campaigns = rows.length;
   });
 
   const sAdsets = step("adsets", async () => {
+    const startedAt = now();
     const raw = await client.getAll<RawAdset>(`act_${acc.account_id}/adsets`, { fields: ADSET_FIELDS, limit: 500 }, 50);
     const rows = raw.map((r) => normalizeAdset(r, acc.account_id, acc.currency)).filter((r): r is AdsetConfig => !!r)
       .map((r) => ({ ...r, workspace_id: workspaceId, synced_at: now() }));
     await upsertChunks(db, "meta_adsets", rows, "workspace_id,adset_id");
+    await markUnlisted(db, "meta_adsets", workspaceId, acc.account_id, startedAt, rows.length);
     stats.adsets = rows.length;
   });
 

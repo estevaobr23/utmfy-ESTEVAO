@@ -3,9 +3,9 @@ import { createHmac } from "node:crypto";
 import { classifyMetaError, type MetaErrorKind } from "../core/meta";
 import { env } from "../env";
 
-// Cliente READ-ONLY da Graph/Marketing API. Por design só expõe GET e a
-// criação/leitura de relatórios assíncronos de insights (POST /insights, que
-// NÃO altera campanhas). Não existe método para editar campanhas/anúncios.
+// Cliente da Graph/Marketing API. O sincronizador só usa GET e a criação/leitura de relatórios
+// assíncronos de insights (POST /insights, que NÃO altera campanhas). `post` (escrita) existe só
+// para ações explícitas do usuário na tela: orçamento (meta-budget.ts) e ativar/desativar/excluir (meta-status.ts).
 
 export class MetaApiError extends Error {
   constructor(public kind: MetaErrorKind, public code: number | null, message: string, public status: number) {
