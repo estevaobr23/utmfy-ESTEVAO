@@ -272,7 +272,7 @@ async function pixelCriar() {
   await pixelAdd();
   await pixelVincular();
   await mostrarSnippet();
-  p("\nPendente (ainda não automático): token da API de Conversões (CAPI) deste pixel. O envio server-side está desligado (CAPI_ENABLED=false), então isso não bloqueia o rastreio pelo navegador.");
+  p("\nTraqueamento Avançado (CAPI): rode capi-ativar --oferta " + offer.slug + " --cakto-sem-pixel --confirmar (ou use oferta-nova com --cakto-sem-pixel, que já liga). O pixel do Facebook dos produtos na Cakto deve ficar VAZIO.");
 }
 
 /** A cadeia inteira de uma oferta nova: oferta → webhook de rastreio (Cakto) → pixel (Meta) → script → verificação. */
@@ -305,6 +305,7 @@ async function ofertaNova() {
     produto_cakto: products,
     webhook_rastreio: "criar na Cakto (7 eventos, só esses produtos)",
     pixel: found ? { reaproveitar: found.id } : { criar_na_meta: pixelName, conta },
+    capi: f["sem-capi"] ? "pulada (--sem-capi)" : f["cakto-sem-pixel"] ? "ligar: token do Usuário do Sistema no Vault + envio server-side" : "NÃO ligar (falta --cakto-sem-pixel)",
     depois: ["script t.js da página", "verificar (checklist)"],
   };
   if (!dryRun("vai montar a OFERTA COMPLETA (UTMFY + Cakto de PRODUÇÃO + Meta de PRODUÇÃO):", plan)) return;
@@ -317,7 +318,11 @@ async function ofertaNova() {
   await webhookCriar();
   p("\n[2/3] pixel (Meta + UTMFY) e script da página");
   await pixelCriar();
-  p("\n[3/3] verificação final");
+  p("\n[3/4] Traqueamento Avançado (CAPI): token no Vault + envio pelo servidor");
+  if (f["sem-capi"]) p("  (pulado: --sem-capi)");
+  else if (!f["cakto-sem-pixel"]) warn("CAPI NÃO ligada. Produtos novos criados pela skill criar-produto-cakto não têm pixel: passe --cakto-sem-pixel (ou rode capi-ativar depois de conferir os produtos).");
+  else await capiAtivar({ embutido: true });
+  p("\n[4/4] verificação final");
   await verificar();
   p("\nFalta, fora desta automação: o produto nos webhooks de ACESSO e de RECUPERAÇÃO (skill criar-produto-cakto), o script na página e os anúncios com os parâmetros de URL.");
 }
@@ -381,9 +386,32 @@ async function verificar() {
   const nOrders = (await db("GET", `orders?select=id&offer_id=eq.${offer.id}&source=neq.test`)).length;
   p(`  · pedidos: ${nOrders}${orders[0]?.paid_at ? `, último pago ${orders[0].paid_at.slice(0, 16)}` : ""}`);
   if (!nOrders) warn("sem pedido ainda: o webhook só se prova com a 1ª venda real (ou 'simular')");
+  if (px.length === 1) await verificarCapi(offer, px[0]);
   const acc = await db("GET", `meta_ad_accounts?select=account_name,last_error&workspace_id=eq.${offer.workspace_id}&active=eq.true`);
   check(acc.every((a) => !a.last_error), `contas Meta sem erro (${acc.map((a) => a.account_name).join(", ")})`, acc.find((a) => a.last_error)?.last_error);
   p(process.exitCode ? "\nHá pendências (✗)." : "\nTudo certo.");
+}
+
+/** Bloco "Traqueamento Avançado" do verificar: token, envio ligado, IP/sessões, fila de envio e o lembrete da Cakto. */
+async function verificarCapi(offer, link) {
+  const [px] = await db("GET", `pixels?select=id,name,external_pixel_id,server_tracking_enabled,token_source,token_hint&id=eq.${link.pixel_id}`);
+  p("\n  Traqueamento Avançado (CAPI):");
+  p(`  · envio pelo servidor: ${px.server_tracking_enabled ? "LIGADO" : "desligado"} · token: ${px.token_source}${px.token_hint ? " " + px.token_hint : ""}`);
+  check(px.token_source !== "none", "token da CAPI guardado", "rode capi-ativar --oferta " + offer.slug + " --cakto-sem-pixel --confirmar");
+  if (!px.server_tracking_enabled) warn("envio server-side desligado: a Meta só recebe o que o navegador/Cakto mandar. Ligue com capi-ativar (depois de esvaziar o pixel na Cakto).");
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();
+  const sess = await db("GET", `tracking_sessions?select=client_ip,session_id&offer_id=eq.${offer.id}&last_seen_at=gte.${since}&limit=5000`);
+  const withIp = sess.filter((x) => x.client_ip).length;
+  p(`  · sessões (7 dias): ${sess.length}, com IP: ${withIp}`);
+  if (sess.length && !withIp) warn("sessões sem IP: o /api/track não está gravando IP (confira o deploy e a migration 20261019000001)");
+  const disp = await db("GET", `conversion_dispatches?select=status,last_error&pixel_id=eq.${px.id}&created_at=gte.${since}&limit=5000`);
+  const by = {};
+  for (const d of disp) { const k = d.status === "skipped" || d.status === "failed" ? `${d.status}:${d.last_error ?? "?"}` : d.status; by[k] = (by[k] ?? 0) + 1; }
+  p(`  · envios (7 dias): ${disp.length ? Object.entries(by).map(([k, v]) => `${k}=${v}`).join(" · ") : "nenhum"}`);
+  const failed = disp.filter((d) => d.status === "failed").length;
+  check(!failed, "nenhum envio com falha", `${failed} falha(s): veja Eventos no painel (retry automático até 6x)`);
+  const items = await db("GET", `offer_cakto_items?select=product_name&offer_id=eq.${offer.id}`);
+  warn(`CONFIRME NA CAKTO (a API não mostra): Produto → Configurar Pixel → Facebook VAZIO em TODOS os produtos da oferta (${items.length}): senão o Purchase conta em dobro. Depois de 24 h de vendas: capi-medir --oferta ${offer.slug} (~100% = ok).`);
 }
 
 /** Simulação ponta a ponta com dados de teste identificáveis (SIM-*); apaga tudo no fim. */
@@ -472,25 +500,164 @@ async function simular() {
   }
 }
 
+// ------------------------------------------------ Traqueamento Avançado (CAPI) ---
+// A UTMFY envia o Purchase à Meta pelo servidor (webhook da Cakto → UTMFY → Meta). A Cakto NÃO pode enviar junto:
+// o pixel do Facebook dos produtos na Cakto fica VAZIO (senão a venda conta em dobro). Detalhes: INTEGRACAO-CHATS.md seção 2.3.
+const GRAPH_V = process.env.META_GRAPH_VERSION || "v26.0";
+
+/** Token da CAPI = token do Usuário do Sistema (~/.meta): aceito para qualquer pixel do business (testado em 19/10/2026). Nunca impresso. */
+function systemToken() {
+  const file = join(homedir(), ".meta", "credentials.env");
+  if (!existsSync(file)) throw new Error(`credencial da Meta não encontrada em ${file}`);
+  const line = readFileSync(file, "utf8").split(/\r?\n/).find((l) => l.startsWith("META_ACCESS_TOKEN="));
+  const t = line ? line.slice(line.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "") : "";
+  if (!t) throw new Error("META_ACCESS_TOKEN ausente em ~/.meta/credentials.env");
+  return t;
+}
+
+/** Prova que o token é aceito para ENVIAR eventos ao pixel, sem criar evento: a Meta recusa evento com 30 dias (erro de parâmetro);
+ *  erro de permissão/token é outro. NUNCA use evento recente nem test_event_code vencido: vira venda de mentira em produção. */
+async function capiProbe(pixelId, token) {
+  const old = Math.floor(Date.now() / 1000) - 30 * 86400;
+  const body = new URLSearchParams({
+    data: JSON.stringify([{ event_name: "Purchase", event_time: old, action_source: "website", event_source_url: APP, user_data: { client_user_agent: "utmfy-probe" }, custom_data: { value: 1, currency: "BRL" } }]),
+    access_token: token,
+  });
+  const j = await (await fetch(`https://graph.facebook.com/${GRAPH_V}/${pixelId}/events`, { method: "POST", body })).json();
+  if (j.error && j.error.code === 100 && !/permission/i.test(String(j.error.message))) return { ok: true };
+  if (j.events_received) return { ok: true, detail: "a Meta aceitou o evento de sonda" };
+  return { ok: false, detail: j.error ? `erro ${j.error.code}: ${String(j.error.message).slice(0, 140)}` : "resposta inesperada da Meta" };
+}
+
+async function capiPixelDaOferta(offer) {
+  const [row] = await db("GET", `offer_pixels?select=pixels(id,name,external_pixel_id,server_tracking_enabled,token_source,token_hint,workspace_id)&offer_id=eq.${offer.id}&active=eq.true`);
+  const px = row?.pixels;
+  if (!px) throw new Error(`a oferta "${offer.name}" não tem pixel vinculado (rode pixel-criar ou pixel-vincular antes)`);
+  return px;
+}
+
+async function capiGuardarToken(px, token) {
+  await rpc("store_secret", { p_workspace: px.workspace_id, p_owner_type: "pixel", p_owner_id: px.id, p_secret: token });
+  await db("PATCH", `pixels?id=eq.${px.id}`, { token_source: "vault", token_hint: `••••${token.slice(-4)}` });
+}
+
+/** Liga o envio server-side do pixel da oferta (token no Vault + server_tracking_enabled). Exige a confirmação de que a Cakto está sem pixel. */
+async function capiAtivar({ embutido = false } = {}) {
+  const offer = await findOffer(f.oferta);
+  const px = await capiPixelDaOferta(offer);
+  const items = await db("GET", `offer_cakto_items?select=product_name,cakto_product_id&offer_id=eq.${offer.id}`);
+  p(`Traqueamento Avançado — ${offer.name} · pixel ${px.name} (${px.external_pixel_id})`);
+  const token = systemToken();
+  const probe = await capiProbe(px.external_pixel_id, token);
+  check(probe.ok, "token da Meta aceito para enviar eventos a este pixel", probe.detail);
+  if (!probe.ok) { if (embutido) return false; throw new Error("token recusado pela Meta: confira o usuário do sistema (gerenciador-api) e o acesso ao pixel"); }
+  const semPixel = !!f["cakto-sem-pixel"];
+  check(semPixel, "confirmado: pixel do Facebook VAZIO em todos os produtos desta oferta na Cakto",
+    `em CADA produto: Cakto → Produto → Configurar Pixel → Facebook: sem Pixel ID, sem token → Salvar. Produtos (${items.length}): ${items.map((i) => i.product_name ?? i.cakto_product_id).join("; ")}. Depois repita com --cakto-sem-pixel`);
+  if (!semPixel) { p("\nEnvio server-side NÃO ligado: ligar com o pixel da Cakto ativo manda o Purchase em dobro."); return false; }
+  const plan = {
+    pixel: px.external_pixel_id,
+    token: px.token_source === "vault" && !f.renovar ? "já no Vault (use --renovar para regravar)" : "gravar o token do Usuário do Sistema no Vault",
+    envio_server_side: "LIGAR (pixels.server_tracking_enabled = true)",
+    lembrete: "a variável CAPI_ENABLED na Vercel precisa estar true (global, já ligada em 19/10/2026)",
+  };
+  if (!dryRun("vai ligar o envio do Purchase pelo servidor da UTMFY:", plan)) return false;
+  if (px.token_source !== "vault" || f.renovar) await capiGuardarToken(px, token);
+  await db("PATCH", `pixels?id=eq.${px.id}`, { server_tracking_enabled: true });
+  const [back] = await db("GET", `pixels?select=server_tracking_enabled,token_source&id=eq.${px.id}`);
+  check(back?.server_tracking_enabled === true && back?.token_source === "vault", "envio server-side ligado e token no Vault (relido do banco)");
+  p("\nPróximo: 1ª venda real → rode verificar e abra o Gerenciador de Eventos (Purchase deve aparecer só como Servidor). Em 24 h: capi-medir.");
+  return true;
+}
+
+async function capiDesativar() {
+  const offer = await findOffer(f.oferta);
+  const px = await capiPixelDaOferta(offer);
+  if (!dryRun(`vai DESLIGAR o envio server-side do pixel ${px.external_pixel_id} (${offer.name}). Antes de religar a Cakto, confirme que isto fechou:`)) return;
+  await db("PATCH", `pixels?id=eq.${px.id}`, { server_tracking_enabled: false });
+  p("desligado. Se for devolver o envio à Cakto, ligue o pixel dela só depois de ver que não há mais envio da UTMFY.");
+}
+
+/** Token do Usuário do Sistema trocado? Regrava no Vault de todos os pixels que usam Vault (e prova que a Meta aceita). */
+async function capiRenovarTokens() {
+  const ws = await workspaceId();
+  const pxs = await db("GET", `pixels?select=id,name,external_pixel_id,workspace_id&workspace_id=eq.${ws}&token_source=eq.vault&active=eq.true`);
+  const token = systemToken();
+  p(`${pxs.length} pixel(s) com token no Vault`);
+  const ok = [];
+  for (const px of pxs) {
+    const r = await capiProbe(px.external_pixel_id, token);
+    check(r.ok, `${px.name} (${px.external_pixel_id}): token novo aceito`, r.detail);
+    if (r.ok) ok.push(px);
+  }
+  if (!ok.length || !dryRun(`vai regravar o token no Vault de ${ok.length} pixel(s):`)) return;
+  for (const px of ok) await capiGuardarToken(px, token);
+  p("tokens regravados.");
+}
+
+/** Razão compras da Meta ÷ vendas da UTMFY (mesmo fuso da conta de anúncio): ~100% ok · bem acima = duplicidade · abaixo = perde venda. */
+async function capiMedir() {
+  const offer = await findOffer(f.oferta);
+  const px = await capiPixelDaOferta(offer);
+  const dias = Math.min(30, Math.max(1, Number(f.dias) || 7));
+  const { graph } = await metaApi();
+  const accs = await db("GET", `offer_ad_accounts?select=meta_ad_accounts(account_id)&offer_id=eq.${offer.id}`);
+  const accounts = [...new Set(accs.map((a) => a.meta_ad_accounts?.account_id).filter(Boolean))];
+  if (!accounts.length) throw new Error("a oferta não tem conta de anúncio vinculada");
+  const sets = await db("GET", `meta_adsets?select=campaign_id&workspace_id=eq.${offer.workspace_id}&promoted_object->>pixel_id=eq.${px.external_pixel_id}`);
+  const campaigns = new Set(sets.map((x) => String(x.campaign_id)));
+  p(`Medição — ${offer.name}: últimos ${dias} dia(s) fechados, ${campaigns.size} campanha(s) com o pixel ${px.external_pixel_id}`);
+  const meta = new Map(); // dia → compras
+  let tz = "America/New_York";
+  for (const acc of accounts) {
+    const id = String(acc).startsWith("act_") ? acc : `act_${acc}`;
+    const info = await graph("GET", `${id}?fields=timezone_name`);
+    tz = info.timezone_name || tz;
+    const ins = await graph("GET", `${id}/insights?level=campaign&time_increment=1&date_preset=last_${dias}d&fields=campaign_id,date_start,actions&limit=500`);
+    for (const r of ins.data ?? []) {
+      if (!campaigns.has(String(r.campaign_id))) continue;
+      const a = Object.fromEntries((r.actions ?? []).map((x) => [x.action_type, Number(x.value)]));
+      meta.set(r.date_start, (meta.get(r.date_start) ?? 0) + (a.omni_purchase ?? a.purchase ?? 0));
+    }
+  }
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  const since = new Date(Date.now() - (dias + 2) * 864e5).toISOString();
+  const orders = await db("GET", `orders?select=paid_at&offer_id=eq.${offer.id}&status=eq.paid&source=neq.test&paid_at=gte.${since}&limit=5000`);
+  const mine = new Map();
+  for (const o of orders) { const d = fmt.format(new Date(o.paid_at)); mine.set(d, (mine.get(d) ?? 0) + 1); }
+  const days = [...new Set([...meta.keys()])].sort();
+  let tm = 0, tu = 0;
+  for (const d of days) { const m = meta.get(d) ?? 0, u = mine.get(d) ?? 0; tm += m; tu += u; p(`  ${d}  Meta ${String(m).padStart(3)}  UTMFY ${String(u).padStart(3)}  ${u ? Math.round((m / u) * 100) + "%" : "—"}`); }
+  const ratio = tu ? Math.round((tm / tu) * 100) : null;
+  p(`  TOTAL   Meta ${tm}  UTMFY ${tu}  ${ratio == null ? "—" : ratio + "%"}  (fuso ${tz})`);
+  if (ratio != null) p(ratio > 115 ? "  ✗ Meta conta MAIS que as vendas reais: provável envio em dobro (a Cakto ainda manda pixel/CAPI?)" : ratio >= 85 ? "  ✓ faixa saudável (~100%)" : "  ! a Meta ainda enxerga menos que as vendas: confira sessões/IP/skipped em verificar");
+  p("  Obs.: a Meta conta por dia de impressão e a UTMFY por dia de pagamento; o total do período vale mais que o dia.");
+}
+
 const HELP = `UTMFY — configura ofertas, pixels e webhooks (qualquer chat)
 
   node ~/.utmfy/utmfy.mjs status                         saúde geral (app, banco, webhooks da Cakto)
   node ~/.utmfy/utmfy.mjs ofertas                        lista ofertas, pixels, produtos, webhook, pedidos
   node ~/.utmfy/utmfy.mjs oferta-criar --nome "X" [--slug x] --confirmar
   node ~/.utmfy/utmfy.mjs webhook-criar --oferta <slug> --produto <id[,id]> --confirmar   (Cakto: PRODUÇÃO)
-  node ~/.utmfy/utmfy.mjs oferta-nova --nome "X" --produto <id[,id]> [--conta act_N] [--reusar <pixelId>] --confirmar
-                                                         CADEIA COMPLETA: oferta + webhook Cakto + pixel Meta + script + verificação
+  node ~/.utmfy/utmfy.mjs oferta-nova --nome "X" --produto <id[,id]> [--conta act_N] [--reusar <pixelId>] [--cakto-sem-pixel] [--sem-capi] --confirmar
+                                                         CADEIA COMPLETA: oferta + webhook Cakto + pixel Meta + CAPI (com --cakto-sem-pixel) + script + verificação
   node ~/.utmfy/utmfy.mjs pixel-criar --oferta <slug> [--nome "X"] [--conta act_N] [--reusar <pixelId>] --confirmar
                                                          cria (ou reaproveita) o pixel NA META, cadastra e liga à oferta
   node ~/.utmfy/utmfy.mjs pixel-add --id <pixelId> --nome "Pixel X" --confirmar
   node ~/.utmfy/utmfy.mjs pixel-vincular --oferta <slug> --pixel <pixelId> --confirmar
   node ~/.utmfy/utmfy.mjs snippet --oferta <slug>        script da página + parâmetros de URL dos anúncios
   node ~/.utmfy/utmfy.mjs verificar --oferta <slug>      checklist ✓/✗ de tudo que a oferta precisa
+  node ~/.utmfy/utmfy.mjs capi-ativar --oferta <slug> --cakto-sem-pixel [--renovar] --confirmar
+                                                         TRAQUEAMENTO AVANÇADO: token no Vault + envio do Purchase pelo servidor (prova o token sem criar evento)
+  node ~/.utmfy/utmfy.mjs capi-desativar --oferta <slug> --confirmar     desliga o envio server-side da oferta
+  node ~/.utmfy/utmfy.mjs capi-medir --oferta <slug> [--dias 7]          razão compras da Meta ÷ vendas UTMFY (~100% ok, acima = em dobro)
+  node ~/.utmfy/utmfy.mjs capi-renovar-tokens --confirmar                token do Usuário do Sistema trocado: regrava no Vault de todos os pixels
   node ~/.utmfy/utmfy.mjs simular --confirmar            venda de teste ponta a ponta (apaga tudo no fim)
 
 Gravações exigem --confirmar; sem a flag é só simulação. Guia: INTEGRACAO-CHATS.md`;
 
-const COMMANDS = { status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular };
+const COMMANDS = { status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
 try {
   if (!cmd || cmd === "ajuda" || cmd === "help" || !COMMANDS[cmd]) { p(HELP); if (cmd && !COMMANDS[cmd] && cmd !== "ajuda" && cmd !== "help") process.exitCode = 1; }
   else await COMMANDS[cmd]();

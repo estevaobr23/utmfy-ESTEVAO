@@ -124,8 +124,11 @@ o `event_id` do Purchase da Cakto no Gerenciador de Eventos). Desligue um lado a
 **Medição:** razão = compras da Meta ÷ vendas pagas da UTMFY (mesma janela, fuso de NY da conta de anúncio). Em 11–17/10 foi
 75% (72/96); ~100% = ok, bem acima = duplicidade. 87,5% das vendas são PIX.
 
-**Não automatizado ainda (Fase 5):** `oferta-nova` e `verificar` do `utmfy.mjs` não ligam token/flag nem checam sck/IP/CAPI.
-Só o pixel `4126700287461816` (100 GATOS) tem tracking.
+**Automatizado (19/10/2026, `utmfy.mjs`):** `oferta-nova --cakto-sem-pixel` já deixa tudo ligado (token do Usuário do Sistema no Vault, provado
+sem criar evento, + `server_tracking_enabled`); `capi-ativar` faz o mesmo numa oferta existente; `capi-medir` mede a razão Meta ÷ UTMFY;
+`capi-desativar` e `capi-renovar-tokens` completam; `verificar` ganhou o bloco CAPI. **Regra de ouro: pixel do Facebook VAZIO em todos os
+produtos na Cakto** (a API não mostra: conferir no painel, produto a produto). Skills atualizadas: `utmfy-tracker`, `criar-produto-cakto`,
+`padrao-lowticket`, `saas-padrao-pgv`, `subir-campanha-meta`, `automacao-chrome`. Só o pixel `4126700287461816` (100 GATOS) existe com tracking.
 
 **Permissões:** o classificador do Claude Code barra escrita em flag/mass update (mesmo com regra allow; `apply_migration` e
 `execute_sql` são ferramentas separadas); o MCP da Vercel não enxerga o projeto. SQL: peça ao usuário para rodar em
