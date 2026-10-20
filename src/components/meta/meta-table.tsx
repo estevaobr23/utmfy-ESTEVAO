@@ -215,8 +215,11 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const [columns, setColumns] = useState<MetaColumnId[]>(META_COLUMN_PRESETS.complete);
   const [columnSearch, setColumnSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Seleção (só linhas do nível da tabela): id → nome. Some ao trocar de nível e depois de cada ação aplicada.
+  // Seleção (só linhas do nível da tabela): id → nome. Persiste entre filtros (período, conta...) porque
+  // o form de filtro é um GET de página inteira — sem isso a seleção some ao trocar só a data, por exemplo.
+  // Some ao trocar de nível (campanhas/conjuntos/anúncios são universos de ID diferentes) e após ação aplicada.
   const selectableLevel: StatusLevel | null = level === "campanhas" ? "campaign" : level === "conjuntos" ? "adset" : level === "anuncios" ? "ad" : null;
+  const selectionKey = `utmfy:v1:meta-selection:${path}:${level}`;
   const [selected, setSelected] = useState<Map<string, string>>(new Map());
   const [onlySelected, setOnlySelected] = useState(false);
   const [pendingOp, setPendingOp] = useState<StatusOp | null>(null);
@@ -224,10 +227,37 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const [seenLevel, setSeenLevel] = useState(level);
   const flash = searchParams.get("ok") ?? searchParams.get("error") ?? "";
   const [seenFlash, setSeenFlash] = useState(flash);
+  const setSelectedPersisted = (next: Map<string, string> | ((current: Map<string, string>) => Map<string, string>)) => {
+    setSelected((current) => {
+      const value = typeof next === "function" ? next(current) : next;
+      try {
+        if (value.size) window.localStorage.setItem(selectionKey, JSON.stringify([...value]));
+        else window.localStorage.removeItem(selectionKey);
+      } catch { /* sem armazenamento: segue só em memória */ }
+      return value;
+    });
+  };
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(selectionKey) ?? "[]") as [string, string][];
+      if (saved.length) {
+        const timer = window.setTimeout(() => setSelected(new Map(saved)), 0);
+        return () => window.clearTimeout(timer);
+      }
+    } catch { /* ignora seleção salva inválida */ }
+  }, [selectionKey]);
   if (seenLevel !== level || seenFlash !== flash) {
     setSeenLevel(level);
     setSeenFlash(flash);
-    setSelected(new Map());
+    if (seenFlash !== flash) {
+      // Ação em massa concluída: os itens aplicados já foram processados, não faz sentido mantê-los selecionados.
+      setSelected(new Map());
+      try { window.localStorage.removeItem(selectionKey); } catch { /* ignora */ }
+    } else {
+      // Trocou de aba (campanhas/conjuntos/anúncios): limpa o estado em memória já;
+      // o efeito abaixo recarrega do localStorage a seleção salva para o nível novo, se houver.
+      setSelected(new Map());
+    }
     setOnlySelected(false);
     setPendingOp(null);
   }
@@ -363,17 +393,22 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const selectedIds = rows.filter((row) => selected.has(row.id)).map((row) => row.id);
   const pageSelectable = pageRows.filter((row) => isSelectable(row, 0));
   const allPageSelected = pageSelectable.length > 0 && pageSelectable.every((row) => selected.has(row.id));
-  const toggleSelected = (row: MetaTableRow) => setSelected((current) => {
+  const toggleSelected = (row: MetaTableRow) => setSelectedPersisted((current) => {
     const next = new Map(current);
     if (next.has(row.id)) next.delete(row.id); else next.set(row.id, row.name);
     return next;
   });
-  const togglePage = () => setSelected((current) => {
+  const togglePage = () => setSelectedPersisted((current) => {
     const next = new Map(current);
     for (const row of pageSelectable) { if (allPageSelected) next.delete(row.id); else next.set(row.id, row.name); }
     return next;
   });
-  const clearSelection = () => { setSelected(new Map()); setOnlySelected(false); setPendingOp(null); };
+  const clearSelection = () => {
+    setSelected(new Map());
+    try { window.localStorage.removeItem(selectionKey); } catch { /* ignora */ }
+    setOnlySelected(false);
+    setPendingOp(null);
+  };
   const copyIds = async () => {
     try { await navigator.clipboard.writeText(selectedIds.join("\n")); setCopied(true); window.setTimeout(() => setCopied(false), 1800); } catch { /* sem permissão de área de transferência */ }
   };

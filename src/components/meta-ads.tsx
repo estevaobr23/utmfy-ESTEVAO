@@ -2,6 +2,7 @@ import Link from "next/link";
 import { RefreshButton } from "@/components/refresh-button";
 
 import { MetaTable } from "@/components/meta/meta-table";
+import { PeriodControl, PERIOD_PRESETS } from "@/components/period-control";
 import { timeAgo } from "@/lib/core/dates";
 import { aggregateLevel, LEVELS, type Level, type LevelRow } from "@/lib/core/meta-levels";
 import { META_METRICS, latestBudgetChanges, type MetaColumnId, type MetaTableRow } from "@/lib/core/meta-metrics";
@@ -15,9 +16,7 @@ import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 import { timed } from "@/lib/perf";
 
-const PRESETS: [string, string][] = [
-  ["today", "Hoje"], ["yesterday", "Ontem"], ["7d", "7 dias"], ["14d", "14 dias"], ["30d", "30 dias"], ["month", "Este mês"],
-];
+const PRESETS = PERIOD_PRESETS;
 const LEVEL_ICON: Record<Level, string> = { contas: "▣", campanhas: "◫", conjuntos: "⊞", anuncios: "▯" };
 const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? "";
 const ID = /^[0-9]{1,30}$/;
@@ -217,7 +216,14 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         <input type="hidden" name="nivel" value={level} />
         {campaign && <input type="hidden" name="campaign" value={campaign} />}
         {adset && <input type="hidden" name="adset" value={adset} />}
-        <label className="text-[11px] text-copy">Período<select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white">{f.preset === "custom" && <option value="">{f.from} → {f.to}</option>}{PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <PeriodControl
+          preset={f.preset}
+          from={f.from}
+          to={f.to}
+          labelClassName="text-[11px] text-copy"
+          selectClassName="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white"
+          inputClassName="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white"
+        />
         <label className="text-[11px] text-copy">Conta de anúncio<select name="account" defaultValue={f.account ?? ""} className="mt-1 block h-[34px] max-w-56 rounded border border-input-border bg-transparent px-3 text-sm text-white"><option value="">Qualquer</option>{accounts.map((account) => <option key={account.account_id} value={account.account_id}>{account.account_name ?? account.account_id}</option>)}</select></label>
         <label className="text-[11px] text-copy">Fonte<select disabled className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-copy-muted"><option>Meta Ads</option></select></label>
         <label className="text-[11px] text-copy">Produto<select disabled className="mt-1 block h-[34px] max-w-48 rounded border border-input-border bg-transparent px-3 text-sm text-copy-muted"><option>Oferta selecionada</option></select></label>
