@@ -1,8 +1,8 @@
 import type { Filters } from "@/lib/queries";
-import { PeriodControl } from "./period-control";
 import { inputCls } from "./ui";
 
 type Opt = { id: string; name: string };
+const PRESETS: [string, string][] = [["today", "Hoje"], ["yesterday", "Ontem"], ["7d", "Últimos 7 dias"], ["14d", "Últimos 14 dias"], ["30d", "Últimos 30 dias"], ["month", "Este mês"], ["last_month", "Mês passado"]];
 export const STATUS_OPTIONS: [string, string][] = [["paid", "Pago"], ["pending", "Aguardando"], ["refunded", "Reembolsado"], ["chargedback", "Chargeback"], ["refund_requested", "Reembolso solicitado"], ["refused", "Recusado"], ["canceled", "Cancelado"], ["disputed", "Em disputa"]];
 
 function Control({ label, children }: { label: string; children: React.ReactNode }) {
@@ -22,14 +22,7 @@ export function FilterBar({ f, offers, accounts, catalog, hideOffer, extra, acti
   return (
     <form method="get" action={action} className="mb-4 rounded-md bg-surface p-5">
       <div className="flex flex-wrap items-end gap-2">
-        <PeriodControl
-          preset={f.preset}
-          from={f.from}
-          to={f.to}
-          labelClassName="min-w-36 flex-1 text-[11px] font-medium text-copy"
-          selectClassName={`${inputCls} mt-1 block w-full`}
-          inputClassName={`${inputCls} mt-1 block w-full`}
-        />
+        <Control label="Período de visualização"><select name="preset" defaultValue={f.preset === "custom" ? "" : f.preset} className={`${inputCls} mt-1 block w-full`}>{f.preset === "custom" && <option value="">Personalizado</option>}{PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Control>
         {!hideOffer && offers && <Control label="Oferta">{select("offer", f.offer, offers, "Todas as ofertas")}</Control>}
         {accounts && <Control label="Conta de anúncio">{select("account", f.account, accounts.map((account) => ({ id: account.account_id, name: account.account_name ?? account.account_id })), "Qualquer")}</Control>}
         <Control label="Fonte de tráfego"><input name="source" defaultValue={f.source ?? ""} placeholder="Qualquer" className={`${inputCls} mt-1 block w-full`} /></Control>
@@ -40,6 +33,8 @@ export function FilterBar({ f, offers, accounts, catalog, hideOffer, extra, acti
       <details className="mt-3 border-t border-divider pt-2">
         <summary className="flex cursor-pointer items-center justify-end gap-1 text-right text-xs font-medium text-copy"><span>Mais filtros</span><svg aria-hidden="true" viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-none stroke-current stroke-[1.75]"><path d="m4 6 4 4 4-4" /></svg></summary>
         <div className="mt-2 flex flex-wrap items-end gap-2">
+          <Control label="Data inicial"><input type="date" name="from" defaultValue={f.preset === "custom" ? f.from : ""} className={`${inputCls} mt-1 block w-full`} /></Control>
+          <Control label="Data final"><input type="date" name="to" defaultValue={f.preset === "custom" ? f.to : ""} className={`${inputCls} mt-1 block w-full`} /></Control>
           {catalog && <Control label="Campanha">{select("campaign", f.campaign, catalog.campaigns, "Qualquer")}</Control>}
           {catalog && <Control label="Conjunto">{select("adset", f.adset, catalog.adsets, "Qualquer")}</Control>}
           {catalog && <Control label="Anúncio">{select("ad", f.ad, catalog.ads, "Qualquer")}</Control>}
