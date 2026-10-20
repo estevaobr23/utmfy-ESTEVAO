@@ -103,6 +103,12 @@ export function buildPurchaseEvent(o: CapiOrderInput, nowSeconds = Math.floor(Da
   if (o.fbc) user_data.fbc = o.fbc;
   if (o.fbp) user_data.fbp = o.fbp;
 
+  // client_user_agent sozinho não conta como parâmetro de identificação para a Meta
+  // (ela acusa "user_data ausente" mesmo com o evento chegando). Exige pelo menos
+  // um identificador real antes de enviar; senão é melhor não mandar o evento.
+  const hasIdentifyingParam = Object.keys(user_data).some((k) => k !== "client_user_agent");
+  if (!hasIdentifyingParam) return { skip: "no_identifying_user_data" };
+
   return {
     event: {
       event_name: "Purchase",

@@ -67,6 +67,10 @@ describe("CAPI (preparado)", () => {
     expect(buildPurchaseEvent({ ...base, client_user_agent: null }, now)).toEqual({ skip: "no_tracker_session" });
     expect(buildPurchaseEvent({ ...base, event_source_url: null }, now)).toEqual({ skip: "no_tracker_session" });
   });
+  it("sem nenhum identificador real (só client_user_agent) é ignorado, não é mandado 'vazio' pra Meta", () => {
+    const semIdentificador = { ...base, customer_email_sha256: null, customer_phone_sha256: null, fbc: null, fbp: null };
+    expect(buildPurchaseEvent(semIdentificador, now)).toEqual({ skip: "no_identifying_user_data" });
+  });
   it("enriquecimento: nome, cidade/estado/país, IP e external_id entram com hash só onde a Meta pede", () => {
     const r = buildPurchaseEvent(
       { ...base, customer_fn_sha256: "c".repeat(64), customer_ln_sha256: "d".repeat(64), client_ip: "2804:14d:1::1", geo_country: "BR", geo_region: "SP", geo_city: "São Paulo", external_id: "sabc123xyz" },
