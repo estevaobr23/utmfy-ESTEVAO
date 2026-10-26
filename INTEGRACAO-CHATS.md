@@ -142,7 +142,7 @@ A UTMFY recebe vendas da **Hotmart** além da Cakto. Produto/oferta/webhook da H
 | Peça | Como é |
 |---|---|
 | Endpoint | `POST https://utmfy-tracker.vercel.app/api/webhooks/hotmart` (opcional `?ws=<slug>`). **Webhook GERAL**: na Hotmart a configuração fica com produtos **"todos"**, sem `?o=` |
-| Autenticação | `hottok` (token do webhook da conta) em `X-HOTMART-HOTTOK` (e `hottok` no corpo v2), comparado em tempo constante. Guardado no **Vault** (tipo `cakto_webhook`, dono = id do workspace; sem migration) e/ou env `HOTMART_HOTTOK[S]`. Rotacionou na Hotmart? `node ~/.utmfy/utmfy.mjs hotmart-hottok --confirmar` |
+| Autenticação | `hottok` (token do webhook da conta) em `X-HOTMART-HOTTOK` (e `hottok` no corpo v2), comparado em tempo constante. Guardado no **Vault** (tipo `cakto_webhook`, dono = id do workspace; sem migration) e/ou env `HOTMART_HOTTOK[S]`. Guardar/rotacionar: `node ~/.utmfy/utmfy.mjs hotmart-hottok --confirmar` (lê da sessão logada da Hotmart, porta 9556, e grava no Vault sem imprimir). **Quem roda é o usuário no terminal dele**: o Claude Code bloqueia escrita em cofre de segredos |
 | Qual oferta | pelo **ID do produto** (numérico) ou pelo código da oferta Hotmart, em `offer_cakto_items` (o nome da coluna é histórico) com `source='manual'` — o `syncOfferWebhooks` da Cakto só apaga `cakto_webhook`, então não mexe nesses |
 | Produto sem vínculo | responde `200 {ignored:"product_not_mapped"}` e **não grava nada** (a conta da Hotmart tem outros produtos que não são do UTMFY; a Hotmart para de repetir) |
 | Produto novo | liga com `node ~/.utmfy/utmfy.mjs hotmart-vincular --oferta <slug> --produto <id> [--moeda MXN] --confirmar` (o webhook "todos" já o entrega) |
