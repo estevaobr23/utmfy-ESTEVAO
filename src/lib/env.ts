@@ -21,6 +21,9 @@ export const env = {
   caktoAllowBodySecret: bool(process.env.CAKTO_ALLOW_BODY_SECRET, true),
   caktoWebhookWorkspace: process.env.CAKTO_WEBHOOK_WORKSPACE_SLUG ?? "",
 
+  // Hotmart: "hottok" do webhook (o token da conta; vem em X-HOTMART-HOTTOK). Vários separados por vírgula.
+  hotmartHottoks: list(process.env.HOTMART_HOTTOKS ?? process.env.HOTMART_HOTTOK),
+
   metaAccessToken: process.env.META_ACCESS_TOKEN ?? "",
   metaAppId: process.env.META_APP_ID ?? "",
   metaAppSecret: process.env.META_APP_SECRET ?? "",
@@ -44,6 +47,7 @@ export function envStatus() {
     CAKTO_CLIENT_ID: !!env.caktoClientId,
     CAKTO_CLIENT_SECRET: !!env.caktoClientSecret,
     CAKTO_WEBHOOK_SECRETS: env.caktoWebhookSecrets.length > 0,
+    HOTMART_HOTTOK: env.hotmartHottoks.length > 0,
     META_ACCESS_TOKEN: !!env.metaAccessToken,
     META_APP_ID: !!env.metaAppId,
     META_APP_SECRET: !!env.metaAppSecret,

@@ -134,6 +134,28 @@ produtos na Cakto** (a API não mostra: conferir no painel, produto a produto). 
 `execute_sql` são ferramentas separadas); o MCP da Vercel não enxerga o projeto. SQL: peça ao usuário para rodar em
 `https://supabase.com/dashboard/project/kjstjqxebejeihlzaiky/sql/new`.
 
+## 2.4 Hotmart (segundo gateway) — receptor construído em 26/10/2026
+
+A UTMFY recebe vendas da **Hotmart** além da Cakto. Produto/oferta/webhook da Hotmart são criados pela skill **`criar-produto-hotmart`**
+(`node ~/.hotmart/hotmart.mjs`, sem API pública: repete as chamadas do painel com a sessão logada). Aqui só o lado da UTMFY.
+
+| Peça | Como é |
+|---|---|
+| Endpoint | `POST https://utmfy-tracker.vercel.app/api/webhooks/hotmart` (opcional `?ws=<slug>`). **Webhook GERAL**: na Hotmart a configuração fica com produtos **"todos"**, sem `?o=` |
+| Autenticação | `hottok` (token do webhook da conta) em `X-HOTMART-HOTTOK` (e `hottok` no corpo v2), comparado em tempo constante. Guardado no **Vault** (tipo `cakto_webhook`, dono = id do workspace; sem migration) e/ou env `HOTMART_HOTTOK[S]`. Rotacionou na Hotmart? `node ~/.utmfy/utmfy.mjs hotmart-hottok --confirmar` |
+| Qual oferta | pelo **ID do produto** (numérico) ou pelo código da oferta Hotmart, em `offer_cakto_items` (o nome da coluna é histórico) com `source='manual'` — o `syncOfferWebhooks` da Cakto só apaga `cakto_webhook`, então não mexe nesses |
+| Produto sem vínculo | responde `200 {ignored:"product_not_mapped"}` e **não grava nada** (a conta da Hotmart tem outros produtos que não são do UTMFY; a Hotmart para de repetir) |
+| Produto novo | liga com `node ~/.utmfy/utmfy.mjs hotmart-vincular --oferta <slug> --produto <id> [--moeda MXN] --confirmar` (o webhook "todos" já o entrega) |
+| Pedido | provider `hotmart`; `external_order_id` = `purchase.transaction`; status pelo **evento** (APPROVED/COMPLETE→paid, BILLET_PRINTED/DELAYED→pending, CANCELED/EXPIRED→canceled, REFUNDED, CHARGEBACK→chargedback, PROTEST→disputed); abandono e eventos de área de membros/assinatura são ignorados |
+| Valores | `purchase.price.value` na moeda de `currency_value` (MXN); taxas = bruto − comissão `PRODUCER` (se a moeda bater) |
+| Atribuição | a Hotmart **não repassa utm_***: vale o `sck` (sessão do tracker) em `purchase.origin.sck`, que o `t.js` põe no link de checkout; a sessão traz as UTMs |
+| CAPI | igual à Cakto (fila `conversion_dispatches`, `event_id` = `hotmart:<transação>:Purchase`). Pixel do Facebook **vazio** no produto da Hotmart (um remetente só) |
+| Moeda | os relatórios filtram pela moeda da **oferta**: oferta com vendas em MXN precisa ter `currency=MXN` (`hotmart-vincular --moeda MXN`). O gasto da Meta (conta em USD) só entra com `fx_rate` da conta da oferta |
+
+Comandos: `hotmart-hottok` · `hotmart-vincular` · `hotmart-verificar --oferta <slug>` · `hotmart-simular --confirmar` (venda de teste no receptor de produção, oferta temporária **sem pixel**, apaga tudo).
+Código: `src/app/api/webhooks/hotmart/route.ts`, `src/lib/services/hotmart-webhook.ts`, `src/lib/core/hotmart/{normalize,signature}.ts`, testes em `tests/hotmart.test.ts`.
+Pendente de confirmar com um evento real: nomes exatos dos campos do payload v2 (usei a documentação; o `hotmart-simular` cobre o fluxo, a 1ª venda real confirma os campos).
+
 ## 2.2 Botão "Pedir ao Claude" no painel
 
 O painel tem botões **✦ Pedir ao Claude / Resolver com o Claude** que abrem o Claude Code **no VS Code deste

@@ -157,7 +157,7 @@ export async function attributeOrder(
 }
 
 /** Cria dispatches CAPI (um por pixel ativo da oferta). Idempotente pela unique (order, pixel, evento). */
-export async function enqueuePurchaseDispatches(db: Db, workspaceId: string, orderId: string, offerId: string | null, externalOrderId: string) {
+export async function enqueuePurchaseDispatches(db: Db, workspaceId: string, orderId: string, offerId: string | null, externalOrderId: string, provider = "cakto") {
   if (!offerId) return 0;
   const { data: links } = await db
     .from("offer_pixels")
@@ -170,7 +170,7 @@ export async function enqueuePurchaseDispatches(db: Db, workspaceId: string, ord
     order_id: orderId,
     pixel_id: l.pixel_id,
     event_name: "Purchase",
-    event_id: purchaseEventId("cakto", externalOrderId),
+    event_id: purchaseEventId(provider, externalOrderId),
   }));
   if (!rows.length) return 0;
   await db.from("conversion_dispatches").upsert(rows, { onConflict: "order_id,pixel_id,event_name", ignoreDuplicates: true });
@@ -243,7 +243,7 @@ export async function ingestOrder(
   }
 
   if (r.status === "paid" && (r.inserted || r.previous_status !== "paid")) {
-    await enqueuePurchaseDispatches(db, workspaceId, r.order_id, offerId, o.external_order_id);
+    await enqueuePurchaseDispatches(db, workspaceId, r.order_id, offerId, o.external_order_id, o.provider);
   }
 
   if (!r.applied && r.reason && r.reason !== "same_status") {

@@ -655,9 +655,168 @@ const HELP = `UTMFY — configura ofertas, pixels e webhooks (qualquer chat)
   node ~/.utmfy/utmfy.mjs capi-renovar-tokens --confirmar                token do Usuário do Sistema trocado: regrava no Vault de todos os pixels
   node ~/.utmfy/utmfy.mjs simular --confirmar            venda de teste ponta a ponta (apaga tudo no fim)
 
+  node ~/.utmfy/utmfy.mjs hotmart-hottok --confirmar                     guarda o hottok do webhook da Hotmart no Vault (lê da sessão logada; nunca imprime)
+  node ~/.utmfy/utmfy.mjs hotmart-vincular --oferta <slug> --produto <id[,id]> [--moeda MXN] --confirmar   liga produto(s) da Hotmart a uma oferta (e troca a moeda dela)
+  node ~/.utmfy/utmfy.mjs hotmart-verificar --oferta <slug>              checklist ✓/✗ do receptor, hottok, vínculo, webhook e moeda
+  node ~/.utmfy/utmfy.mjs hotmart-simular --confirmar                    teste ponta a ponta no receptor da Hotmart (oferta temporária, sem pixel; apaga tudo)
+
 Gravações exigem --confirmar; sem a flag é só simulação. Guia: INTEGRACAO-CHATS.md`;
 
-const COMMANDS = { status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
+// ------------------------------------------------------------------ Hotmart ---
+// Webhook GERAL da Hotmart (produtos "todos"): <app>/api/webhooks/hotmart. A oferta sai do vínculo produto → oferta
+// (tabela offer_cakto_items com source 'manual'; o nome da coluna é histórico). O hottok mora no Vault (tipo cakto_webhook,
+// dono = workspace, sem migration). Sessão da Hotmart: ~/.hotmart/sessao.mjs (Chrome 9556, o usuário faz o login).
+const HOTMART_URL = `${APP}/api/webhooks/hotmart`;
+let _hm;
+async function hotmart() {
+  if (!_hm) {
+    const file = join(homedir(), ".hotmart", "sessao.mjs");
+    if (!existsSync(file)) throw new Error(`sessão da Hotmart não encontrada em ${file}`);
+    _hm = await import(pathToFileURL(file).href);
+  }
+  return _hm;
+}
+const HOTMART_SALE_EVENTS = ["PURCHASE_APPROVED", "PURCHASE_BILLET_PRINTED", "PURCHASE_CANCELED", "PURCHASE_REFUNDED", "PURCHASE_CHARGEBACK"];
+
+async function hotmartHottokCmd() {
+  const ws = await workspaceId();
+  if (!dryRun("vai guardar o hottok do webhook da Hotmart no Vault do UTMFY (o valor nunca é impresso).", { workspace: WS_SLUG })) return;
+  const tok = await (await hotmart()).hotmartHottok();
+  await rpc("store_secret", { p_workspace: ws, p_owner_type: "cakto_webhook", p_owner_id: ws, p_secret: tok });
+  const back = await rpc("read_secret", { p_owner_type: "cakto_webhook", p_owner_id: ws });
+  check(back === tok, "hottok guardado no Vault e relido");
+}
+
+async function hotmartVincular() {
+  const offer = await findOffer(f.oferta);
+  const ids = list(f.produto);
+  if (!ids.length) throw new Error("informe --produto <id Hotmart>[,id] (ex.: 8813153)");
+  const prods = await (await hotmart()).hotmartProducts();
+  const rows = [];
+  for (const id of ids) {
+    if (!/^\d+$/.test(id)) throw new Error(`id Hotmart inválido: ${id} (é numérico)`);
+    const prod = prods.find((x) => String(x.id) === id);
+    if (!prod) throw new Error(`produto ${id} não está na conta da Hotmart logada`);
+    const [dup] = await db("GET", `offer_cakto_items?select=offer_id&workspace_id=eq.${offer.workspace_id}&cakto_product_id=eq.${id}&cakto_offer_id=is.null`);
+    if (dup && dup.offer_id !== offer.id) throw new Error(`produto ${id} já pertence a outra oferta`);
+    rows.push({ id, name: prod.name, exists: !!dup });
+  }
+  const moeda = f.moeda && f.moeda !== true ? String(f.moeda).toUpperCase() : null;
+  if (moeda && !/^[A-Z]{3}$/.test(moeda)) throw new Error("--moeda deve ter 3 letras (ex.: MXN)");
+  if (!dryRun(`vai vincular à oferta "${offer.name}" os produtos Hotmart: ${rows.map((r) => `${r.id} (${r.name})${r.exists ? " [já vinculado]" : ""}`).join("; ")}${moeda ? ` e trocar a moeda da oferta ${offer.currency} → ${moeda}` : ""}`)) return;
+  for (const r of rows.filter((x) => !x.exists)) {
+    await db("POST", "offer_cakto_items", { workspace_id: offer.workspace_id, offer_id: offer.id, cakto_product_id: r.id, product_name: r.name, label: r.name, source: "manual" });
+  }
+  if (moeda) await db("PATCH", `offers?id=eq.${offer.id}`, { currency: moeda });
+  const items = await db("GET", `offer_cakto_items?select=cakto_product_id,source&offer_id=eq.${offer.id}`);
+  check(rows.every((r) => items.some((i) => i.cakto_product_id === r.id)), "produtos vinculados à oferta (relido)");
+  if (moeda) check((await db("GET", `offers?select=currency&id=eq.${offer.id}`))[0]?.currency === moeda, `moeda da oferta = ${moeda}`);
+}
+
+async function hotmartVerificar() {
+  const offer = await findOffer(f.oferta);
+  const hm = await hotmart();
+  p(`Hotmart — ${offer.name} (${offer.slug})`);
+  const root = await fetch(HOTMART_URL).then((r) => r.status).catch(() => 0);
+  check(root === 200, `receptor no ar (GET /api/webhooks/hotmart → ${root})`, "confira o deploy na Vercel (projeto utmfy-tracker)");
+  const sec = await rpc("read_secret", { p_owner_type: "cakto_webhook", p_owner_id: offer.workspace_id });
+  check(!!sec, "hottok guardado no Vault", "rode: node ~/.utmfy/utmfy.mjs hotmart-hottok --confirmar");
+  const items = (await db("GET", `offer_cakto_items?select=cakto_product_id,product_name&offer_id=eq.${offer.id}`)).filter((i) => /^\d+$/.test(i.cakto_product_id));
+  check(items.length > 0, `produtos Hotmart vinculados: ${items.map((i) => `${i.cakto_product_id} ${i.product_name ?? ""}`.trim()).join("; ") || "nenhum"}`, "rode: node ~/.utmfy/utmfy.mjs hotmart-vincular --oferta <slug> --produto <id> --confirmar");
+  const prods = await hm.hotmartProducts();
+  for (const i of items) check(prods.some((x) => String(x.id) === i.cakto_product_id && x.status === "ACTIVE"), `produto ${i.cakto_product_id} ativo na Hotmart`, "produto em rascunho/análise: a venda só entra depois de aprovado");
+  const groups = (await hm.hotmartWebhookGroups()).filter((g) => String(g.url).split("?")[0] === HOTMART_URL);
+  if (check(groups.length > 0, "webhook da Hotmart aponta para a UTMFY", `crie na Hotmart (Ferramentas → Webhook) com a URL ${HOTMART_URL}`)) {
+    const g = groups[0];
+    check(g.active, "webhook ativo");
+    check(HOTMART_SALE_EVENTS.every((e) => (g.event ?? []).includes(e)), "eventos de venda marcados", `faltam: ${HOTMART_SALE_EVENTS.filter((e) => !(g.event ?? []).includes(e)).join(", ")}`);
+    const ids = (g.configs ?? []).map((c) => Number(c.product?.id));
+    check(ids.includes(0) || items.every((i) => ids.includes(Number(i.cakto_product_id))), ids.includes(0) ? "webhook vale para todos os produtos (os não vinculados são ignorados)" : "todos os produtos da oferta estão no webhook", "produto fora da lista vende e NUNCA dispara evento");
+  }
+  p(`  · moeda da oferta: ${offer.currency}`);
+  if (offer.currency !== "MXN") warn("as vendas da Hotmart do 120 Fallas são em MXN: troque a moeda da oferta (hotmart-vincular --moeda MXN), senão o relatório as esconde");
+  const n = (await db("GET", `orders?select=id&provider=eq.hotmart&offer_id=eq.${offer.id}&source=neq.test`)).length;
+  p(`  · pedidos da Hotmart nesta oferta: ${n}`);
+  if (!n) warn("sem pedido da Hotmart ainda: o receptor só se prova com a 1ª venda real (ou 'hotmart-simular')");
+  p(process.exitCode ? "\nHá pendências (✗)." : "\nTudo certo.");
+}
+
+/** Venda de teste ponta a ponta pelo receptor da Hotmart (oferta temporária, produto fictício, SEM pixel = nunca chega à Meta) e limpeza. */
+async function hotmartSimular() {
+  if (!dryRun("vai simular eventos da Hotmart no receptor de PRODUÇÃO (oferta temporária 'SIMULAÇÃO HOTMART – APAGAR', pedidos SIMHM-*) e apagar tudo no fim. A oferta não tem pixel: nada vai para a Meta.")) return;
+  const hottok = await (await hotmart()).hotmartHottok();
+  const ws = await workspaceId();
+  const stamp = Date.now();
+  const PRODUCT = `9${String(stamp).slice(-8)}`;
+  const OTHER = `8${String(stamp).slice(-8)}`;
+  const tx = { A: `SIMHM-A-${stamp}`, B: `SIMHM-B-${stamp}`, X: `SIMHM-X-${stamp}` };
+  const sess = `simsess${String(stamp).slice(-8)}`;
+  const mk = (event, transaction, value, productId = PRODUCT) => JSON.stringify({
+    id: `sim-${stamp}-${event}-${transaction}`, creation_date: Date.now(), event, version: "2.0.0", hottok,
+    data: {
+      product: { id: Number(productId), ucode: "sim", name: "Produto SIMULAÇÃO Hotmart" },
+      buyer: { email: "simulacao@example.com", name: "Cliente Simulacao", address: { country_iso: "MX" }, checkout_phone: "5512345678", checkout_phone_code: "52" },
+      commissions: [{ value: Math.round(value * 0.86 * 100) / 100, source: "PRODUCER", currency_value: "MXN" }],
+      purchase: {
+        approved_date: Date.now(), order_date: Date.now() - 60000, price: { value, currency_value: "MXN" }, status: event.replace("PURCHASE_", ""), transaction,
+        payment: { type: "CREDIT_CARD", installments_number: 1 }, offer: { code: "simoffer" }, origin: { sck: sess }, order_bump: { is_order_bump: false },
+      },
+    },
+  });
+  const send = async (raw, token = hottok) => {
+    const r = await fetch(HOTMART_URL, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Hotmart-Webhook/simulacao", ...(token ? { "X-HOTMART-HOTTOK": token } : {}) }, body: raw });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  let offer;
+  try {
+    [offer] = await db("POST", "offers", { workspace_id: ws, name: "SIMULAÇÃO HOTMART – APAGAR", slug: `simulacao-hotmart-apagar-${stamp}`, currency: "MXN", timezone: "America/Mexico_City" });
+    await db("POST", "offer_cakto_items", { workspace_id: ws, offer_id: offer.id, cakto_product_id: PRODUCT, product_name: "Produto SIMULAÇÃO Hotmart", label: "SIM", source: "manual" });
+    p("\n[segurança]");
+    check((await send(mk("PURCHASE_APPROVED", tx.X, 197), "errado")).status === 401, "hottok errado recusado (401)");
+    check((await send(mk("PURCHASE_APPROVED", tx.X, 197).replace(/"hottok":"[^"]*",/, ""), "")).status === 401, "sem hottok recusado (401)");
+    p("\n[produto que não é nosso]");
+    const o = await send(mk("PURCHASE_APPROVED", tx.X, 197, OTHER));
+    check(o.status === 200 && o.body.ignored === "product_not_mapped", "produto não vinculado: 200 'ignorado' (a Hotmart para de repetir)");
+    check((await db("GET", `webhook_events?select=id&external_order_id=eq.${tx.X}`)).length === 0, "produto não vinculado não grava evento nenhum");
+    p("\n[fluxo de venda]");
+    check((await send(mk("PURCHASE_BILLET_PRINTED", tx.A, 197))).status === 200, "A: pagamento pendente (boleto/OXXO/PIX gerado)");
+    check((await send(mk("PURCHASE_APPROVED", tx.A, 197))).status === 200, "A: compra aprovada MX$ 197");
+    check((await send(mk("PURCHASE_APPROVED", tx.B, 147))).status === 200, "B: compra aprovada MX$ 147");
+    await new Promise((s) => setTimeout(s, 1200));
+    check((await send(mk("PURCHASE_REFUNDED", tx.B, 147))).status === 200, "B: reembolso");
+    p("\n[gravado]");
+    const orders = await db("GET", "orders?select=id,external_order_id,status,gross_amount,net_amount,currency,provider,offer_id,source,callback&external_order_id=like.SIMHM-*");
+    const by = (k) => orders.find((x) => x.external_order_id === tx[k]);
+    check(orders.length === 2, `2 pedidos gravados (${orders.length})`);
+    check(by("A")?.status === "paid" && Number(by("A").gross_amount) === 197 && by("A").currency === "MXN" && by("A").provider === "hotmart" && by("A").offer_id === offer.id && by("A").source === "webhook", "A: paga, MX$ 197, provedor hotmart, na oferta certa");
+    check(Math.abs(Number(by("A")?.net_amount) - 197 * 0.86) < 0.011, `A: líquido = comissão do produtor (${by("A")?.net_amount})`);
+    check(by("B")?.status === "refunded", "B: reembolsado");
+    const [at] = await db("GET", `order_attribution?select=sck&order_id=eq.${by("A").id}`);
+    check(at?.sck === sess, "A: sck (sessão do tracker) guardado na atribuição");
+    await send(mk("PURCHASE_APPROVED", tx.A, 197));
+    check((await db("GET", "orders?select=id&external_order_id=like.SIMHM-*")).length === 2, "reenvio da mesma venda não duplica");
+    check((await db("GET", `conversion_dispatches?select=id&order_id=eq.${by("A").id}`)).length === 0, "oferta sem pixel: nada entra na fila da Meta");
+    check(!JSON.stringify(await db("GET", `webhook_events?select=payload&external_order_id=eq.${tx.A}`)).includes("example.com"), "payload de auditoria sem e-mail em claro");
+  } catch (e) {
+    p(`\nERRO NA SIMULAÇÃO: ${e.message}`); process.exitCode = 1;
+  } finally {
+    p("\n[limpeza]");
+    try {
+      const sim = await db("GET", "orders?select=id&external_order_id=like.SIMHM-*");
+      const idList = sim.map((x) => x.id).join(",");
+      if (idList) {
+        for (const t of ["order_attribution", "order_status_history", "conversion_dispatches"]) { try { await db("DELETE", `${t}?order_id=in.(${idList})`); } catch { /* sem linhas */ } }
+        await db("DELETE", `orders?id=in.(${idList})`);
+      }
+      await db("DELETE", "webhook_events?external_order_id=like.SIMHM-*");
+      if (offer?.id) { await db("DELETE", `offer_cakto_items?offer_id=eq.${offer.id}`); await db("DELETE", `offers?id=eq.${offer.id}`); }
+      const left = (await db("GET", "orders?select=id&external_order_id=like.SIMHM-*")).length + (await db("GET", "offers?select=id&slug=like.simulacao-hotmart-apagar-*")).length + (await db("GET", "webhook_events?select=id&external_order_id=like.SIMHM-*")).length;
+      check(left === 0, "dados de teste removidos");
+    } catch (e) { p(`LIMPEZA FALHOU: ${e.message} — apague as linhas SIMHM-* e a oferta "SIMULAÇÃO HOTMART – APAGAR"`); process.exitCode = 1; }
+  }
+}
+
+const COMMANDS = { "hotmart-hottok": hotmartHottokCmd, "hotmart-vincular": hotmartVincular, "hotmart-verificar": hotmartVerificar, "hotmart-simular": hotmartSimular, status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
 try {
   if (!cmd || cmd === "ajuda" || cmd === "help" || !COMMANDS[cmd]) { p(HELP); if (cmd && !COMMANDS[cmd] && cmd !== "ajuda" && cmd !== "help") process.exitCode = 1; }
   else await COMMANDS[cmd]();
