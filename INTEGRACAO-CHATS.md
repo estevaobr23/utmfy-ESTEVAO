@@ -156,6 +156,13 @@ Comandos: `hotmart-hottok` · `hotmart-vincular` · `hotmart-verificar --oferta 
 Código: `src/app/api/webhooks/hotmart/route.ts`, `src/lib/services/hotmart-webhook.ts`, `src/lib/core/hotmart/{normalize,signature}.ts`, testes em `tests/hotmart.test.ts`.
 Pendente de confirmar com um evento real: nomes exatos dos campos do payload v2 (usei a documentação; o `hotmart-simular` cobre o fluxo, a 1ª venda real confirma os campos).
 
+**Estado e fluxo validado (26/10/2026):** `hottok` no Vault, produto Hotmart **8814892** ligado à oferta `120-fallas-de-lavadoras` (moeda **USD**), `hotmart-verificar` sem ✗ e `hotmart-simular` 100% ✓.
+- Webhook da Hotmart é configurado **uma vez** (todos os produtos); produto novo = só `hotmart-vincular` (simular o plano antes de `--confirmar`). Produto não ligado: `200 ignorado`, nada gravado.
+- `t.js` precisa de `data-checkout-domains="pay.hotmart.com"` na página da Hotmart para pôr o `sck` no link (por padrão só decora `pay.cakto.com.br`).
+- O receptor aceita o hottok do cabeçalho **ou** do corpo (a Hotmart manda os dois). O teste "hottok errado" do simulador agora invalida os dois (corrigido em `scripts/utmfy-cli.mjs`).
+- `hotmart-verificar` ainda mostra o aviso fixo "vendas em MXN"; com oferta em USD é ignorável. Falta: 1ª venda real (campos do payload e `sck`); CAPI depois (decisão do dono).
+- Criação de produto/ofertas na Hotmart e armadilhas (415 do hottok etc.): skill `criar-produto-hotmart`.
+
 ## 2.2 Botão "Pedir ao Claude" no painel
 
 O painel tem botões **✦ Pedir ao Claude / Resolver com o Claude** que abrem o Claude Code **no VS Code deste

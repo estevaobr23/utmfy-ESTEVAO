@@ -215,6 +215,17 @@ async function pixelVincular() {
   p("vinculado. Clique em Atualizar no painel: as campanhas que usam esse pixel entram na oferta sozinhas.");
 }
 
+/** Desliga o pixel atual da oferta (offer_pixels.active=false; reversível com pixel-vincular) para poder trocar por outro. Não mexe na Meta. */
+async function pixelDesvincular() {
+  const offer = await findOffer(f.oferta);
+  const rows = await db("GET", `offer_pixels?select=pixel_id,pixels(name,external_pixel_id)&offer_id=eq.${offer.id}&active=eq.true`);
+  if (!rows.length) throw new Error(`a oferta "${offer.name}" não tem pixel ativo`);
+  const px = rows[0].pixels;
+  if (!dryRun(`vai DESLIGAR o pixel "${px?.name}" (${px?.external_pixel_id}) da oferta "${offer.name}" (nada é apagado; o pixel segue na Meta):`)) return;
+  await db("PATCH", `offer_pixels?offer_id=eq.${offer.id}&pixel_id=eq.${rows[0].pixel_id}`, { active: false });
+  check((await pixelOf(offer)) === "", "pixel desligado da oferta (relido)");
+}
+
 /** Leitura (sem gravar): o pixel já existe na Meta? Devolve o pixel a reaproveitar, ou null se pode criar; lança erro se for duplicar. */
 async function metaPixelPreflight(conta, name, reuse) {
   const { graph } = await metaApi();
@@ -772,7 +783,8 @@ async function hotmartSimular() {
     [offer] = await db("POST", "offers", { workspace_id: ws, name: "SIMULAÇÃO HOTMART – APAGAR", slug: `simulacao-hotmart-apagar-${stamp}`, currency: "MXN", timezone: "America/Mexico_City" });
     await db("POST", "offer_cakto_items", { workspace_id: ws, offer_id: offer.id, cakto_product_id: PRODUCT, product_name: "Produto SIMULAÇÃO Hotmart", label: "SIM", source: "manual" });
     p("\n[segurança]");
-    check((await send(mk("PURCHASE_APPROVED", tx.X, 197), "errado")).status === 401, "hottok errado recusado (401)");
+    // o receptor aceita o hottok do cabeçalho OU do corpo (a Hotmart manda os dois): o "errado" tem que valer nos dois lugares
+    check((await send(mk("PURCHASE_APPROVED", tx.X, 197).replace(/"hottok":"[^"]*",/, '"hottok":"errado",'), "errado")).status === 401, "hottok errado (cabeçalho e corpo) recusado (401)");
     check((await send(mk("PURCHASE_APPROVED", tx.X, 197).replace(/"hottok":"[^"]*",/, ""), "")).status === 401, "sem hottok recusado (401)");
     p("\n[produto que não é nosso]");
     const o = await send(mk("PURCHASE_APPROVED", tx.X, 197, OTHER));
@@ -816,7 +828,7 @@ async function hotmartSimular() {
   }
 }
 
-const COMMANDS = { "hotmart-hottok": hotmartHottokCmd, "hotmart-vincular": hotmartVincular, "hotmart-verificar": hotmartVerificar, "hotmart-simular": hotmartSimular, status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
+const COMMANDS = { "hotmart-hottok": hotmartHottokCmd, "hotmart-vincular": hotmartVincular, "hotmart-verificar": hotmartVerificar, "hotmart-simular": hotmartSimular, status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, "pixel-desvincular": pixelDesvincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
 try {
   if (!cmd || cmd === "ajuda" || cmd === "help" || !COMMANDS[cmd]) { p(HELP); if (cmd && !COMMANDS[cmd] && cmd !== "ajuda" && cmd !== "help") process.exitCode = 1; }
   else await COMMANDS[cmd]();
