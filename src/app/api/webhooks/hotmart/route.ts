@@ -3,6 +3,10 @@ import { env } from "@/lib/env";
 import { adminClient } from "@/lib/supabase/admin";
 import { processDispatches } from "@/lib/services/capi-dispatch";
 import { handleHotmartWebhook } from "@/lib/services/hotmart-webhook";
+import { logEvent } from "@/lib/services/logs";
+import { buildAreaRelay } from "@/lib/core/hotmart/area-relay";
+
+const AREA_URL = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/lavadoras-webhook";
 
 // POST /api/webhooks/hotmart            (webhook GERAL: produtos "todos"; a oferta sai do mapeamento produto → oferta)
 // POST /api/webhooks/hotmart?ws=<slug>   (idem, escolhendo o workspace)
@@ -28,6 +32,20 @@ export async function POST(request: Request) {
   if (out.httpStatus === 200 && out.body.ok === true && out.body.status === "paid" && env.capiEnabled) {
     after(async () => {
       await processDispatches(adminClient(), { limit: 20, trigger: "cron" }).catch(() => null);
+    });
+  }
+  // Acesso da área de membros: repasse (webhook único). Só com hottok válido (200) e fora da resposta à Hotmart.
+  const secretArea = process.env.AREA_WEBHOOK_SECRET;
+  if (out.httpStatus === 200 && secretArea) {
+    after(async () => {
+      try {
+        const relay = buildAreaRelay(JSON.parse(rawBody), (process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892").split(",").map((s) => s.trim()).filter(Boolean));
+        if (!relay) return;
+        const r = await fetch(process.env.AREA_WEBHOOK_URL ?? AREA_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: secretArea, ...relay }) });
+        if (!r.ok) await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: `status ${r.status}`, context: { event: relay.event, transaction: relay.data.id } });
+      } catch (e) {
+        await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: (e as Error).message.slice(0, 200) }).catch(() => null);
+      }
     });
   }
   return NextResponse.json(out.body, { status: out.httpStatus });
