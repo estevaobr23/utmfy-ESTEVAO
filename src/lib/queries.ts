@@ -10,6 +10,7 @@ import type { Workspace } from "./session";
 import type { AdsetConfig, CampaignConfig, ReachLevel, VideoRow } from "./core/meta-advanced";
 import { buildSummaryAnalytics, isMetaSession, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
 import { timed } from "./perf";
+import { convertOrders, type FxRate } from "./core/order-fx";
 
 // Consultas da interface. Toda métrica passa por core/metrics.ts (via report.ts).
 
@@ -153,7 +154,7 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
 export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true, metaPixel: { pageviews: number; checkouts: number } | null = null) {
   return timed("summary.analytics", { offerScoped: !!f.offer }, async () => {
   const { start, end } = dayRangeUtc(f.from, f.to, ws.timezone);
-  const fields = "id,status,gross_amount,base_amount,payment_method,product_name,offer_type,paid_at,provider_created_at";
+  const fields = "id,status,currency,gross_amount,base_amount,payment_method,product_name,offer_type,paid_at,provider_created_at";
   let paidQuery = sb.from("orders").select(fields)
     .eq("workspace_id", ws.id)
     .neq("source", "test")
@@ -178,8 +179,17 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
   if (paidResult.error) throw new Error(`summary paid orders: ${paidResult.error.message}`);
   if (attemptsResult.error) throw new Error(`summary attempts: ${attemptsResult.error.message}`);
   if (sessionsResult.error) throw new Error(`summary sessions: ${sessionsResult.error.message}`);
-  const paidOrders = (paidResult.data ?? []) as unknown as SummaryOrder[];
-  const attempts = (attemptsResult.data ?? []) as unknown as SummaryOrder[];
+  // Pedidos em outra moeda (ex.: USD) entram convertidos para a moeda do workspace, como o relatório principal.
+  const rawPaid = (paidResult.data ?? []) as unknown as SummaryOrder[];
+  const rawAttempts = (attemptsResult.data ?? []) as unknown as SummaryOrder[];
+  const foreign = [...new Set([...rawPaid, ...rawAttempts].map((o) => o.currency).filter((c): c is string => !!c && c !== ws.currency))];
+  let fxRates: FxRate[] = [];
+  if (foreign.length) {
+    const { data } = await sb.from("fx_rates").select("currency, date, rate").in("currency", foreign).order("date", { ascending: false }).limit(400);
+    fxRates = ((data ?? []) as { currency: string; date: string; rate: number | string }[]).map((r) => ({ currency: r.currency, date: r.date, rate: Number(r.rate) }));
+  }
+  const paidOrders = convertOrders(rawPaid, ws.currency, fxRates, ws.timezone);
+  const attempts = convertOrders(rawAttempts, ws.currency, fxRates, ws.timezone);
   const ids = [...new Set([...paidOrders, ...attempts].map((order) => order.id))];
   const attributionResult = ids.length
     ? await sb.from("order_attribution").select("order_id,utm_source,attribution_status,account_id").in("order_id", ids)

@@ -41,6 +41,7 @@ export type SummaryAnalytics = {
 
 export type SummaryOrder = {
   id: string;
+  currency?: string | null;
   status: string;
   gross_amount: number | string | null;
   base_amount: number | string | null;
