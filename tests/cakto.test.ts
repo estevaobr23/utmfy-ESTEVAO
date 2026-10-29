@@ -103,7 +103,7 @@ describe("envelope e normalização", () => {
     expect(normalizeCaktoOrder({ status: "paid" })).toEqual({ error: "missing_order_id" });
   });
   it("formato da API (valores como string, sem objeto offer)", () => {
-    const n = normalizeCaktoOrder({ ...caktoOrder(), offer: undefined, amount: "34.35", baseAmount: "33.00", fees: "1.52", checkoutUrl: "https://pay.cakto.com.br/EXAMPLE?x=1" });
+    const n = normalizeCaktoOrder({ ...caktoOrder(), offer: undefined, amount: "34.35", baseAmount: "33.00", fees: "1.52", commissions: undefined, checkoutUrl: "https://pay.cakto.com.br/EXAMPLE?x=1" });
     expect("order" in n && n.order).toMatchObject({ gross_amount: 34.35, base_amount: 33, fees: 1.52, offer_external_id: "EXAMPLE" });
   });
   it("dinheiro em tipos mistos não concatena", () => {
@@ -147,6 +147,13 @@ describe("nome do comprador só como hash (CAPI)", () => {
 });
 
 describe("líquido pela comissão do produtor", () => {
+  it("venda internacional (USD): comissão do produtor vem em totalAmount", () => {
+    const n = normalizeCaktoOrder({ id: "ord-usd", status: "paid", amount: 12.99, baseAmount: 12, fees: 1.54, currency: "USD", paidAt: "2026-10-29T11:12:50Z", commissions: [{ type: "producer", percentage: 100, totalAmount: 10.46 }] }, {});
+    if ("error" in n) throw new Error(n.error);
+    expect(n.order.gross_amount).toBe(12.99);
+    expect(n.order.fees).toBe(2.53);
+    expect(n.order.net_amount).toBe(10.46);
+  });
   it("taxa de serviço paga pelo comprador (R$ 0,99) sai do líquido, como na UTMify", () => {
     const n = normalizeCaktoOrder({ id: "ord-1", status: "paid", amount: "30.89", baseAmount: "29.90", fees: "3.98", paidAt: "2026-10-11T12:00:00Z", commissions: [{ type: "producer", commissionValue: 25.92 }] }, {});
     if ("error" in n) throw new Error(n.error);
