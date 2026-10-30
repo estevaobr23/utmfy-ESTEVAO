@@ -95,6 +95,17 @@ describe("normalização", () => {
     return normalizeHotmartOrder(e.data!, { eventName: e.event, eventAt: e.eventAt });
   };
 
+  it("compra em moeda local com repasse em USD vira pedido em USD (o que o produtor recebe)", () => {
+    const r = norm("PURCHASE_APPROVED", {
+      commissions: [
+        { value: 0.99, source: "MARKETPLACE", currency_value: "USD" },
+        { value: 8.01, source: "PRODUCER", currency_value: "USD", currency_conversion: { conversion_rate: 5.38, converted_value: 43.11, converted_to_currency: "BRL" } },
+      ],
+      purchase: { ...webhook("X").data.purchase, price: { value: 382, currency_value: "UYU" }, original_offer_price: { value: 9.5, currency_value: "USD" } },
+    });
+    expect("order" in r && r.order).toMatchObject({ currency: "USD", gross_amount: 9, fees: 0.99, net_amount: 8.01, base_amount: 9.5 });
+  });
+
   it("venda aprovada em MXN", () => {
     const r = norm("PURCHASE_APPROVED");
     expect("order" in r && r.order).toMatchObject({
@@ -165,9 +176,9 @@ describe("normalização", () => {
     expect("order" in r && r.order).toMatchObject({ fees: 20, net_amount: 177 });
   });
 
-  it("comissão em outra moeda não é misturada (taxas ficam desconhecidas)", () => {
+  it("comissão em outra moeda não é misturada com o preço: o pedido passa para a moeda do repasse", () => {
     const r = norm("PURCHASE_APPROVED", { commissions: [{ value: 9, source: "PRODUCER", currency_value: "USD" }] });
-    expect("order" in r && r.order).toMatchObject({ fees: null, net_amount: 197 });
+    expect("order" in r && r.order).toMatchObject({ currency: "USD", gross_amount: 9, fees: 0, net_amount: 9 });
   });
 
   it("sck que não parece sessão não vira callback, mas continua em attribution.sck", () => {

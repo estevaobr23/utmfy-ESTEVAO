@@ -96,19 +96,39 @@ export function normalizeHotmartOrder(
   const status = opts.eventName && opts.eventName in HOTMART_EVENTS ? HOTMART_EVENTS[opts.eventName as keyof typeof HOTMART_EVENTS] : null;
   if (!status) return { error: `unknown_event:${String(opts.eventName ?? "")}` };
 
-  const currency = (str(price.currency_value) ?? str(price.currency_code) ?? "BRL").toUpperCase();
-  const gross = toMoney(price.value);
+  const priceCurrency = (str(price.currency_value) ?? str(price.currency_code) ?? "BRL").toUpperCase();
+  let currency = priceCurrency;
+  let gross = toMoney(price.value);
 
   // O que o produtor recebe é a comissão PRODUCER; taxas = cobrado − comissão (mesmo critério da Cakto). Só vale na mesma moeda.
   const commissions = Array.isArray(data.commissions) ? (data.commissions as Record<string, unknown>[]) : [];
-  const producerNets = commissions
+  const commCurrency = (c: Record<string, unknown>) => String(c.currency_code ?? c.currency_value ?? "").toUpperCase();
+
+  // Comprador pagou em moeda local (ARS, UYU, MXN...) e a Hotmart repassa ao produtor na moeda da conta (comissões em USD):
+  // vale o que o produtor recebe. Sem isso o pedido ficava em moeda sem cotação e sumia do painel.
+  const payoutCurrency = !(price.currency_value ?? price.currency_code) ? undefined : commissions.map((c) => (isObject(c) ? commCurrency(c) : "")).find((c) => c && c !== priceCurrency);
+  let payoutNet: number | null = null;
+  let payoutFees: number | null = null;
+  if (payoutCurrency) {
+    const sameCur = commissions.filter((c) => isObject(c) && commCurrency(c) === payoutCurrency) as Record<string, unknown>[];
+    const val = (c: Record<string, unknown>) => toMoney(c.value) ?? 0;
+    const net = sameCur.filter((c) => String(c.source ?? "").toUpperCase() === "PRODUCER");
+    if (net.length) {
+      payoutNet = Math.round(net.reduce((a, c) => a + val(c), 0) * 100) / 100;
+      payoutFees = Math.round(sameCur.filter((c) => !net.includes(c)).reduce((a, c) => a + val(c), 0) * 100) / 100;
+      currency = payoutCurrency;
+      gross = Math.round((payoutNet + payoutFees) * 100) / 100;
+    }
+  }
+
+  const producerNets = payoutNet != null ? [payoutNet] : commissions
     .filter((c) => isObject(c) && String(c.source ?? "").toUpperCase() === "PRODUCER" && (!(c.currency_code ?? c.currency_value) || String(c.currency_code ?? c.currency_value).toUpperCase() === currency))
     .map((c) => toMoney(c.value))
     .filter((v): v is number => v != null);
   const producerNet = producerNets.length ? producerNets.reduce((a, b) => a + b, 0) : null;
   const feeObj = obj(purchase.hotmart_fee);
   const feeSameCurrency = !feeObj.currency_code || String(feeObj.currency_code).toUpperCase() === currency;
-  const fees = gross != null && producerNet != null ? Math.round((gross - producerNet) * 100) / 100 : feeSameCurrency ? toMoney(feeObj.total) : null;
+  const fees = payoutFees ?? (gross != null && producerNet != null ? Math.round((gross - producerNet) * 100) / 100 : feeSameCurrency ? toMoney(feeObj.total) : null);
 
   const email = normalizeEmail(buyer.email);
   const phone = normalizeHotmartPhone(buyer.checkout_phone ?? buyer.phone, buyer.checkout_phone_code ?? buyer.phone_code);
@@ -135,7 +155,9 @@ export function normalizeHotmartOrder(
     offer_name: null,
     checkout_id: null,
     currency,
-    base_amount: toMoney(purchase.original_offer_price ? obj(purchase.original_offer_price).value : null) ?? gross,
+    base_amount: (str(obj(purchase.original_offer_price).currency_value ?? obj(purchase.original_offer_price).currency_code)?.toUpperCase() ?? currency) === currency
+      ? toMoney(purchase.original_offer_price ? obj(purchase.original_offer_price).value : null) ?? gross
+      : gross,
     gross_amount: gross,
     fees,
     discount: null,
