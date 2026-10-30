@@ -102,6 +102,12 @@ export async function handleHotmartWebhook(
     return { httpStatus: 200, body: { ok: false, processed: 0, errors: 1 } };
   }
   try {
+    // Evento sem a comissão do repasse (ex.: reembolso) voltaria o pedido para a moeda do comprador (ARS, UYU, MXN...),
+    // sem cotação, e ele sumiria do painel. Se o pedido já foi gravado em outra moeda, os valores gravados são mantidos.
+    const { data: prev } = await db.from("orders").select("currency").eq("workspace_id", workspaceId).eq("provider", "hotmart").eq("external_order_id", n.order.external_order_id).maybeSingle();
+    if (prev?.currency && prev.currency !== n.order.currency) {
+      Object.assign(n.order, { currency: null, base_amount: null, gross_amount: null, fees: null, net_amount: null });
+    }
     const r = await ingestOrder(db, workspaceId, n.order, "webhook", { offerId });
     await finish("processed", null);
     return { httpStatus: 200, body: { ok: true, processed: 1, errors: 0, order: n.order.external_order_id, status: r.status, applied: r.applied, attribution: r.attribution } };
