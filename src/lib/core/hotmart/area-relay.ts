@@ -22,7 +22,7 @@ export type AreaRelay = { event: "purchase_approved" | "refund" | "chargeback"; 
 /**
  * Devolve o corpo (sem o `secret`) para a função da área, ou null se o evento não é de acesso, o produto não é o do 120 Fallas
  * ou faltam dados. `produtos` = ids numéricos da Hotmart que liberam a área (env AREA_HOTMART_PRODUCT_IDS; padrão 8814892).
- * Order bump não libera nada (a função da área só conhece o produto principal).
+ * Order bump libera como qualquer produto da lista: cada bump é uma transação própria (HP…) do produto dele.
  */
 export function buildAreaRelay(body: unknown, produtos: string[]): AreaRelay | null {
   const b = obj(body);
@@ -34,7 +34,6 @@ export function buildAreaRelay(body: unknown, produtos: string[]): AreaRelay | n
   const buyer = obj(data.buyer);
   const productId = str(product.id);
   if (!productId || !produtos.includes(productId)) return null;
-  if (obj(purchase.order_bump).is_order_bump === true) return null;
   const transaction = str(purchase.transaction);
   if (!transaction) return null;
   const email = str(buyer.email)?.toLowerCase() ?? null;

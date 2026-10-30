@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   if (out.httpStatus === 200 && secretArea) {
     after(async () => {
       try {
-        const relay = buildAreaRelay(JSON.parse(rawBody), (process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892").split(",").map((s) => s.trim()).filter(Boolean));
+        const relay = buildAreaRelay(JSON.parse(rawBody), (process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892,8844527,8844938,8844997,8844999").split(",").map((s) => s.trim()).filter(Boolean));
         if (!relay) return;
         const r = await fetch(process.env.AREA_WEBHOOK_URL ?? AREA_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: secretArea, ...relay }) });
         if (!r.ok) await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: `status ${r.status}`, context: { event: relay.event, transaction: relay.data.id } });
