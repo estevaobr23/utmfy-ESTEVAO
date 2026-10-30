@@ -52,7 +52,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
       </section>
       {!report.spendStatus.reliable && <div className="mb-3"><Notice tone="warn">{report.spendStatus.message} Lucro, ROAS, ROI, margem e CPA permanecem indisponíveis. {offerId && <Link href={`/ofertas/${offerId}/integracoes`} className="underline">Revisar integrações da oferta</Link>}</Notice></div>}
 
-      <KpiGrid m={report.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} />
+      <KpiGrid m={report.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} spendUsd={report.spendUsd} />
       <div className="mt-[19px]"><ConversionFunnel data={analytics.funnel} /></div>
       <div className="mt-[19px]"><SummaryAnalyticsGrid data={analytics} currency={ws.currency} /></div>
 

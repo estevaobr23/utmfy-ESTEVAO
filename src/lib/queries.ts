@@ -53,7 +53,7 @@ export function parseFilters(sp: SP, tz: string, fixedOffer?: string): Filters {
 export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { includeTree?: boolean } = {}) {
   return timed("report.load", { offerScoped: !!f.offer, includeTree: options.includeTree !== false }, async () => {
   const offers = f.offer ? [f.offer] : null;
-  const [spend, orders, offerLinks, workspaceOfferLinks, bindingResult, excluded, pixelScope, pixelEvents] = await Promise.all([
+  const [spend, orders, offerLinks, workspaceOfferLinks, bindingResult, excluded, pixelScope, pixelEvents, spendNative] = await Promise.all([
     timed("report.spend", { offerScoped: !!f.offer }, () => sb.rpc("report_spend_rows", {
       // O escopo de oferta é aplicado abaixo por IDs persistentes. Conta sem
       // filtro só é aceita quando pertence exclusivamente a uma oferta.
@@ -77,6 +77,11 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
     f.offer ? loadPixelDerivation(sb, ws.id) : Promise.resolve(null),
     // Eventos do pixel (visualização de página / início de checkout). Opcional: sem a função, o funil usa o tracker.
     sb.rpc("report_pixel_rows", { p_workspace: ws.id, p_from: f.from, p_to: f.to, p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad }),
+    // Mesmo gasto, sem conversão (moeda da conta, USD): o painel mostra US$ ao lado do valor em reais.
+    sb.rpc("report_spend_rows", {
+      p_workspace: ws.id, p_offer_ids: null, p_from: f.from, p_to: f.to, p_currency: null,
+      p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset, p_ad_id: f.ad,
+    }),
   ]);
   if (spend.error) throw new Error(`report_spend_rows: ${spend.error.message}`);
   if (orders.error) throw new Error(`report_order_rows: ${orders.error.message}`);
@@ -134,8 +139,17 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
     timed("report.spend_status", { offerScoped: !!f.offer }, () => loadSpendStatus(sb, ws, f, excludedSpend, scoped.pendingAccounts)),
   ]);
   const summary = totals(spendRows, orderRows, Number(other.data ?? 0));
+  // Só as mesmas linhas (conta/campanha/conjunto/anúncio) que entraram no gasto em reais, e só contas em USD.
+  const spendKey = (r: { account_id: string; campaign_id: string; adset_id: string; ad_id: string }) => `${r.account_id}|${r.campaign_id}|${r.adset_id}|${r.ad_id}`;
+  const scopedKeys = new Set(spendRows.map(spendKey));
+  const spendUsd: number | null = spendNative.error
+    ? null
+    : Math.round(((spendNative.data ?? []) as (SpendRow & { currency: string })[])
+        .filter((r) => r.currency === "USD" && scopedKeys.has(spendKey(r)))
+        .reduce((a, r) => a + Number(r.spend ?? 0), 0) * 100) / 100;
   return {
     summary,
+    spendUsd,
     tree: options.includeTree === false ? [] : buildTree(spendRows, orderRows),
     spendRows,
     orderRows,

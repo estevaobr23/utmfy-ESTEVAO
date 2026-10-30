@@ -10,12 +10,14 @@ import { Badge, Kpi } from "./ui";
 const ratio = (value: number | null) => (value == null ? "—" : formatNumber(value, 2));
 const roasTone = (value: number | null) => (value == null ? "default" : value >= 1.5 ? "good" : value < 1 ? "bad" : "warn");
 
-export function KpiGrid({ m, analytics, currency, untrackedHref, spend }: {
+export function KpiGrid({ m, analytics, currency, untrackedHref, spend, spendUsd }: {
   m: Derived;
   analytics: SummaryAnalytics;
   currency: string;
   untrackedHref?: string;
   spend?: SpendStatus;
+  /** Gasto na moeda da conta de anúncio (USD), mostrado ao lado do valor em reais. */
+  spendUsd?: number | null;
 }) {
   const money = (value: number | null) => formatMoney(value, currency);
   const reliable = spend?.reliable ?? true;
@@ -23,8 +25,8 @@ export function KpiGrid({ m, analytics, currency, untrackedHref, spend }: {
   return (
     <div>
       <div className="kpi-grid">
-        <Kpi size="lg" label="Faturamento líquido" value={money(m.net_revenue)} hint={`bruto ${money(m.gross_revenue)} · taxas ${money(m.fees)}`} definition="Receita bruta aprovada na Cakto menos reembolsos, chargebacks e taxas." />
-        <Kpi size="lg" label="Gastos com anúncios" value={reliable ? money(m.spend) : "—"} hint={reliable ? "Meta Ads" : "escopo incompleto"} tone={reliable ? "default" : "warn"} definition="Soma do gasto Meta somente das campanhas confirmadas para esta oferta." />
+        <Kpi size="lg" label="Faturamento líquido" value={money(m.net_revenue)} hint={`bruto ${money(m.gross_revenue)} · taxas ${money(m.fees)}`} definition="Receita bruta aprovada menos reembolsos, chargebacks e taxas." />
+        <Kpi size="lg" label="Gastos com anúncios" value={reliable ? <>{money(m.spend)}{spendUsd != null && currency !== "USD" && <span className="ml-2 text-base font-semibold text-copy-muted">{formatMoney(spendUsd, "USD")}</span>}</> : "—"} hint={reliable ? "Meta Ads" : "escopo incompleto"} tone={reliable ? "default" : "warn"} definition="Soma do gasto Meta somente das campanhas confirmadas para esta oferta." />
         <Kpi size="lg" label="ROAS" value={reliable ? ratio(m.roas) : "—"} tone={reliable ? roasTone(m.roas) : "default"} hint={reliable ? "faturamento líquido ÷ gasto" : unavailable} definition="Faturamento líquido dividido pelo gasto em anúncios. Não é calculado quando o gasto está incompleto." />
         <Kpi size="lg" label="Lucro" value={reliable ? money(m.profit) : "—"} tone={reliable ? (m.profit >= 0 ? "good" : "bad") : "default"} hint={reliable ? "líquido − gasto − custos" : unavailable} definition="Faturamento líquido menos gasto em anúncios e outros custos configurados." />
         <Kpi label="CPA" value={reliable ? money(m.cpa) : "—"} hint={reliable ? `${formatNumber(m.approved_count)} venda(s) aprovada(s)` : unavailable} definition="Gasto em anúncios dividido pelo número de pedidos principais aprovados." />
@@ -33,7 +35,7 @@ export function KpiGrid({ m, analytics, currency, untrackedHref, spend }: {
         <Kpi label="ARPU" value={money(m.ticket)} hint="líquido ÷ vendas aprovadas" definition="Faturamento líquido médio por pedido principal aprovado." />
         <div className="xl:col-start-2"><Kpi label="Vendas reembolsadas" value={money(m.refunded_amount)} hint={`${formatNumber(m.refunded_count)} pedido(s)`} tone={m.refunded_count ? "warn" : "default"} definition="Valor de pedidos pagos no período que hoje estão reembolsados." /></div>
         <Kpi label="Margem" value={reliable ? formatPct(m.margin, 2) : "—"} tone={reliable ? (m.margin != null && m.margin >= 0 ? "good" : "bad") : "default"} hint={reliable ? "lucro ÷ faturamento líquido" : unavailable} definition="Percentual do faturamento líquido que permanece como lucro estimado." />
-        <Kpi label="Taxas" value={money(m.fees)} hint="taxas registradas pela Cakto" definition="Soma das taxas dos pedidos aprovados no período." />
+        <Kpi label="Taxas" value={money(m.fees)} hint="taxas da plataforma de pagamento" definition="Soma das taxas dos pedidos aprovados no período." />
       </div>
       {m.untracked_count > 0 && (
         <p className="mt-[19px] rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200">

@@ -91,6 +91,13 @@ textarea {
   color-scheme: dark;
 }
 
+/* Lista aberta do select: no Windows ela saía branca com texto claro (opções invisíveis). */
+select option,
+select optgroup {
+  background-color: var(--app-bg);
+  color: var(--text);
+}
+
 .kpi-grid {
   display: grid;
   gap: 19px;

@@ -15,15 +15,17 @@ export function PeriodControl({ preset, from, to, selectClassName, inputClassNam
   inputClassName: string;
   labelClassName: string;
 }) {
-  const [custom, setCustom] = useState(preset === "custom");
+  // O valor do select precisa ser estado: preso à prop, ele voltava para "Hoje" e não deixava escolher outro período.
+  const [selected, setSelected] = useState(preset);
+  const custom = selected === "custom";
   return (
     <>
       <label className={labelClassName}>
         Período
         <select
           name="preset"
-          value={custom ? "custom" : preset}
-          onChange={(e) => setCustom(e.target.value === "custom")}
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
           className={selectClassName}
         >
           {PERIOD_PRESETS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}

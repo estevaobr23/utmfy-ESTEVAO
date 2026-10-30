@@ -80,7 +80,7 @@ export async function OrdersView({ sb, ws, sp, offerId, action }: { sb: Db; ws: 
       {!orders?.length ? (
         <Empty>
           {offerId
-            ? "Nenhum pedido desta oferta no período. Se você já vende, confira em Integrações se o webhook da Cakto desta oferta tem os produtos marcados."
+            ? "Nenhum pedido desta oferta no período. Se você já vende, confira em Integrações se o webhook desta oferta tem os produtos marcados."
             : "Nenhum pedido no período."}
         </Empty>
       ) : (
