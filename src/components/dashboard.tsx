@@ -44,7 +44,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
         <div className="flex min-h-[58px] flex-wrap items-center justify-between gap-3 border-b border-divider px-5 py-3">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h2 className="text-[17px] font-bold text-copy-strong">Resumo</h2>
-            <span className="text-xs text-copy-muted"><PeriodBadge f={filters} /> <span className="ml-2">fuso {ws.timezone} · moeda {ws.currency} · receita Cakto · gasto Meta</span></span>
+            <span className="text-xs text-copy-muted"><PeriodBadge f={filters} /> <span className="ml-2">fuso {ws.timezone} · moeda {ws.currency} · receita Hotmart · gasto Meta</span></span>
           </div>
           <span className="flex items-center gap-3 text-xs text-copy-muted">Atualizado {lastSync ? timeAgo(lastSync) : "nunca"}{canWrite && <RefreshButton />}</span>
         </div>
