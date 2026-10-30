@@ -5,6 +5,7 @@ import { processDispatches } from "@/lib/services/capi-dispatch";
 import { handleHotmartWebhook } from "@/lib/services/hotmart-webhook";
 import { logEvent } from "@/lib/services/logs";
 import { buildAreaRelay } from "@/lib/core/hotmart/area-relay";
+import { buildEntrega } from "@/lib/core/hotmart/entrega";
 
 const AREA_URL = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/lavadoras-webhook";
 
@@ -45,6 +46,21 @@ export async function POST(request: Request) {
         if (!r.ok) await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: `status ${r.status}`, context: { event: relay.event, transaction: relay.data.id } });
       } catch (e) {
         await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: (e as Error).message.slice(0, 200) }).catch(() => null);
+      }
+    });
+  }
+  // Entrega por WhatsApp: agenda a mensagem na ferramenta de recuperação (mesmo banco). Desligada por padrão no banco
+  // (recuperacao.config 'entrega'.ativo); sem telefone no webhook não faz nada.
+  if (out.httpStatus === 200) {
+    after(async () => {
+      try {
+        const pedido = buildEntrega(JSON.parse(rawBody), process.env.ENTREGA_PRODUCT_ID ?? "8845970");
+        if (!pedido) return;
+        const db = adminClient() as unknown as { schema: (s: string) => { rpc: (n: string, a: unknown) => Promise<{ data: unknown; error: { message: string } | null }> } };
+        const { error } = await db.schema("public").rpc("rec_entrega_registrar", { p: pedido });
+        if (error) await logEvent(adminClient(), { level: "error", code: "ENTREGA_FAILED", provider: "hotmart", message: error.message.slice(0, 200), context: { transaction: pedido.transaction } });
+      } catch (e) {
+        await logEvent(adminClient(), { level: "error", code: "ENTREGA_FAILED", provider: "hotmart", message: (e as Error).message.slice(0, 200) }).catch(() => null);
       }
     });
   }
