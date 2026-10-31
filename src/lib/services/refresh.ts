@@ -3,6 +3,7 @@ import type { Db } from "../supabase/types";
 import { addDays, todayIn } from "../core/dates";
 import { logEvent } from "./logs";
 import { syncCaktoOrders } from "./cakto-sync";
+import { syncHotmartSales } from "./hotmart-sync";
 import { syncOfferWebhooks } from "./offer-webhooks";
 import { syncMeta } from "./meta-sync";
 import { reattributePending } from "./orders";
@@ -57,6 +58,8 @@ export async function runRefreshExtras(db: Db, workspaceId: string, timezone: st
         if (await recentJob("cakto_reconcile", CAKTO_EVERY_MS)) return;
         await syncCaktoOrders(db, workspaceId, { from: `${addDays(today, -1)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "manual", skipWebhookSync: true, skipUnchanged: true });
       })(),
+      // Hotmart: rede de segurança do webhook (venda perdida entra, reembolso é aplicado). No máximo uma por minuto.
+      syncHotmartSales(db, workspaceId, { days: 3, minIntervalMs: CAKTO_EVERY_MS }).catch(() => null),
       syncOfferWebhooks(db, workspaceId).catch((e) => logEvent(db, { workspaceId, level: "warn", code: "CAKTO_WEBHOOKS_READ_FAILED", provider: "cakto", message: (e as Error).message })),
       (async () => {
         await metaFast.catch(() => null);

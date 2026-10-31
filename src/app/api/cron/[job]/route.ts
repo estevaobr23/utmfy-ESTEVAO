@@ -4,6 +4,7 @@ import { safeEqual } from "@/lib/core/hash";
 import { env } from "@/lib/env";
 import { adminClient } from "@/lib/supabase/admin";
 import { syncCaktoOrders } from "@/lib/services/cakto-sync";
+import { syncHotmartSales } from "@/lib/services/hotmart-sync";
 import { processDispatches } from "@/lib/services/capi-dispatch";
 import { syncMeta } from "@/lib/services/meta-sync";
 
@@ -36,6 +37,7 @@ async function run(job: string) {
       const today = todayIn(ws.timezone);
       r.cakto = (await syncCaktoOrders(db, ws.id, { from: `${addDays(today, -3)}T00:00:00Z`, to: `${addDays(today, 1)}T23:59:59Z`, mode: "reconcile", trigger: "cron" })).stats;
     }
+    if (job === "cakto-reconcile" || job === "all") r.hotmart = (await syncHotmartSales(db, ws.id, { days: 7 })).stats;
     results[ws.id] = r;
   }
   if (job === "capi-dispatch" || job === "all") results.capi = await processDispatches(db, { trigger: "cron" });

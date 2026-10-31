@@ -14,7 +14,7 @@ export type HotmartWebhookConfig = {
 };
 
 /** Produtos PRINCIPAIS (contam como venda); os demais produtos da oferta são complementos (bump/guia/Kit). */
-const HOTMART_MAIN_PRODUCT_IDS = (process.env.HOTMART_MAIN_PRODUCT_IDS ?? "8814892").split(",").map((x) => x.trim()).filter(Boolean);
+export const HOTMART_MAIN_PRODUCT_IDS = (process.env.HOTMART_MAIN_PRODUCT_IDS ?? "8814892").split(",").map((x) => x.trim()).filter(Boolean);
 
 /**
  * Webhook GERAL da Hotmart (uma URL para a conta inteira, produtos "todos"):

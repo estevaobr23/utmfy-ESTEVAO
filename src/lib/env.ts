@@ -24,6 +24,10 @@ export const env = {
   // Hotmart: "hottok" do webhook (o token da conta; vem em X-HOTMART-HOTTOK). Vários separados por vírgula.
   hotmartHottoks: list(process.env.HOTMART_HOTTOKS ?? process.env.HOTMART_HOTTOK),
 
+  // Hotmart API de vendas (Ferramentas → Credenciais → API Hotmart, sandbox DESLIGADO). Só servidor; usada na reconciliação.
+  hotmartClientId: process.env.HOTMART_CLIENT_ID ?? "",
+  hotmartClientSecret: process.env.HOTMART_CLIENT_SECRET ?? "",
+
   metaAccessToken: process.env.META_ACCESS_TOKEN ?? "",
   metaAppId: process.env.META_APP_ID ?? "",
   metaAppSecret: process.env.META_APP_SECRET ?? "",
@@ -50,6 +54,7 @@ export function envStatus() {
     CAKTO_CLIENT_SECRET: !!env.caktoClientSecret,
     CAKTO_WEBHOOK_SECRETS: env.caktoWebhookSecrets.length > 0,
     HOTMART_HOTTOK: env.hotmartHottoks.length > 0,
+    HOTMART_CLIENT: !!(env.hotmartClientId && env.hotmartClientSecret),
     META_ACCESS_TOKEN: !!env.metaAccessToken,
     META_APP_ID: !!env.metaAppId,
     META_APP_SECRET: !!env.metaAppSecret,
