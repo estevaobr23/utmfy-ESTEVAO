@@ -168,6 +168,19 @@ describe("normalização", () => {
     expect("order" in r && r.order).toMatchObject({ offer_type: "orderbump", parent_order: "HP0000" });
   });
 
+  it("produto principal com is_order_bump=true (carrinho com bump) continua sendo venda principal", () => {
+    const e = webhook("x");
+    const comBump = { ...e.data, purchase: { ...(e.data.purchase as object), order_bump: { is_order_bump: true, parent_purchase_transaction: "HPX" } } };
+    const r = normalizeHotmartOrder(comBump, { eventName: "PURCHASE_APPROVED", mainProductIds: [String((e.data.product as { id: unknown }).id)] });
+    expect("order" in r && r.order).toMatchObject({ offer_type: "main" });
+  });
+
+  it("produto que não é principal (guia/Kit) vira complemento mesmo sem a flag de bump", () => {
+    const e = webhook("x");
+    const r = normalizeHotmartOrder(e.data, { eventName: "PURCHASE_APPROVED", mainProductIds: ["999000111"] });
+    expect("order" in r && r.order).toMatchObject({ offer_type: "orderbump" });
+  });
+
   it("sem comissão do produtor: usa a taxa da Hotmart se vier na mesma moeda", () => {
     const r = norm("PURCHASE_APPROVED", {
       commissions: [],

@@ -80,7 +80,7 @@ const SESSION_RE = /^[A-Za-z0-9._~-]{8,64}$/;
 
 export function normalizeHotmartOrder(
   data: Record<string, unknown>,
-  opts: { eventName?: string | null; eventAt?: string | null } = {},
+  opts: { eventName?: string | null; eventAt?: string | null; mainProductIds?: string[] } = {},
 ): { order: NormalizedOrder } | { error: string } {
   const purchase = obj(data.purchase);
   const product = obj(data.product);
@@ -138,7 +138,11 @@ export function normalizeHotmartOrder(
   const eventTs = opts.eventAt ?? null;
   const approved = hotmartDate(purchase.approved_date);
   const created = hotmartDate(purchase.order_date);
-  const isBump = bump.is_order_bump === true;
+  // Tipo do pedido: com a lista de produtos PRINCIPAIS, vale o produto. A Hotmart marca `is_order_bump: true` até no produto
+  // principal quando o carrinho tem bump (HP…C1), o que escondia essa venda do painel ("vendas" = só offer_type main).
+  // Produto fora da lista (guia, Kit) é complemento: soma no faturamento, mas não conta como venda no CPA.
+  const productId = str(product.id);
+  const isBump = opts.mainProductIds?.length ? !(productId && opts.mainProductIds.includes(productId)) : bump.is_order_bump === true;
 
   const order: NormalizedOrder = {
     provider: "hotmart",

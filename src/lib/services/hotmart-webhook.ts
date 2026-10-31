@@ -13,6 +13,9 @@ export type HotmartWebhookConfig = {
   workspaceSlug: string | null;
 };
 
+/** Produtos PRINCIPAIS (contam como venda); os demais produtos da oferta são complementos (bump/guia/Kit). */
+const HOTMART_MAIN_PRODUCT_IDS = (process.env.HOTMART_MAIN_PRODUCT_IDS ?? "8814892").split(",").map((x) => x.trim()).filter(Boolean);
+
 /**
  * Webhook GERAL da Hotmart (uma URL para a conta inteira, produtos "todos"):
  *   corpo cru → hottok → workspace → oferta pelo produto → (produto sem oferta: 200 "ignorado", nada é gravado)
@@ -95,7 +98,7 @@ export async function handleHotmartWebhook(
     await finish("ignored", env.kind === "abandonment" ? "abandonment" : `event:${env.event}`);
     return { httpStatus: 200, body: { ok: true, ignored: env.kind } };
   }
-  const n = normalizeHotmartOrder(env.data, { eventName: env.event, eventAt: env.eventAt });
+  const n = normalizeHotmartOrder(env.data, { eventName: env.event, eventAt: env.eventAt, mainProductIds: HOTMART_MAIN_PRODUCT_IDS });
   if ("error" in n) {
     await finish("failed", n.error);
     await logEvent(db, { workspaceId, level: "error", code: "WEBHOOK_PROCESSING_FAILED", provider: "hotmart", message: n.error, context: { event: env.event } });
