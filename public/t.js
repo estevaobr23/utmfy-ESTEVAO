@@ -142,12 +142,16 @@
     } catch (e) { /* nunca quebra a página */ }
   }
   var lastIC = 0;
+  // Devolve o eventID do InitiateCheckout disparado (ou null). O mesmo id vai ao servidor no beacon, que reenvia o
+  // evento pela API de Conversões; a Meta junta as duas cópias (sem contar em dobro).
   function trackInitiateCheckout() {
-    if (!pixelOwned || !w.fbq || !cfg.initiateCheckout) return;
+    if (!pixelOwned || !w.fbq || !cfg.initiateCheckout) return null;
     var t = now();
-    if (t - lastIC < 1500) return; // clique duplo / bolha de evento
+    if (t - lastIC < 1500) return null; // clique duplo / bolha de evento
     lastIC = t;
-    try { w.fbq("track", "InitiateCheckout"); } catch (e) { /* ignore */ }
+    var eid = "ic" + rid();
+    try { w.fbq("track", "InitiateCheckout", {}, { eventID: eid }); } catch (e) { return null; }
+    return eid;
   }
 
   function isCheckout(host) {
@@ -190,12 +194,13 @@
     }
   }
 
-  function beacon(event) {
+  function beacon(event, eid) {
     if (!cfg.beacon || !cfg.endpoint) return;
     try {
       var body = JSON.stringify({
         v: 1,
         e: event,
+        eid: eid || undefined,
         sid: state.sid,
         offer: cfg.offer,
         url: w.location.origin + w.location.pathname,
@@ -233,12 +238,16 @@
     if (!el || !el.href) return;
     var n = decorate(el.href);
     if (n !== el.href) el.href = n;
-    try { if (isCheckout(new URL(el.href).hostname)) beacon("checkout_click"); } catch (e) { /* ignore */ }
     // InitiateCheckout: link para o domínio do checkout OU marcado com data-checkout (mesma regra que a UTMify usava).
+    var eid = null;
+    var toCheckout = false;
     try {
+      toCheckout = isCheckout(new URL(el.href).hostname);
       var marked = el.hasAttribute ? el.hasAttribute("data-checkout") : false;
-      if (marked || isCheckout(new URL(el.href).hostname)) trackInitiateCheckout();
+      if (marked || toCheckout) eid = trackInitiateCheckout();
     } catch (e) { /* ignore */ }
+    // O beacon vai depois do pixel para levar o eventID do mesmo clique (o servidor reenvia o evento com esse id).
+    if (toCheckout || eid) beacon("checkout_click", eid);
   }
 
   w.UtmfyTracker = {

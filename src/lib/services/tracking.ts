@@ -28,6 +28,8 @@ export const trackPayload = z.object({
   lt: touch,
   fbc: z.string().max(500).nullable().optional(),
   fbp: z.string().max(200).nullable().optional(),
+  /** Id do InitiateCheckout disparado no navegador neste clique (dedup com o envio do servidor). */
+  eid: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
 });
 
 export type TrackPayload = z.infer<typeof trackPayload>;

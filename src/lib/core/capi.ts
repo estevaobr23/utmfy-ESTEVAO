@@ -74,6 +74,61 @@ export type CapiEvent = {
   custom_data: { value: number; currency: string; order_id: string; content_ids?: string[]; content_type?: string };
 };
 
+/** Id do InitiateCheckout: o t.js gera um por clique e o manda ao pixel (`eventID`) e ao beacon; a Meta junta os dois. */
+export const CHECKOUT_EVENT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+export type CheckoutClickInput = {
+  event_id: string;
+  event_time?: number;
+  event_source_url: string | null;
+  client_user_agent: string | null;
+  client_ip?: string | null;
+  geo_country?: string | null;
+  geo_region?: string | null;
+  geo_city?: string | null;
+  fbc?: string | null;
+  fbp?: string | null;
+  /** Id da sessão do tracker: o mesmo `external_id` que o t.js manda ao pixel. */
+  external_id?: string | null;
+};
+
+export type CheckoutEvent = {
+  event_name: "InitiateCheckout";
+  event_time: number;
+  event_id: string;
+  action_source: "website";
+  event_source_url: string;
+  user_data: Record<string, string | string[]>;
+};
+
+/** Cópia servidor do InitiateCheckout do navegador (mesmo event_id → a Meta não conta em dobro). Sem e-mail/telefone: ainda não existem. */
+export function buildInitiateCheckoutEvent(o: CheckoutClickInput, nowSeconds = Math.floor(Date.now() / 1000)): { event: CheckoutEvent } | { skip: string } {
+  if (!CHECKOUT_EVENT_ID_RE.test(o.event_id)) return { skip: "invalid_event_id" };
+  if (!o.client_user_agent || !o.event_source_url) return { skip: "no_user_agent_or_url" };
+  const user_data: Record<string, string | string[]> = { client_user_agent: o.client_user_agent };
+  const ct = hashForMeta(normalizePlace(o.geo_city));
+  const st = hashForMeta(normalizePlace(o.geo_region));
+  const country = hashForMeta(normalizePlace(o.geo_country));
+  if (ct) user_data.ct = [ct];
+  if (st) user_data.st = [st];
+  if (country) user_data.country = [country];
+  if (o.client_ip) user_data.client_ip_address = o.client_ip;
+  if (o.external_id) user_data.external_id = [sha256Hex(o.external_id)];
+  if (o.fbc) user_data.fbc = o.fbc;
+  if (o.fbp) user_data.fbp = o.fbp;
+  if (!Object.keys(user_data).some((k) => k !== "client_user_agent")) return { skip: "no_identifying_user_data" };
+  return {
+    event: {
+      event_name: "InitiateCheckout",
+      event_time: o.event_time ?? nowSeconds,
+      event_id: o.event_id,
+      action_source: "website",
+      event_source_url: o.event_source_url,
+      user_data,
+    },
+  };
+}
+
 export function buildPurchaseEvent(o: CapiOrderInput, nowSeconds = Math.floor(Date.now() / 1000)):
   | { event: CapiEvent }
   | { skip: string }

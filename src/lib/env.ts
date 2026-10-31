@@ -32,6 +32,8 @@ export const env = {
 
   capiEnabled: bool(process.env.CAPI_ENABLED, false),
   metaCapiToken: process.env.META_CAPI_TOKEN ?? "",
+  // InitiateCheckout pelo servidor (cópia do clique do navegador, mesmo event_id). Vale só com CAPI_ENABLED; CAPI_CHECKOUT_ENABLED=false desliga.
+  capiCheckoutEnabled: bool(process.env.CAPI_CHECKOUT_ENABLED, true),
 
   mcpAuthToken: process.env.MCP_AUTH_TOKEN ?? "",
 };

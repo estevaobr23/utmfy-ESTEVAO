@@ -10,7 +10,7 @@ import { finishJob, logEvent, startJob } from "./logs";
 
 const MAX_ATTEMPTS = 6;
 
-async function pixelToken(db: Db, pixel: { id: string; token_source: string }) {
+export async function pixelToken(db: Db, pixel: { id: string; token_source: string }) {
   if (pixel.token_source === "env") return env.metaCapiToken || null;
   if (pixel.token_source === "vault") {
     const { data } = await db.rpc("read_secret", { p_owner_type: "pixel", p_owner_id: pixel.id });

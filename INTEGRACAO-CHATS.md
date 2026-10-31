@@ -308,3 +308,7 @@ Detalhes e diagnóstico em `TRACKING.md`.
 | Gastos "—" / "Qualidade de dados pendente" | sincronização da Meta com erro | Atualizar; ver `/meta` e logs |
 | Vis. página / IC em N/D | pixel da Meta ausente na página ou período sem sync | pixel na página; Atualizar |
 | Cliente pagou e não recebeu acesso | produto fora do webhook de **acesso** | skill `area-de-membros` (auditoria) |
+
+## 2.5 InitiateCheckout pelo servidor (31/10/2026)
+
+O `t.js` gera um `eventID` por clique no checkout (`ic…`), dispara `fbq('track','InitiateCheckout',{},{eventID})` e manda o mesmo id no beacon `checkout_click` (campo `eid`). O `/api/track` reenvia o evento à Meta pela API de Conversões (`src/lib/services/capi-checkout.ts`, `buildInitiateCheckoutEvent` em `core/capi.ts`) com o **mesmo event_id** + IP/user-agent reais, `fbc`, `fbp` e `external_id` (hash da sessão): a Meta junta as duas cópias (sem contar em dobro) e a cobertura "pixel × API de Conversões" sobe (aviso "Improve your rate of Meta Pixel events covered by Conversions API"). Só envia com `CAPI_ENABLED=true` + pixel da oferta com `server_tracking_enabled`; interruptor próprio `CAPI_CHECKOUT_ENABLED=false` (Vercel, exige redeploy). Só sai quando o próprio `t.js` disparou o IC (página com `fbq` próprio ou `data-initiate-checkout="false"` não manda `eid`, para não duplicar). Falha vira log `CAPI_CHECKOUT_FAILED`. Sem fila: o pixel do navegador já contou o evento.

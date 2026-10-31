@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPurchaseEvent, normalizePlace, purchaseEventId, splitName } from "@/lib/core/capi";
+import { buildInitiateCheckoutEvent, buildPurchaseEvent, normalizePlace, purchaseEventId, splitName } from "@/lib/core/capi";
 import { sha256Hex } from "@/lib/core/hash";
 import { chunkRange, classifyMetaError, normalizeInsight } from "@/lib/core/meta";
 import { buildMetaUrlParameters, lintTemplate } from "@/lib/core/utm-template";
@@ -98,5 +98,39 @@ describe("CAPI (preparado)", () => {
     expect(splitName(null)).toEqual({ first: null, last: null });
     expect(normalizePlace("São José dos Campos")).toBe("saojosedoscampos");
     expect(normalizePlace(null)).toBeNull();
+  });
+});
+
+describe("InitiateCheckout pelo servidor", () => {
+  const click = {
+    event_id: "icsabc123def456ghi789",
+    event_source_url: "https://pagina.exemplo/oferta",
+    client_user_agent: "Mozilla/5.0",
+    client_ip: "201.1.2.3",
+    geo_city: "Ciudad de México",
+    geo_region: "CMX",
+    geo_country: "MX",
+    fbc: "fb.1.1.abc",
+    fbp: "fb.1.1.123",
+    external_id: "s123456789",
+  };
+  it("monta o evento com o mesmo event_id do navegador e dados de usuário com hash onde a Meta pede", () => {
+    const r = buildInitiateCheckoutEvent(click, 1_800_000_000);
+    if (!("event" in r)) throw new Error("esperava evento");
+    expect(r.event.event_name).toBe("InitiateCheckout");
+    expect(r.event.event_id).toBe(click.event_id);
+    expect(r.event.event_time).toBe(1_800_000_000);
+    expect(r.event.user_data.client_ip_address).toBe("201.1.2.3");
+    expect(r.event.user_data.external_id).toEqual([sha256Hex("s123456789")]);
+    expect(r.event.user_data.ct).toEqual([sha256Hex("ciudaddemexico")]);
+    expect(r.event.user_data.em).toBeUndefined();
+    expect(r.event.user_data.ph).toBeUndefined();
+  });
+  it("recusa id inválido, sem user-agent/página ou sem nenhum identificador", () => {
+    expect(buildInitiateCheckoutEvent({ ...click, event_id: "x" })).toEqual({ skip: "invalid_event_id" });
+    expect(buildInitiateCheckoutEvent({ ...click, client_user_agent: null })).toEqual({ skip: "no_user_agent_or_url" });
+    expect(buildInitiateCheckoutEvent({ ...click, event_source_url: null })).toEqual({ skip: "no_user_agent_or_url" });
+    const vazio = { event_id: click.event_id, event_source_url: click.event_source_url, client_user_agent: "Mozilla/5.0" };
+    expect(buildInitiateCheckoutEvent(vazio)).toEqual({ skip: "no_identifying_user_data" });
   });
 });
