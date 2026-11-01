@@ -95,7 +95,7 @@ export type MetaTableRow = {
 };
 
 /** Foto dos números da campanha/conjunto no instante da mudança de orçamento (período que estava na tela). */
-export type BudgetSnapshot = { profit: number | null; roi: number | null; roas: number | null; spend: number | null; sales: number | null; period: string | null };
+export type BudgetSnapshot = { profit: number | null; roi: number | null; roas: number | null; spend: number | null; sales: number | null; cpa?: number | null; period: string | null };
 export type BudgetChange = { at: string; before: number; after: number; currency: string; snapshot?: BudgetSnapshot | null };
 
 /** Aceita só números finitos e texto curto: o valor vem do navegador e vai para o log. */
@@ -104,7 +104,7 @@ export function parseBudgetSnapshot(raw: unknown): BudgetSnapshot | null {
   const r = raw as Record<string, unknown>;
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 1e12 ? v : null);
   const snap: BudgetSnapshot = {
-    profit: num(r.profit), roi: num(r.roi), roas: num(r.roas), spend: num(r.spend), sales: num(r.sales),
+    profit: num(r.profit), roi: num(r.roi), roas: num(r.roas), spend: num(r.spend), sales: num(r.sales), ...(num(r.cpa) != null ? { cpa: num(r.cpa) } : {}),
     period: typeof r.period === "string" ? r.period.slice(0, 40) : null,
   };
   return snap.profit == null && snap.roi == null && snap.roas == null && snap.sales == null ? null : snap;

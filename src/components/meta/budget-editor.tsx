@@ -42,7 +42,7 @@ export function BudgetEditor({ row, back, currency, spendReliable = true, period
   const up = parsed >= budget.amount;
   // Foto dos números como estavam na tela quando o orçamento foi mexido (só se o gasto está completo).
   const snapshot: BudgetSnapshot | null = spendReliable
-    ? { profit: row.metrics.profit, roi: row.metrics.roi, roas: row.metrics.roas, spend: row.metrics.spend, sales: row.metrics.approved_count, period: periodLabel }
+    ? { profit: row.metrics.profit, roi: row.metrics.roi, roas: row.metrics.roas, spend: row.metrics.spend, sales: row.metrics.approved_count, cpa: row.metrics.cpa, period: periodLabel }
     : null;
 
   const dialog = (
@@ -79,7 +79,8 @@ export function BudgetEditor({ row, back, currency, spendReliable = true, period
               <input
                 name="amount" inputMode="decimal" autoFocus required autoComplete="off" value={value} placeholder="ex.: 120,00"
                 onChange={(e) => { setValue(e.target.value); setReview(false); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (canReview && !review) setReview(true); } }}
+                // 1º Enter revisa, 2º Enter aplica (mesmo caminho do botão "Confirmar e aplicar").
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!canReview) return; if (review) e.currentTarget.form?.requestSubmit(); else setReview(true); } }}
                 className="w-full bg-transparent px-2 py-2 text-sm text-white outline-none placeholder:text-copy-muted"
               />
             </span>
@@ -99,7 +100,7 @@ export function BudgetEditor({ row, back, currency, spendReliable = true, period
                 <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${up ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>{up ? "+" : ""}{pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%</span>
               </div>
               {source && inAccountCurrency != null && <div className="mt-1 text-xs text-copy-muted">≈ {formatMoney(inAccountCurrency, source.currency)} por dia na conta</div>}
-              <p className="mt-2 text-xs text-copy">A alteração vale na Meta imediatamente e fica registrada na coluna “Últ. atualização”.</p>
+              <p className="mt-2 text-xs text-copy">Aperte <b>Enter</b> de novo para aplicar. A alteração vale na Meta imediatamente e fica registrada na coluna “Últ. atualização”.</p>
             </div>
           )}
         </div>

@@ -148,9 +148,12 @@ const formatChangeDate = (iso: string) => {
   return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
 };
 
+/** CPA da foto; mudanças antigas não gravaram o CPA, mas têm gasto e vendas. */
+const snapshotCpa = (s: NonNullable<BudgetChange["snapshot"]>) => s.cpa ?? (s.spend != null && s.sales ? s.spend / s.sales : null);
+
 const budgetChangeTitle = (c: BudgetChange) => {
   const s = c.snapshot;
-  const snap = s ? ` · No momento${s.period ? ` (${s.period})` : ""}: ${[s.profit != null ? `lucro ${formatMoney(s.profit, c.currency)}` : null, s.roi != null ? `ROI ${formatNumber(s.roi, 2)}` : null, s.roas != null ? `ROAS ${formatNumber(s.roas, 2)}` : null, s.spend != null ? `gasto ${formatMoney(s.spend, c.currency)}` : null, s.sales != null ? `${s.sales} venda(s)` : null].filter(Boolean).join(" · ")}` : "";
+  const snap = s ? ` · No momento${s.period ? ` (${s.period})` : ""}: ${[s.profit != null ? `lucro ${formatMoney(s.profit, c.currency)}` : null, s.roi != null ? `ROI ${formatNumber(s.roi, 2)}` : null, s.roas != null ? `ROAS ${formatNumber(s.roas, 2)}` : null, s.spend != null ? `gasto ${formatMoney(s.spend, c.currency)}` : null, snapshotCpa(s) != null ? `CPA ${formatMoney(snapshotCpa(s), c.currency)}` : null, s.sales != null ? `${s.sales} venda(s)` : null].filter(Boolean).join(" · ")}` : "";
   return `Orçamento diário alterado por aqui em ${formatChangeDate(c.at)}: ${formatMoney(c.before, c.currency)} → ${formatMoney(c.after, c.currency)}${snap}`;
 };
 
@@ -178,6 +181,8 @@ function LastUpdateCell({ row, synced }: { row: MetaTableRow; synced: string }) 
           {snap?.roi != null && <Pill label="ROI" tone={gainTone(snap.roi, 0)}>{formatNumber(snap.roi, 2)}</Pill>}
           {snap?.roas != null && <Pill label="ROAS" tone={gainTone(snap.roas, 1)}>{formatNumber(snap.roas, 2)}</Pill>}
           {snap?.sales != null && <Pill label="Vendas">{snap.sales}</Pill>}
+          {snap && snapshotCpa(snap) != null && <Pill label="CPA">{formatMoney(snapshotCpa(snap), c.currency)}</Pill>}
+          {snap?.spend != null && <Pill label="Gasto">{formatMoney(snap.spend, c.currency)}</Pill>}
           <span className="whitespace-nowrap text-[11px] text-copy-muted">alterado em {formatChangeDate(c.at)}{snap?.period ? ` · ${snap.period}` : ""}</span>
         </>
       )}

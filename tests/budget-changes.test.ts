@@ -41,4 +41,9 @@ describe("foto de lucro/ROI na mudança de orçamento", () => {
     expect(s?.roas).toBe(0);
     expect(s?.period).toHaveLength(40);
   });
+
+  it("guarda o CPA da foto quando vem do navegador", () => {
+    const m = latestBudgetChanges([{ created_at: "2026-10-15T12:00:00Z", context: { object_id: "C1", before_target: 49.99, after_target: 120, snapshot: { profit: 1, spend: 18.66, sales: 3, cpa: 6.22, period: "Hoje" } } }]);
+    expect(m.get("C1")?.snapshot?.cpa).toBe(6.22);
+  });
 });
