@@ -101,7 +101,7 @@ usuário; **antes de criar pixel, o helper já confere a Meta** (não crie à m�
 
 ## 2.3 Traqueamento Avançado (CAPI completa) — construído em 19/10/2026
 
-Sistema próprio, dentro da UTMFY (sem Stape/GTM/Cloudflare). Plano, medição e andamento: `PLANO-TRAQUEAMENTO-AVANCADO.md`.
+Sistema próprio, dentro da UTMFY (sem Stape/GTM/Cloudflare). Plano, medição e andamento: `docs/03-tracking/PLANO-TRAQUEAMENTO-AVANCADO.md`.
 
 **Fluxo:** `t.js` guarda a sessão e põe `sck=<sessão>` (e `callback`) nos links do checkout → `/api/track` grava IP, geo
 (cabeçalhos da Vercel), user-agent, `fbc`, `fbp` → a Cakto devolve `sck`/`callback` no webhook → a venda é ligada à sessão
@@ -247,7 +247,7 @@ utm_source=FB&utm_campaign={{campaign.name}}|{{campaign.id}}&utm_medium={{adset.
 ```
 
 O **ID** depois do `|` é o que liga a venda ao anúncio. Sem UTM, a venda vira "não rastreada".
-Detalhes e diagnóstico em `TRACKING.md`.
+Detalhes e diagnóstico em `docs/03-tracking/TRACKING.md`.
 
 ## 7. Como a página de venda se liga
 

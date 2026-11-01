@@ -32,7 +32,7 @@ export async function syncCaktoOrders(
   const stats: SyncStats = { fetched: 0, inserted: 0, statusChanged: 0, unchanged: 0, ignored: 0, errors: 0, unmapped: 0, truncated: false };
 
   if (!caktoConfigured()) {
-    const error = "CAKTO_CLIENT_ID/CAKTO_CLIENT_SECRET não configurados (ver SETUP_REQUIRED.md)";
+    const error = "CAKTO_CLIENT_ID/CAKTO_CLIENT_SECRET não configurados (ver docs/01-comecar/SETUP_REQUIRED.md)";
     await finishJob(db, jobId, "failed", stats, error);
     await logEvent(db, { workspaceId, level: "warn", code: "CAKTO_SYNC_SKIPPED", provider: "cakto", message: error });
     return { jobId, stats, error };

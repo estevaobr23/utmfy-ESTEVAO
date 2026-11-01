@@ -11,9 +11,9 @@ ANÚNCIO (Meta) → CLIQUE → UTM → PÁGINA (tracker) → CHECKOUT (Cakto) �
 - **Atribuição = UTMs recebidas pela Cakto + sessão do nosso tracker** (`callback`). IDs mandam; nomes só descrevem.
 - Multi-oferta, multi-conta, multi-pixel. Dashboard por oferta e consolidado.
 
-Pendências que dependem de você: **[SETUP_REQUIRED.md](SETUP_REQUIRED.md)**.
+Pendências que dependem de você: **[docs/01-comecar/SETUP_REQUIRED.md](docs/01-comecar/SETUP_REQUIRED.md)**.
 
-**Configurar oferta / pixel / webhook (qualquer chat):** **[INTEGRACAO-CHATS.md](INTEGRACAO-CHATS.md)** · helper `node ~/.utmfy/utmfy.mjs ajuda`.
+**Configurar oferta / pixel / webhook (qualquer chat):** **[docs/04-operacao-chats/INTEGRACAO-CHATS.md](docs/04-operacao-chats/INTEGRACAO-CHATS.md)** · helper `node ~/.utmfy/utmfy.mjs ajuda`.
 
 ## Rodar localmente
 
@@ -47,9 +47,10 @@ Diagnóstico de tracking · Eventos · Configurações · Health check (geral e 
 
 ## Documentação
 
-- [SETUP.md](SETUP.md) — instalação, deploy e agendamentos
-- [ARCHITECTURE.md](ARCHITECTURE.md) — modelo de dados, máquina de estados, fórmulas
-- [TRACKING.md](TRACKING.md) — padrão de UTMs, tracker JS, atribuição, diagnóstico
-- [INTEGRATIONS.md](INTEGRATIONS.md) — Cakto, Meta (read-only), CAPI
-- [TESTING.md](TESTING.md) — o que é testado e como testar uma venda
-- [SETUP_REQUIRED.md](SETUP_REQUIRED.md) — checklist do que depende de você
+Tudo está em [docs/](docs/README.md), por assunto (índice completo lá):
+
+- **01-comecar** — [SETUP](docs/01-comecar/SETUP.md) (instalação, deploy, agendamentos) · [SETUP_REQUIRED](docs/01-comecar/SETUP_REQUIRED.md) (o que depende de você) · [TESTING](docs/01-comecar/TESTING.md)
+- **02-arquitetura** — [ARCHITECTURE](docs/02-arquitetura/ARCHITECTURE.md) (modelo de dados, estados, fórmulas) · [INTEGRATIONS](docs/02-arquitetura/INTEGRATIONS.md) (Cakto, Meta, CAPI)
+- **03-tracking** — [TRACKING](docs/03-tracking/TRACKING.md) (**guia do tracking**: UTMs, tracker, atribuição, qualidade dos eventos na Meta) · [PLANO-TRAQUEAMENTO-AVANCADO](docs/03-tracking/PLANO-TRAQUEAMENTO-AVANCADO.md)
+- **04-operacao-chats** — [INTEGRACAO-CHATS](docs/04-operacao-chats/INTEGRACAO-CHATS.md) (oferta, pixel, webhook, CAPI: o guia que qualquer chat/IA lê primeiro)
+- **05-agentes** — [PROMPT-CODEX-VISUAL](docs/05-agentes/PROMPT-CODEX-VISUAL.md)

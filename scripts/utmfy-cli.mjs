@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // UTMFY — helper de linha de comando para qualquer chat configurar ofertas, pixels e webhooks.
 // Uso global (qualquer projeto):  node ~/.utmfy/utmfy.mjs <comando> [opções]
-// Fonte da verdade: este arquivo, no repositório (scripts/utmfy-cli.mjs). Guia completo: INTEGRACAO-CHATS.md
+// Fonte da verdade: este arquivo, no repositório (scripts/utmfy-cli.mjs). Guia completo: docs/04-operacao-chats/INTEGRACAO-CHATS.md
 //
 // Regras: comandos que GRAVAM exigem --confirmar (sem a flag é simulação). Nunca imprime segredos.
 // Credenciais: lidas de <repo>/.env.local (Supabase) e ~/.cakto/credentials.env (Cakto). Nada é copiado para outro lugar.
@@ -513,7 +513,7 @@ async function simular() {
 
 // ------------------------------------------------ Traqueamento Avançado (CAPI) ---
 // A UTMFY envia o Purchase à Meta pelo servidor (webhook da Cakto → UTMFY → Meta). A Cakto NÃO pode enviar junto:
-// o pixel do Facebook dos produtos na Cakto fica VAZIO (senão a venda conta em dobro). Detalhes: INTEGRACAO-CHATS.md seção 2.3.
+// o pixel do Facebook dos produtos na Cakto fica VAZIO (senão a venda conta em dobro). Detalhes: docs/04-operacao-chats/INTEGRACAO-CHATS.md seção 2.3.
 const GRAPH_V = process.env.META_GRAPH_VERSION || "v26.0";
 
 /** Token da CAPI = token do Usuário do Sistema (~/.meta): aceito para qualquer pixel do business (testado em 19/10/2026). Nunca impresso. */
@@ -671,7 +671,7 @@ const HELP = `UTMFY — configura ofertas, pixels e webhooks (qualquer chat)
   node ~/.utmfy/utmfy.mjs hotmart-verificar --oferta <slug>              checklist ✓/✗ do receptor, hottok, vínculo, webhook e moeda
   node ~/.utmfy/utmfy.mjs hotmart-simular --confirmar                    teste ponta a ponta no receptor da Hotmart (oferta temporária, sem pixel; apaga tudo)
 
-Gravações exigem --confirmar; sem a flag é só simulação. Guia: INTEGRACAO-CHATS.md`;
+Gravações exigem --confirmar; sem a flag é só simulação. Guia: docs/04-operacao-chats/INTEGRACAO-CHATS.md`;
 
 // ------------------------------------------------------------------ Hotmart ---
 // Webhook GERAL da Hotmart (produtos "todos"): <app>/api/webhooks/hotmart. A oferta sai do vínculo produto → oferta

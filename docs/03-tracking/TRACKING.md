@@ -36,7 +36,7 @@ Em **todas** as páginas do funil (vendas, obrigado, upsell hospedado por você)
   `callback=<id da sessão>`; links criados depois são decorados no clique;
 - envia um beacon mínimo para `/api/track` (sessão, UTMs, página sem query, host de referência, UA).
 
-Opções: `data-checkout-domains="pay.cakto.com.br,checkout.meusite.com"`, `data-callback="false"`, `data-beacon="false"`.
+Opções: `data-checkout-domains="pay.cakto.com.br,checkout.meusite.com"`, `data-callback="false"`, `data-beacon="false"`, `data-ipv6="false"` (não descobrir o IPv6 do visitante; ver seção 5.1).
 
 **Pixel da Meta (o pixel da nossa plataforma):** `data-pixel="<ID_DO_PIXEL>"` carrega o pixel, dispara
 `PageView` e `InitiateCheckout` (clique em link para o checkout ou com `data-checkout`). Use **só** em
@@ -81,3 +81,36 @@ macro não resolvida · oferta não mapeada · source desconhecida · parâmetro
 duplicados, encoding duplo (`%257C`), valores > 255 caracteres (limite da Cakto), macros literais
 (“utm_campaign chegou como {{campaign.name}}”), a URL final do checkout e o que seria enviado — com OK / ATENÇÃO / ERRO.
 Abaixo, as últimas sessões recebidas pelo tracker.
+
+## 5. Qualidade dos eventos na Meta (EMQ, IPv6, deduplicação) — 01/11/2026
+
+Respostas às recomendações do Gerenciador de Eventos, vistas no pixel da oferta em espanhol (lavadoras, `120-fallas-de-lavadoras`, pixel `868055749387060`). Vale para todas as ofertas.
+
+> **HIPÓTESE ≠ VALIDADO.** O IPv6 foi corrigido e testado em código; o efeito na Meta (recado sumir, nota subir) **ainda não foi medido** — conferir em 3 a 5 dias (a Meta recalcula com o volume recente).
+
+### 5.1 "Atualize os eventos de InitiateCheckout para IPv6" — CORRIGIDO (commit `b77b956`)
+- **Causa:** o host do tracker (`utmfy-tracker.vercel.app`) não tem registro AAAA, então o beacon chega sempre por IPv4. A CAPI mandava IPv4 e o pixel do navegador mandava IPv6.
+- **Correção:** o `t.js` descobre o IPv6 do visitante (quando existe) chamando `https://api6.ipify.org` (serviço só-IPv6; sem IPv6 a chamada falha em silêncio), guarda em `sessionStorage` (`_utmfy_ip6`) e manda `ip6` no beacon. No servidor, `preferIpv6` (`src/lib/services/tracking.ts`) usa esse IPv6 no lugar do IPv4, **só** se for IPv6 público (descarta loopback, link-local, ULA, multicast e IPv4 mapeado). O IP fica guardado na sessão, então o **Purchase** também sai com IPv6.
+- **Opt-out:** `data-ipv6="false"` no `<script>`. Quem não tem IPv6 continua com o IPv4.
+- **Privacidade:** o navegador do visitante faz uma requisição a um terceiro (`api6.ipify.org`) para descobrir o próprio IPv6.
+
+### 5.2 "Envie E-mail / Telefone no InitiateCheckout" — NÃO DÁ (e está certo assim)
+O InitiateCheckout dispara no clique do botão da página de vendas, **antes** de a pessoa digitar qualquer dado; o formulário está no checkout da plataforma (Hotmart/Cakto). Não há e-mail nem telefone nesse momento. O Purchase já leva ambos (hash SHA-256). Na Meta: clicar em **Pular**.
+
+### 5.3 "Envie Estado, País, Cidade, Sobrenome, Nome, Gênero, Nascimento, CEP" no Purchase (nota 9.2/10)
+Purchase da oferta em espanhol: **9.2/10**; a Meta estima ganho de "até 6%". Estado real:
+- **Já enviamos:** e-mail, telefone, nome, sobrenome, IP, `fbc`, `fbp`, `external_id`, e cidade/estado/país **da geolocalização do IP do clique** (não do endereço do comprador).
+- **Gênero e nascimento:** impossível — a Hotmart/Cakto não mandam esses campos no webhook.
+- **CEP, cidade, estado reais:** só se o webhook trouxer `buyer.address` preenchido (produto digital costuma trazer só o país). **Não confirmado.**
+- **Sonda (commit `9dfee8f`):** `redactHotmartPayload` agora guarda em `webhook_events.payload.data.buyer` os **nomes** (sem valores) dos campos preenchidos: `fields_present` e `address_fields_present`. Depois da próxima venda aprovada da Hotmart, ler esses campos. Se vier cidade/estado/CEP: enviar `ct/st/zp` reais e o país do comprador no Purchase (exige migration em produção para guardar os hashes no pedido — só com aprovação do usuário).
+- **Decisão (usuário, 01/11/2026):** "está perfeito assim" — não fazer nada além da sonda por ora.
+
+### 5.4 PageView: "Corrija problemas com a chave de desduplicação" (cobertura 46,5%)
+- **Leitura:** 647 PageViews do navegador × 814 do servidor, ambos com `event_id`, mas só 46,5% casam (`external_id` casa 0,27%, `fbp` 0%).
+- **A UTMFY não envia PageView pelo servidor** (só Purchase e InitiateCheckout) — então os 814 vêm de **outro remetente**, com `event_id`/`external_id` próprios. O pixel da Hotmart está vazio por regra, e a API de estatísticas da Meta devolveu vazio, então **a origem ainda não foi identificada**.
+- **Como descobrir:** Gerenciador de Eventos → pixel → PageView → aba **Origem do evento**.
+- **Não mexer por ora:** os anúncios otimizam para Purchase (sem duplicidade). O efeito é só na contagem de visualizações de página e em públicos baseados nela. Se a origem for outro remetente, a correção é desligar o PageView de servidor lá — **não** adicionar um terceiro envio pela UTMFY.
+
+### 5.5 Regras para quem for mexer nisso
+- Um remetente só por evento; não teste enviando evento falso ao pixel de produção.
+- `t.js` é público e roda nas páginas de anúncio: toda mudança nele precisa de teste (`tests/tracker.test.ts`) e deve falhar em silêncio.

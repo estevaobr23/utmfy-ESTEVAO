@@ -11,7 +11,7 @@ Origem: chat `TRAQUEMAENTO-AVANÇADO.MD` + os containers GTM em `Desktop\TRAQUEA
 - Fila antiga: 102 envios marcados `skipped` (`pre_capi_backlog`).
 - Interruptores ligados em 19/10: `pixels.server_tracking_enabled = true` (pixel 4126700287461816) e `CAPI_ENABLED=true` na Vercel. **Nenhum envio real
   ocorreu** (0 vendas depois do deploy).
-- ⚠️ Descoberto depois: o pixel **no checkout da Cakto já envia Purchase (navegador + servidor, token CAPI) desde 15/10** (`INTEGRACAO-CHATS.md`).
+- ⚠️ Descoberto depois: o pixel **no checkout da Cakto já envia Purchase (navegador + servidor, token CAPI) desde 15/10** (`docs/04-operacao-chats/INTEGRACAO-CHATS.md`).
   Os `event_id` são diferentes: ligar a CAPI da UTMFY junto **dobra** o Purchase. **Ativação em espera até decidir**: (1) Cakto remetente e UTMFY
   desligada; (2) trocar de lado (desligar Purchase/CAPI na Cakto); (3) os dois com `event_id` igual (ver o `event_id` de um Purchase da Cakto no
   Gerenciador de Eventos). Desligar um lado antes de ligar o outro.

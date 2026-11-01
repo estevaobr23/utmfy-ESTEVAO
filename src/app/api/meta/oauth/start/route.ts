@@ -8,7 +8,7 @@ import { requireWorkspace } from "@/lib/session";
 export async function GET() {
   const s = await requireWorkspace();
   if (!s.canWrite) return NextResponse.redirect(`${env.appUrl}/meta?error=sem_permissao`);
-  if (!env.metaAppId || !env.metaAppSecret) return NextResponse.redirect(`${env.appUrl}/meta?error=${encodeURIComponent("Defina META_APP_ID e META_APP_SECRET (ver SETUP_REQUIRED.md)")}`);
+  if (!env.metaAppId || !env.metaAppSecret) return NextResponse.redirect(`${env.appUrl}/meta?error=${encodeURIComponent("Defina META_APP_ID e META_APP_SECRET (ver docs/01-comecar/SETUP_REQUIRED.md)")}`);
   const state = randomBytes(24).toString("hex");
   const url = new URL(`https://www.facebook.com/${env.metaGraphVersion}/dialog/oauth`);
   url.searchParams.set("client_id", env.metaAppId);

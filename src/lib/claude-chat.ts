@@ -3,14 +3,14 @@
 // (seção "Launch a VS Code tab from other tools"): vscode://anthropic.claude-code/open?prompt=<texto>&session=<id>
 //  - `prompt` vem pré-preenchido e NÃO é enviado sozinho;
 //  - `session` retoma a conversa; se ela não existir mais, abre uma conversa nova com o mesmo prompt
-//    (o contexto do projeto vem do CLAUDE.md, da skill utmfy-tracker e do INTEGRACAO-CHATS.md, então funciona igual).
+//    (o contexto do projeto vem do CLAUDE.md, da skill utmfy-tracker e do docs/04-operacao-chats/INTEGRACAO-CHATS.md, então funciona igual).
 // Nunca coloque segredo na mensagem (token de webhook, token Meta, chaves): só nomes, slugs e IDs públicos.
 
 /** Conversa do projeto. Se abrir um chat novo como "principal", troque aqui (ou defina NEXT_PUBLIC_CLAUDE_SESSION_ID). */
 export const CLAUDE_SESSION_ID = process.env.NEXT_PUBLIC_CLAUDE_SESSION_ID || "a2addc9a-7baa-490e-93c0-7282af7fbe37";
 
 const REGRA =
-  "Siga a regra do projeto (INTEGRACAO-CHATS.md, seção 2.1): use os helpers, rode primeiro a simulação, me mostre o plano e só grave depois do meu ok.";
+  "Siga a regra do projeto (docs/04-operacao-chats/INTEGRACAO-CHATS.md, seção 2.1): use os helpers, rode primeiro a simulação, me mostre o plano e só grave depois do meu ok.";
 
 export function claudeChatUrl(prompt: string, session: string = CLAUDE_SESSION_ID) {
   const q = new URLSearchParams();

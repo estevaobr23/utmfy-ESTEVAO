@@ -50,7 +50,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/configu
             <li><Code>/api/cron/cakto-reconcile</Code> — reconciliação Cakto (3 dias)</li>
             <li><Code>/api/cron/capi-dispatch</Code> — fila CAPI</li>
           </ul>
-          <p className="mt-2 text-xs text-slate-500">Chamadas com <Code>Authorization: Bearer CRON_SECRET</Code>. Agendamento: Vercel Cron (diário, plano Hobby) + pg_cron a cada 15 min (ver SETUP.md).</p>
+          <p className="mt-2 text-xs text-slate-500">Chamadas com <Code>Authorization: Bearer CRON_SECRET</Code>. Agendamento: Vercel Cron (diário, plano Hobby) + pg_cron a cada 15 min (ver docs/01-comecar/SETUP.md).</p>
         </Card>
       </div>
     </>
