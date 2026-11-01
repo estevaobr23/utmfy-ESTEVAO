@@ -30,6 +30,8 @@ export const trackPayload = z.object({
   fbp: z.string().max(200).nullable().optional(),
   /** Id do InitiateCheckout disparado no navegador neste clique (dedup com o envio do servidor). */
   eid: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
+  /** IPv6 do visitante descoberto pelo navegador (o host do tracker só tem IPv4, então o servidor nunca o vê). */
+  ip6: z.string().max(45).optional(),
 });
 
 export type TrackPayload = z.infer<typeof trackPayload>;
@@ -60,6 +62,20 @@ export function clientNetFrom(h: { get(name: string): string | null }): ClientNe
     region: dec(h.get("x-vercel-ip-country-region")),
     city: dec(h.get("x-vercel-ip-city")),
   };
+}
+
+/** IPv6 público informado pelo t.js (a Meta recomenda IPv6 na CAPI). Só vale se for IPv6 de verdade e roteável. */
+export function publicIpv6(v: string | null | undefined): string | null {
+  const ip = (v ?? "").trim().toLowerCase();
+  if (!ip || isIP(ip) !== 6) return null;
+  if (ip === "::" || ip === "::1" || /^(fe[89ab]|f[cd]|ff)/.test(ip) || ip.startsWith("::ffff:")) return null; // loopback, link-local, ULA, multicast, IPv4 mapeado
+  return ip;
+}
+
+/** Se o navegador achou um IPv6 público, ele vence o IPv4 que chegou ao servidor. */
+export function preferIpv6(net: ClientNet, ip6: string | null | undefined): ClientNet {
+  const v6 = publicIpv6(ip6);
+  return v6 ? { ...net, ip: v6 } : net;
 }
 
 export async function recordTrack(db: Db, p: TrackPayload, userAgent: string | null, net: ClientNet | null = null) {

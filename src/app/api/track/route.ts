@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "@/lib/supabase/admin";
 import { sendInitiateCheckout } from "@/lib/services/capi-checkout";
-import { clientNetFrom, rateLimited, recordTrack, trackPayload } from "@/lib/services/tracking";
+import { clientNetFrom, preferIpv6, rateLimited, recordTrack, trackPayload } from "@/lib/services/tracking";
 
 // Beacon público do tracker (public/t.js). Aceita text/plain (sendBeacon, sem
 // preflight). Resposta sempre 204 para não vazar informação a terceiros.
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return new NextResponse(null, { status: 400, headers: CORS });
   const db = adminClient();
   const ua = request.headers.get("user-agent");
-  const net = clientNetFrom(request.headers);
+  const net = preferIpv6(clientNetFrom(request.headers), parsed.data.ip6);
   await recordTrack(db, parsed.data, ua, net).catch(() => null);
   // Clique no checkout com o InitiateCheckout do navegador: reenvia pelo servidor com o mesmo event_id.
   if (parsed.data.e === "checkout_click" && parsed.data.eid) await sendInitiateCheckout(db, parsed.data, ua, net).catch(() => null);

@@ -12,6 +12,7 @@
  *   data-initiate-checkout="false"               (o t.js carrega o pixel e dispara PageView, mas NÃO dispara o
  *                                                 InitiateCheckout do clique: use quando a própria página já envia
  *                                                 o InitiateCheckout com valor/moeda, para não contar em dobro)
+ *   data-ipv6="false"                            (não descobrir o IPv6 do visitante para a CAPI; por padrão descobre)
  * API: window.UtmfyTracker.decorate(url) → url com os parâmetros de atribuição.
  */
 (function (w, d) {
@@ -39,6 +40,7 @@
     beacon: attr("data-beacon", "true") !== "false",
     pixel: /^\d{5,30}$/.test(attr("data-pixel", "")) ? attr("data-pixel", "") : "",
     initiateCheckout: attr("data-initiate-checkout", "true") !== "false",
+    ipv6: attr("data-ipv6", "true") !== "false",
   };
 
   function now() { return new Date().getTime(); }
@@ -194,6 +196,30 @@
     }
   }
 
+  // IPv6 do visitante: o host do tracker só responde em IPv4, então o servidor nunca vê o IPv6 de quem tem. A Meta pede
+  // IPv6 na CAPI (o pixel do navegador já manda). api6.ipify.org só existe em IPv6: sem IPv6 a chamada falha em silêncio.
+  var ip6 = null;
+  function findIpv6() {
+    if (!cfg.ipv6 || !cfg.beacon || !w.fetch) return;
+    try {
+      var c = w.sessionStorage.getItem("_utmfy_ip6");
+      if (c != null) { ip6 = c || null; return; }
+    } catch (e) { /* storage bloqueado */ }
+    try {
+      var ctl = w.AbortController ? new AbortController() : null;
+      var timer = ctl ? setTimeout(function () { ctl.abort(); }, 3000) : null;
+      w.fetch("https://api6.ipify.org?format=text", { cache: "no-store", credentials: "omit", signal: ctl ? ctl.signal : undefined })
+        .then(function (r) { return r.ok ? r.text() : ""; })
+        .then(function (t) {
+          if (timer) clearTimeout(timer);
+          t = String(t || "").trim();
+          ip6 = /^[0-9a-fA-F:]{3,45}$/.test(t) && t.indexOf(":") > -1 ? t : null;
+          try { w.sessionStorage.setItem("_utmfy_ip6", ip6 || ""); } catch (e) { /* ignore */ }
+        })
+        .catch(function () { /* sem IPv6: o servidor segue com o IPv4 */ });
+    } catch (e) { /* ignore */ }
+  }
+
   function beacon(event, eid) {
     if (!cfg.beacon || !cfg.endpoint) return;
     try {
@@ -201,6 +227,7 @@
         v: 1,
         e: event,
         eid: eid || undefined,
+        ip6: ip6 || undefined,
         sid: state.sid,
         offer: cfg.offer,
         url: w.location.origin + w.location.pathname,
@@ -259,6 +286,7 @@
   };
 
   loadPixel(cfg.pixel);
+  findIpv6();
   if (d.addEventListener) d.addEventListener("click", onClick, true);
   if (d.readyState === "loading" && d.addEventListener) {
     d.addEventListener("DOMContentLoaded", decorateAll);
