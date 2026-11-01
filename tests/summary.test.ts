@@ -99,12 +99,13 @@ describe("vendas por produto inclui order bump e upsell", () => {
 });
 
 describe("meios de pagamento", () => {
-  it("PayPal, carteiras e transferência não caem mais em Outros", () => {
-    const methods = ["PAYPAL", "MERCADO_PAGO", "NEQUI", "applepay", "BANK_TRANSFER", "CREDIT_CARD", "pix", "KLARNA"];
+  it("cada meio aparece com nome próprio e nada cai em Outros", () => {
+    const methods = ["PAYPAL", "MERCADO_PAGO", "NEQUI", "applepay", "BANK_TRANSFER", "CREDIT_CARD", "pix", "KLARNA", "CASHPAYMENT", "credit_card"];
     const rows = methods.map((method, index) => order(String(index), "paid", method));
     const data = buildSummaryAnalytics({ paidOrders: rows, attempts: rows, attributions: [], sessions: [], clicks: 1, approvedCount: rows.length });
     const byKey = Object.fromEntries((data.salesByPayment.value ?? []).map((item) => [item.key, item.count]));
-    expect(byKey).toEqual({ paypal: 1, wallet: 3, transfer: 1, card: 1, pix: 1, other: 1 });
+    expect(byKey).toEqual({ paypal: 1, mercadopago: 1, nequi: 1, applepay: 1, transfer: 1, card: 2, pix: 1, klarna: 1, cash: 1 });
+    expect(data.salesByPayment.value?.map((item) => item.label)).not.toContain("Outros");
   });
 });
 

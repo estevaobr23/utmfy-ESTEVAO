@@ -465,3 +465,16 @@ export async function deleteDemo() {
   (await cookies()).delete(WS_COOKIE);
   back("/configuracoes", "Workspace DEMO removido");
 }
+
+/** Salva o layout do painel (modo edição) do próprio usuário. Cliente do usuário: a RLS só deixa gravar a linha dele. */
+export async function saveDashboardLayout(page: string, layout: unknown): Promise<{ ok: boolean; error?: string }> {
+  const s = await requireWorkspace();
+  if (!/^[a-z0-9-]{1,40}$/.test(page)) return { ok: false, error: "Página inválida." };
+  const { normalizeLayout } = await import("@/lib/core/dashboard-layout");
+  const { error } = await s.sb.from("dashboard_layouts").upsert(
+    { workspace_id: s.workspace.id, user_id: s.user.id, page, layout: normalizeLayout(layout), updated_at: new Date().toISOString() },
+    { onConflict: "workspace_id,user_id,page" },
+  );
+  if (error) return { ok: false, error: "Não foi possível salvar o layout agora." };
+  return { ok: true };
+}

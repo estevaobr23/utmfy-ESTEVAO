@@ -29,7 +29,22 @@ export function ConversionFunnel({ data }: { data: FunnelData }) {
           <span className="grid h-[13px] w-[13px] place-items-center rounded-full border border-copy text-[9px] leading-none text-copy" aria-label="Informações do funil">i</span>
         </div>
       </header>
-      <div className="overflow-x-auto px-5 py-2">
+      {/* Celular: etapas em lista, cada uma com a barra do % sobre os cliques. */}
+      <ol className="space-y-3 px-4 py-3 md:hidden">
+        {data.stages.map((stage, index) => (
+          <li key={`m-${stage.key}`}>
+            <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
+              <span className="font-semibold text-white">{stage.label}</span>
+              <span className="tabular-nums text-copy-muted"><b className="text-sm text-white">{stage.value == null ? "N/D" : formatNumber(stage.value)}</b> · {stage.fromStart == null ? "N/D" : formatPct(stage.fromStart, 1)}</span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-app-bg">
+              <div className="h-full rounded-full" style={{ width: `${Math.max((stage.fromStart ?? 0) * 100, stage.fromStart ? 1.5 : 0)}%`, background: COLORS[Math.min(Math.round((index / Math.max(n - 1, 1)) * (COLORS.length - 1)), COLORS.length - 1)][1] }} />
+            </div>
+            {index > 0 && <div className="mt-0.5 text-[11px] text-copy-muted">{stage.fromPrevious == null ? "conversão N/D" : `${formatPct(stage.fromPrevious, 1)} da etapa anterior`}</div>}
+          </li>
+        ))}
+      </ol>
+      <div className="hidden overflow-x-auto px-5 py-2 md:block">
         <div className="relative min-w-[760px]">
           <div className="pointer-events-none absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }} aria-hidden>
             {data.stages.map((stage, index) => <div key={stage.key} className={index > 0 ? "border-l border-[#9896dc]" : ""} />)}

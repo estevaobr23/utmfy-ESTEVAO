@@ -17,7 +17,7 @@ export function SegmentedControl<T extends string>({ value, onChange, options, l
           type="button"
           aria-pressed={value === option.id}
           onClick={() => onChange(option.id)}
-          className={`px-2.5 py-1 ${value === option.id ? "bg-primary text-white" : "text-copy hover:bg-surface-hover"}`}
+          className={`whitespace-nowrap px-2.5 py-1 ${value === option.id ? "bg-primary text-white" : "text-copy hover:bg-surface-hover"}`}
         >
           {option.label}
         </button>
@@ -36,15 +36,15 @@ export function TabbedCard({ title, subtitle, tabs, footer }: {
   const [active, setActive] = useState(tabs[0]?.id ?? "");
   const current = tabs.find((tab) => tab.id === active) ?? tabs[0];
   return (
-    <section className="min-h-72 min-w-0 rounded-md bg-surface">
-      <header className="flex items-start justify-between gap-3 border-b border-divider px-5 py-3.5">
+    <section className="flex min-h-72 min-w-0 flex-col rounded-md bg-surface">
+      <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-divider px-4 py-3.5 sm:px-5">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-copy-strong">{title}</h3>
           <p className="mt-0.5 text-xs text-copy-muted">{current?.subtitle ?? subtitle}</p>
         </div>
         <SegmentedControl value={active} onChange={setActive} options={tabs.map((tab) => ({ id: tab.id, label: tab.label }))} label={title} />
       </header>
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         {current?.content}
         {footer}
       </div>

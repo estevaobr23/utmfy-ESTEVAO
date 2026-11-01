@@ -3,15 +3,15 @@ import type { ReactNode } from "react";
 /** Moldura dos gráficos do Resumo. `actions` fica no canto direito do cabeçalho (abas, seletor Bruto/Líquido). */
 export function ChartCard({ title, subtitle, children, actions }: { title: string; subtitle?: string; children: ReactNode; actions?: ReactNode }) {
   return (
-    <section className="min-h-72 min-w-0 rounded-md bg-surface">
-      <header className="flex items-start justify-between gap-3 border-b border-divider px-5 py-3.5">
+    <section className="flex min-h-72 min-w-0 flex-col rounded-md bg-surface">
+      <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-divider px-4 py-3.5 sm:px-5">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-copy-strong">{title}</h3>
           {subtitle && <p className="mt-0.5 text-xs text-copy-muted">{subtitle}</p>}
         </div>
         {actions && <div className="shrink-0">{actions}</div>}
       </header>
-      <div className="p-5">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }

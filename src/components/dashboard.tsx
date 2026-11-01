@@ -2,7 +2,9 @@ import Link from "next/link";
 import { RefreshButton } from "@/components/refresh-button";
 import { FilterBar } from "@/components/filters";
 import { KpiGrid, PeriodBadge } from "@/components/report";
-import { SummaryAnalyticsGrid } from "@/components/summary/analytics-grid";
+import { summaryBlocks } from "@/components/summary/analytics-grid";
+import { EditableDashboard } from "@/components/summary/dashboard-layout";
+import { normalizeLayout } from "@/lib/core/dashboard-layout";
 import { ConversionFunnel } from "@/components/summary/conversion-funnel";
 import { Notice } from "@/components/ui";
 import { timeAgo } from "@/lib/core/dates";
@@ -30,9 +32,11 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
     offerId ? Promise.resolve(undefined) : catalogOptions(sb, ws.id, filters),
   ]);
   const report = await reportPromise;
-  const [analytics, [offers, accounts, catalog]] = await Promise.all([
+  const [analytics, [offers, accounts, catalog], savedLayout] = await Promise.all([
     loadSummaryAnalytics(sb, ws, filters, report.summary, report.spendStatus.reliable, report.pixelFunnel, { scope: report.hourlyScope, accounts: report.hourlyAccounts }),
     auxiliaryPromise,
+    // Layout do modo edição (do próprio usuário). Sem tabela/linha = layout padrão.
+    sb.from("dashboard_layouts").select("layout").eq("workspace_id", ws.id).eq("page", "resumo").maybeSingle().then((r) => (r.error ? null : r.data?.layout ?? null), () => null),
   ]);
   const query = filtersToQuery(offerId ? { ...filters, offer: null } : filters);
   const untrackedHref = offerId ? `${untrackedPath}${query}${query ? "&" : "?"}atribuicao=nao-rastreadas` : `${untrackedPath}${query}`;
@@ -52,9 +56,14 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
       </section>
       {!report.spendStatus.reliable && <div className="mb-3"><Notice tone="warn">{report.spendStatus.message} Lucro, ROAS, ROI, margem e CPA permanecem indisponíveis. {offerId && <Link href={`/ofertas/${offerId}/integracoes`} className="underline">Revisar integrações da oferta</Link>}</Notice></div>}
 
-      <KpiGrid m={report.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} spendUsd={report.spendUsd} />
-      <div className="mt-[19px]"><ConversionFunnel data={analytics.funnel} /></div>
-      <div className="mt-[19px]"><SummaryAnalyticsGrid data={analytics} currency={ws.currency} /></div>
+      <EditableDashboard
+        initial={normalizeLayout(savedLayout)}
+        blocks={{
+          kpis: <KpiGrid m={report.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} spendUsd={report.spendUsd} />,
+          funnel: <ConversionFunnel data={analytics.funnel} />,
+          ...summaryBlocks(analytics, ws.currency),
+        }}
+      />
 
     </>
   );

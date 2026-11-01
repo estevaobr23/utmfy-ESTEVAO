@@ -1,4 +1,5 @@
 import { localDateHour } from "./dates";
+import { paymentMethod } from "./payment-methods";
 import { classifySource } from "./utm";
 
 export type DataState = "available" | "no_activity" | "not_synced" | "integration_missing" | "partial" | "error" | "not_applicable";
@@ -97,15 +98,10 @@ const number = (value: number | string | null) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/** Nome próprio de cada meio (catálogo em payment-methods.ts); nunca "Outros". */
 function paymentLabel(value: string | null) {
-  const key = (value ?? "other").toLocaleLowerCase("pt-BR").replace(/[\s-]+/g, "_");
-  if (key === "pix" || key === "pix_auto") return ["pix", "Pix"] as const;
-  if (["credit_card", "debit_card", "card", "cartao", "cartão", "creditcard", "debitcard"].includes(key)) return ["card", "Cartão"] as const;
-  if (["boleto", "bank_slip", "billet"].includes(key)) return ["boleto", "Boleto"] as const;
-  if (key.startsWith("paypal")) return ["paypal", "PayPal"] as const;
-  if (["bank_transfer", "transfer", "spei", "pse", "wire_transfer"].includes(key)) return ["transfer", "Transferência"] as const;
-  if (/^(mercado_?pago|mercadopago)/.test(key) || ["applepay", "apple_pay", "googlepay", "google_pay", "picpay", "nequi", "mach_pay", "machpay", "wallet"].includes(key)) return ["wallet", "Carteira digital"] as const;
-  return ["other", "Outros"] as const;
+  const info = paymentMethod(value);
+  return [info.key, info.label] as const;
 }
 
 type DistributionEntry = readonly [key: string, label: string, amount: number, kind?: string];
