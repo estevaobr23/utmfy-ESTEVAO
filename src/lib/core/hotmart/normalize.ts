@@ -201,6 +201,10 @@ export function redactHotmartPayload(body: unknown): unknown {
     email_sha256: (() => { const e = normalizeEmail(buyer.email); return e ? sha256Hex(e) : null; })(),
     phone_sha256: (() => { const p = normalizeHotmartPhone(buyer.checkout_phone ?? buyer.phone, buyer.checkout_phone_code); return p ? sha256Hex(p) : null; })(),
     country: addr.country_iso ?? addr.country ?? null,
+    // Só os NOMES dos campos que a Hotmart preencheu (sem valores): mostra se ela manda cidade, estado, CEP, nascimento ou
+    // gênero do comprador, para decidir se vale enviá-los à Meta (Purchase) sem guardar dado pessoal.
+    fields_present: Object.keys(buyer).filter((k) => k !== "address" && buyer[k] != null && buyer[k] !== ""),
+    address_fields_present: Object.keys(addr).filter((k) => addr[k] != null && addr[k] !== ""),
   };
   if ("producer" in data) out.producer = "[redacted]";
   if (Array.isArray(data.affiliates)) out.affiliates = data.affiliates.map((a) => (isObject(a) ? { affiliate_code: a.affiliate_code ?? null } : a));
