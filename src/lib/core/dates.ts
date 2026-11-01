@@ -77,6 +77,24 @@ export function startOfDayUtc(iso: string, tz = DEFAULT_TZ): Date {
   return new Date(t);
 }
 
+/** Instante UTC em que o relógio do fuso tz marca `iso` (YYYY-MM-DD) às `hour`:00. */
+export function localHourToUtc(iso: string, hour: number, tz = DEFAULT_TZ): Date {
+  const guess = new Date(`${iso}T${String(hour).padStart(2, "0")}:00:00Z`);
+  let t = guess.getTime() - tzOffsetMs(guess, tz);
+  t = guess.getTime() - tzOffsetMs(new Date(t), tz);
+  return new Date(t);
+}
+
+/** Data (YYYY-MM-DD) e hora (0–23) que o relógio do fuso tz marca no instante d. */
+export function localDateHour(d: Date, tz = DEFAULT_TZ): { date: string; hour: number } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit" })
+      .formatToParts(d)
+      .map((p) => [p.type, p.value]),
+  );
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24 };
+}
+
 /** [início, fim) em UTC para os dias from..to (inclusive) no fuso tz. */
 export function dayRangeUtc(from: string, to: string, tz = DEFAULT_TZ): { start: string; end: string } {
   return { start: startOfDayUtc(from, tz).toISOString(), end: startOfDayUtc(addDays(to, 1), tz).toISOString() };

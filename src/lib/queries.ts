@@ -1,14 +1,14 @@
 import "server-only";
 import type { Db } from "./supabase/types";
-import { dayRangeUtc, resolveRange, todayIn } from "./core/dates";
+import { addDays, dayRangeUtc, resolveRange, todayIn } from "./core/dates";
 import { spendStatus } from "./core/spend-status";
 import { attachPixelEvents, buildTree, pixelFunnelOf, totals, type OrderRow, type PixelEventRow, type SpendRow } from "./core/report";
-import { scopeOfferSpendRows, scopeOfferSpendRowsByBindings, type OfferMetaBinding, type OfferSpendLink } from "./core/offer-spend-scope";
+import { scopeOfferSpendRows, scopeOfferSpendRowsByBindings, type OfferMetaBinding, type OfferSpendLink, type ScopeKeys } from "./core/offer-spend-scope";
 import { mergeBindings } from "./core/offer-pixel-scope";
 import { loadPixelDerivation } from "./services/offer-auto-link";
 import type { Workspace } from "./session";
 import type { AdsetConfig, CampaignConfig, ReachLevel, VideoRow } from "./core/meta-advanced";
-import { buildSummaryAnalytics, isMetaSession, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
+import { buildSummaryAnalytics, isMetaSession, type HourlyInput, type SummaryAttribution, type SummaryOrder, type SummarySession } from "./core/summary";
 import { timed } from "./perf";
 import { convertOrders, type FxRate } from "./core/order-fx";
 
@@ -153,6 +153,18 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
     tree: options.includeTree === false ? [] : buildTree(spendRows, orderRows),
     spendRows,
     orderRows,
+    /** Mesmo escopo de oferta do gasto diário, aplicado a linhas por hora (conjunto + hora). */
+    hourlyScope: <T extends ScopeKeys>(rows: T[]): T[] => {
+      if (!f.offer) {
+        const allowed = new Set(rawSpendRows.map((row) => row.account_id));
+        return rows.filter((row) => allowed.has(row.account_id));
+      }
+      return (bindingsUsable
+        ? scopeOfferSpendRowsByBindings(rows, f.offer, links.map((link) => link.accountId), bindings, exclusiveAccounts)
+        : scopeOfferSpendRows(rows, links, exclusiveAccounts)).rows;
+    },
+    /** Contas que entraram no gasto diário deste escopo. */
+    hourlyAccounts: [...new Set(spendRows.map((row) => row.account_id))],
     /** Visualizações de página e ICs do pixel da Meta no escopo; null = sem coleta (funil usa o tracker). */
     pixelFunnel: pixelFunnelOf(spendRows),
     excludedSpend,
@@ -165,10 +177,50 @@ export async function loadReport(sb: Db, ws: Workspace, f: Filters, options: { i
   });
 }
 
-export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true, metaPixel: { pageviews: number; checkouts: number } | null = null) {
+type HourlySpendRow = ScopeKeys & { hour: number | string; spend: number | string | null };
+export type HourlyScope = { scope: <T extends ScopeKeys>(rows: T[]) => T[]; accounts: string[] };
+
+const brDay = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/**
+ * Gasto por hora do dia no período e no escopo da oferta. O gráfico só vale a partir do primeiro dia com gasto por hora
+ * sincronizado (em TODAS as contas do escopo); antes disso o faturamento seria comparado com gasto que não existe.
+ * Qualquer falha (tabela ausente, Meta sem dado) devolve "sem gasto por hora" em vez de derrubar o Resumo.
+ */
+async function loadHourlySpend(sb: Db, ws: Workspace, f: Filters, hourly: HourlyScope): Promise<HourlyInput> {
+  if (f.ad) return { spendByHour: null, from: null, note: "O gasto por hora existe até o nível do conjunto de anúncios. Remova o filtro de anúncio para ver o lucro por hora." };
+  if (!hourly.accounts.length) return { spendByHour: null, from: null };
+  try {
+    const firsts = await Promise.all(hourly.accounts.map(async (accountId) => {
+      const { data, error } = await sb.from("meta_insights_hourly").select("date").eq("workspace_id", ws.id).eq("account_id", accountId).order("date", { ascending: true }).limit(1);
+      if (error) throw new Error(error.message);
+      return (data?.[0]?.date as string | undefined) ?? null;
+    }));
+    if (firsts.some((value) => value == null)) return { spendByHour: null, from: null };
+    // O primeiro dia sincronizado pode ter horas faltando (conversão de fuso): o gráfico começa no dia seguinte.
+    const covered = addDays(firsts.reduce((a, b) => (a! > b! ? a : b))!, 1);
+    const from = covered > f.from ? covered : f.from;
+    if (from > f.to) return { spendByHour: null, from: null, note: `O gasto por hora está disponível a partir de ${brDay(covered)}. Escolha um período que inclua essa data.` };
+    const { data, error } = await sb.rpc("report_hourly_spend", {
+      p_workspace: ws.id, p_from: from, p_to: f.to, p_currency: ws.currency,
+      p_account_id: f.account, p_campaign_id: f.campaign, p_adset_id: f.adset,
+    });
+    if (error) throw new Error(error.message);
+    const spendByHour = Array.from({ length: 24 }, () => 0);
+    for (const row of hourly.scope(((data ?? []) as HourlySpendRow[]))) {
+      const hour = Number(row.hour);
+      if (hour >= 0 && hour < 24) spendByHour[hour] += Number(row.spend ?? 0);
+    }
+    return { spendByHour, from, note: from > f.from ? `Gasto por hora disponível desde ${brDay(covered)}: o gráfico considera só de ${brDay(from)} em diante.` : null };
+  } catch {
+    return { spendByHour: null, from: null };
+  }
+}
+
+export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, summary: ReturnType<typeof totals>, spendReliable = true, metaPixel: { pageviews: number; checkouts: number } | null = null, hourlyScope: HourlyScope | null = null) {
   return timed("summary.analytics", { offerScoped: !!f.offer }, async () => {
   const { start, end } = dayRangeUtc(f.from, f.to, ws.timezone);
-  const fields = "id,status,currency,gross_amount,base_amount,payment_method,product_name,offer_type,paid_at,provider_created_at";
+  const fields = "id,status,currency,gross_amount,base_amount,net_amount,fees,payment_method,product_external_id,product_name,offer_type,paid_at,provider_created_at";
   let paidQuery = sb.from("orders").select(fields)
     .eq("workspace_id", ws.id)
     .neq("source", "test")
@@ -189,7 +241,10 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     attemptsQuery = attemptsQuery.eq("offer_id", f.offer);
     sessionsQuery = sessionsQuery.eq("offer_id", f.offer);
   }
-  const [paidResult, attemptsResult, sessionsResult] = await Promise.all([paidQuery, attemptsQuery, sessionsQuery]);
+  const [paidResult, attemptsResult, sessionsResult, hourly] = await Promise.all([
+    paidQuery, attemptsQuery, sessionsQuery,
+    hourlyScope ? loadHourlySpend(sb, ws, f, hourlyScope) : Promise.resolve(null),
+  ]);
   if (paidResult.error) throw new Error(`summary paid orders: ${paidResult.error.message}`);
   if (attemptsResult.error) throw new Error(`summary attempts: ${attemptsResult.error.message}`);
   if (sessionsResult.error) throw new Error(`summary sessions: ${sessionsResult.error.message}`);
@@ -206,7 +261,7 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
   const attempts = convertOrders(rawAttempts, ws.currency, fxRates, ws.timezone);
   const ids = [...new Set([...paidOrders, ...attempts].map((order) => order.id))];
   const attributionResult = ids.length
-    ? await sb.from("order_attribution").select("order_id,utm_source,attribution_status,account_id").in("order_id", ids)
+    ? await sb.from("order_attribution").select("order_id,utm_source,attribution_status,account_id,campaign_id,campaign_name,ad_id").in("order_id", ids)
     : { data: [], error: null };
   if (attributionResult.error) throw new Error(`summary attribution: ${attributionResult.error.message}`);
   const attributions = (attributionResult.data ?? []) as SummaryAttribution[];
@@ -229,6 +284,8 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     clicks: spendReliable ? summary.clicks : null,
     metaPixel: spendReliable ? metaPixel : null,
     approvedCount: summary.approved_count,
+    hourly,
+    timezone: ws.timezone,
   });
   });
 }

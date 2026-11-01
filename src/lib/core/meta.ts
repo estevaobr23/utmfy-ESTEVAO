@@ -1,6 +1,8 @@
 // Meta Marketing API (READ-ONLY) — normalização pura.
 // Versão da Graph API: configurável (META_GRAPH_VERSION). Última verificada: v26.0 (2026-07-29).
 
+import { localDateHour, localHourToUtc } from "./dates";
+
 export const DEFAULT_GRAPH_VERSION = "v26.0";
 
 export const INSIGHTS_FIELDS = [
@@ -80,6 +82,60 @@ function pickAction(list: MetaAction[] | undefined, types: string[]): number | n
 
 export function normalizeAccountId(id: string): string {
   return String(id).replace(/^act_/, "").trim();
+}
+
+// ---------------------------------------------------------------------------
+// Gasto por hora (breakdown hourly_stats_aggregated_by_advertiser_time_zone, nível conjunto)
+// ---------------------------------------------------------------------------
+export const HOURLY_BREAKDOWN = "hourly_stats_aggregated_by_advertiser_time_zone";
+export const HOURLY_FIELDS = ["account_id", "account_currency", "campaign_id", "campaign_name", "adset_id", "impressions", "clicks", "spend", "date_start"];
+
+export type RawHourlyInsight = {
+  account_id?: string;
+  account_currency?: string;
+  campaign_id?: string;
+  campaign_name?: string;
+  adset_id?: string;
+  impressions?: string | number;
+  clicks?: string | number;
+  spend?: string | number;
+  date_start?: string;
+  /** Faixa da hora no fuso da CONTA de anúncio, ex.: "13:00:00 - 13:59:59". */
+  hourly_stats_aggregated_by_advertiser_time_zone?: string;
+};
+
+export type HourlyInsightRow = {
+  /** Data e hora no fuso do WORKSPACE (a Meta entrega no fuso da conta; convertido aqui). */
+  date: string;
+  hour: number;
+  account_id: string;
+  campaign_id: string;
+  campaign_name: string | null;
+  adset_id: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  currency: string | null;
+};
+
+export function normalizeHourlyInsight(r: RawHourlyInsight, accountTz: string | null, workspaceTz: string): HourlyInsightRow | null {
+  const band = r.hourly_stats_aggregated_by_advertiser_time_zone;
+  const hourAccount = band ? Number.parseInt(band.slice(0, 2), 10) : NaN;
+  if (!r.adset_id || !r.campaign_id || !r.account_id || !r.date_start || !Number.isInteger(hourAccount) || hourAccount < 0 || hourAccount > 23) return null;
+  const instant = localHourToUtc(r.date_start, hourAccount, accountTz || workspaceTz);
+  const local = localDateHour(instant, workspaceTz);
+  return {
+    date: local.date,
+    hour: local.hour,
+    account_id: normalizeAccountId(r.account_id),
+    campaign_id: String(r.campaign_id),
+    campaign_name: r.campaign_name ?? null,
+    adset_id: String(r.adset_id),
+    impressions: num(r.impressions) ?? 0,
+    clicks: num(r.clicks) ?? 0,
+    spend: Math.round((num(r.spend) ?? 0) * 100) / 100,
+    currency: r.account_currency ?? null,
+  };
 }
 
 export function normalizeInsight(r: RawInsight): InsightRow | null {

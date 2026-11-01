@@ -1,7 +1,7 @@
 import "server-only";
 import type { Db } from "../supabase/types";
 import { hint } from "../core/hash";
-import { chunkRange, INSIGHTS_FIELDS, normalizeAccountId, normalizeInsight, type RawInsight } from "../core/meta";
+import { chunkRange, HOURLY_BREAKDOWN, HOURLY_FIELDS, INSIGHTS_FIELDS, normalizeAccountId, normalizeHourlyInsight, normalizeInsight, type RawHourlyInsight, type RawInsight } from "../core/meta";
 import { addDays, todayIn } from "../core/dates";
 import { mapPool } from "../core/concurrency";
 import {
@@ -106,14 +106,16 @@ export async function discoverAccounts(db: Db, workspaceId: string, trigger: "ma
 
 export type AccountRow = { id: string; account_id: string; connection_id: string | null; timezone: string | null; currency: string | null };
 
-async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, parts = { catalog: true, insights: true }) {
+async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, parts = { catalog: true, insights: true }, workspaceTz = "America/Sao_Paulo") {
   const stats = { ads: 0, insights: 0 };
   // 1) catálogo (campanha → conjunto → anúncio), inclusive anúncios sem gasto.
   //    Já traz o tipo de criativo: uma chamada só (antes eram duas, e a cota da Meta é pequena).
   const catalog = parts.catalog ? await syncCatalog(db, workspaceId, client, acc) : [];
   stats.ads = catalog.length;
   if (!parts.insights) return stats;
-  return syncInsights(db, workspaceId, client, acc, since, until, catalog, stats);
+  const result = await syncInsights(db, workspaceId, client, acc, since, until, catalog, stats);
+  await syncHourly(db, workspaceId, client, acc, since, until, workspaceTz);
+  return result;
 }
 
 /**
@@ -185,6 +187,35 @@ async function syncInsights(db: Db, workspaceId: string, client: MetaClient, acc
     stats.insights += rows.length;
   }
   return stats;
+}
+
+/**
+ * Gasto por hora (nível conjunto) para os gráficos por horário do Resumo. É opcional e isolado: qualquer falha vira aviso
+ * no log e NUNCA derruba o gasto diário já salvo. A Meta entrega a hora no fuso da conta; aqui já vai para o fuso do workspace.
+ * A janela começa 1 dia antes porque a conversão de fuso desloca algumas horas da conta para o dia seguinte no workspace.
+ */
+async function syncHourly(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, workspaceTz: string) {
+  try {
+    for (const win of chunkRange(addDays(since, -1), until, 7)) {
+      const raw = await client.getAll<RawHourlyInsight>(`act_${acc.account_id}/insights`, {
+        level: "adset", time_increment: 1, breakdowns: HOURLY_BREAKDOWN, fields: HOURLY_FIELDS.join(","), limit: 500,
+        time_range: JSON.stringify({ since: win.since, until: win.until }),
+      }, 40);
+      const merged = new Map<string, NonNullable<ReturnType<typeof normalizeHourlyInsight>>>();
+      for (const item of raw) {
+        const row = normalizeHourlyInsight(item, acc.timezone, workspaceTz);
+        if (!row) continue;
+        const key = `${row.account_id}|${row.adset_id}|${row.date}|${row.hour}`;
+        const prev = merged.get(key);
+        // Dois horários da conta podem cair na mesma hora do workspace (virada de horário de verão): soma.
+        merged.set(key, prev ? { ...prev, spend: Math.round((prev.spend + row.spend) * 100) / 100, clicks: prev.clicks + row.clicks, impressions: prev.impressions + row.impressions } : row);
+      }
+      const rows = [...merged.values()].map((r) => ({ ...r, workspace_id: workspaceId, imported_at: new Date().toISOString() }));
+      await upsertChunks(db, "meta_insights_hourly", rows, "workspace_id,account_id,adset_id,date,hour");
+    }
+  } catch (e) {
+    await logEvent(db, { workspaceId, level: "warn", code: "META_HOURLY_SYNC_FAILED", provider: "meta", message: (e as Error).message.slice(0, 300), context: { account_id: acc.account_id, reason: e instanceof MetaApiError ? e.kind : "exception" } });
+  }
 }
 
 type AdvancedStats = {
@@ -369,7 +400,7 @@ export async function syncMeta(
       clients.set(conn.id, client);
     }
     try {
-      const s = await syncAccount(db, workspaceId, client, acc, since, until, { catalog: !fast, insights: !extras });
+      const s = await syncAccount(db, workspaceId, client, acc, since, until, { catalog: !fast, insights: !extras }, ws?.timezone ?? "America/Sao_Paulo");
       stats.accounts = (stats.accounts as number) + 1;
       stats.ads = (stats.ads as number) + s.ads;
       stats.insights = (stats.insights as number) + s.insights;

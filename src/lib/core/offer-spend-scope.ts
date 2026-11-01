@@ -1,5 +1,8 @@
 import type { SpendRow } from "./report";
 
+/** O escopo só precisa destas chaves; serve para linhas por anúncio e por hora. */
+export type ScopeKeys = Pick<SpendRow, "account_id" | "campaign_id" | "adset_id" | "campaign_name">;
+
 export type OfferSpendLink = {
   accountId: string;
   campaignFilter: string | null;
@@ -34,7 +37,7 @@ export function parseCampaignScope(value: string | null | undefined): CampaignSc
   return { mode: "legacy_name", fragment: raw.toLocaleLowerCase("pt-BR") };
 }
 
-export function scopeOfferSpendRows(rows: SpendRow[], links: OfferSpendLink[], exclusiveAccountIds: Iterable<string> = []) {
+export function scopeOfferSpendRows<T extends ScopeKeys>(rows: T[], links: OfferSpendLink[], exclusiveAccountIds: Iterable<string> = []) {
   const exclusiveAccounts = new Set(exclusiveAccountIds);
   const byAccount = new Map(links.map((link) => [link.accountId, parseCampaignScope(link.campaignFilter)]));
   const pendingAccounts = links
@@ -62,8 +65,8 @@ export function scopeOfferSpendRows(rows: SpendRow[], links: OfferSpendLink[], e
  * Atribui cada linha no nível mais específico. Um conjunto confirmado vence a
  * associação da campanha e impede que o mesmo gasto entre em duas ofertas.
  */
-export function scopeOfferSpendRowsByBindings(
-  rows: SpendRow[],
+export function scopeOfferSpendRowsByBindings<T extends ScopeKeys>(
+  rows: T[],
   offerId: string,
   linkedAccounts: string[],
   bindings: OfferMetaBinding[],

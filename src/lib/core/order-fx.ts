@@ -8,6 +8,8 @@ export type ConvertibleOrder = {
   currency?: string | null;
   gross_amount: number | string | null;
   base_amount: number | string | null;
+  net_amount?: number | string | null;
+  fees?: number | string | null;
   paid_at: string | null;
   provider_created_at: string | null;
 };
@@ -42,7 +44,13 @@ export function convertOrders<T extends ConvertibleOrder>(orders: T[], target: s
     if (f == null) continue;
     if (f === 1) { out.push(o); continue; }
     const conv = (v: number | string | null) => (v == null ? null : Math.round(Number(v) * f * 100) / 100);
-    out.push({ ...o, gross_amount: conv(o.gross_amount), base_amount: conv(o.base_amount) });
+    out.push({
+      ...o,
+      gross_amount: conv(o.gross_amount),
+      base_amount: conv(o.base_amount),
+      ...("net_amount" in o ? { net_amount: conv(o.net_amount ?? null) } : {}),
+      ...("fees" in o ? { fees: conv(o.fees ?? null) } : {}),
+    });
   }
   return out;
 }
