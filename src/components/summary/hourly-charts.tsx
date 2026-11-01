@@ -126,7 +126,7 @@ export function HourlyProfitCard({ datum, currency }: { datum: MetricDatum<Hourl
             <>
               <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
                 <Totals points={points} mode={mode} currency={currency} />
-                <Legend items={withSpend ? [{ label: "Lucro +", color: "var(--primary)" }, { label: "Prejuízo −", color: "var(--danger)" }] : [{ label: "Faturamento", color: "var(--primary)" }]} />
+                <Legend items={withSpend ? [{ label: "Lucro +", color: "var(--success)" }, { label: "Prejuízo −", color: "var(--danger)" }] : [{ label: "Faturamento", color: "var(--primary)" }]} />
               </div>
               {!withSpend && <p className="mb-2 text-[11px] text-copy-muted">Barras = faturamento por hora (o lucro aparece quando houver gasto por hora).</p>}
               <div ref={ref} className="relative" onMouseLeave={() => setActive(null)}>
@@ -142,7 +142,7 @@ export function HourlyProfitCard({ datum, currency }: { datum: MetricDatum<Hourl
                     return (
                       <g key={point.hour} tabIndex={0} className="cursor-pointer outline-none" onMouseEnter={() => setActive(index)} onFocus={() => setActive(index)} onClick={() => setActive(index)}>
                         <rect x={x} y={M.top} width={g.slot} height={g.plotH} fill={active === index ? "rgb(255 255 255 / 5%)" : "transparent"} />
-                        {!empty && <rect x={x + g.slot * 0.2} y={top} width={g.slot * 0.6} height={Math.max(bottom - top, 2)} rx={2} fill={negative ? "var(--danger)" : "var(--primary)"} opacity={active == null || active === index ? 1 : 0.55} />}
+                        {!empty && <rect x={x + g.slot * 0.2} y={top} width={g.slot * 0.6} height={Math.max(bottom - top, 2)} rx={2} fill={negative ? "var(--danger)" : withSpend ? "var(--success)" : "var(--primary)"} opacity={active == null || active === index ? 1 : 0.55} />}
                         {!empty && labels !== "none" && (
                           <text x={x + g.slot / 2} y={negative ? Math.min(top, y(0)) - 5 : top - 5} textAnchor="middle" fontSize={labels === "full" ? 10.5 : 9.5} fill="var(--muted)" className="tabular-nums">
                             {labels === "full" ? formatMoney(value, currency) : short(value)}
@@ -155,7 +155,7 @@ export function HourlyProfitCard({ datum, currency }: { datum: MetricDatum<Hourl
                 {activePoint && (
                   <Tooltip x={M.left + g.slot * (active! + 0.5)} y={y(Math.max(activeValue, 0))} width={g.W}>
                     <div className="mb-1 font-semibold text-copy-strong">{hourLabel(activePoint.hour)}</div>
-                    {withSpend && <Row color={activeValue < 0 ? "var(--danger)" : "var(--primary)"} label={activeValue < 0 ? "Prejuízo na hora" : "Lucro na hora"} value={formatMoney(activeValue, currency)} tone={activeValue < 0 ? "text-danger-accessible" : "text-success"} />}
+                    {withSpend && <Row color={activeValue < 0 ? "var(--danger)" : "var(--success)"} label={activeValue < 0 ? "Prejuízo na hora" : "Lucro na hora"} value={formatMoney(activeValue, currency)} tone={activeValue < 0 ? "text-danger-accessible" : "text-success"} />}
                     <Row label="Faturamento" value={formatMoney(revenueOf(activePoint, mode), currency)} />
                     {withSpend && <Row label="Investimento" value={formatMoney(activePoint.investment, currency)} />}
                     <Row label="Vendas" value={formatNumber(activePoint.sales)} />

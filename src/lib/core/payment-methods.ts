@@ -5,8 +5,8 @@ export type PaymentMethodInfo = { key: string; label: string; color: string; hin
 
 const KNOWN: Record<string, PaymentMethodInfo> = {
   pix: { key: "pix", label: "Pix", color: "#32bcad" },
-  card: { key: "card", label: "Cartão de crédito", color: "#005ae3" },
-  debit: { key: "debit", label: "Cartão de débito", color: "#3d7dde" },
+  card: { key: "card", label: "Cartão de crédito", color: "#7356f7" },
+  debit: { key: "debit", label: "Cartão de débito", color: "#9d84ff" },
   boleto: { key: "boleto", label: "Boleto", color: "#a3a6b4" },
   boleto_financed: { key: "boleto_financed", label: "Boleto parcelado", color: "#82868b" },
   paypal: { key: "paypal", label: "PayPal", color: "#0070e0" },
@@ -18,12 +18,12 @@ const KNOWN: Record<string, PaymentMethodInfo> = {
   nequi: { key: "nequi", label: "Nequi", color: "#da0081" },
   machpay: { key: "machpay", label: "Mach Pay", color: "#6b2fd6" },
   cash: { key: "cash", label: "Dinheiro (OXXO / Efecty)", color: "#ff9f43", hint: "Voucher pago em dinheiro em loja (México, Colômbia…)" },
-  transfer: { key: "transfer", label: "Transferência bancária", color: "#7367f0" },
+  transfer: { key: "transfer", label: "Transferência bancária", color: "#64748b" },
   klarna: { key: "klarna", label: "Klarna", color: "#ffb3c7" },
   hotcard: { key: "hotcard", label: "Hotcard", color: "#f04e23" },
   installment: { key: "installment", label: "Parcelado Hotmart", color: "#ef6a3a" },
   direct_debit: { key: "direct_debit", label: "Débito em conta", color: "#00cfe8" },
-  wallet: { key: "wallet", label: "Carteira digital", color: "#28c76f" },
+  wallet: { key: "wallet", label: "Carteira digital", color: "#1fae5b" },
   hybrid: { key: "hybrid", label: "Pagamento combinado", color: "#b38bff" },
   unknown: { key: "unknown", label: "Não informado", color: "#5e6475" },
 };

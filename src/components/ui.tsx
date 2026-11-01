@@ -66,7 +66,7 @@ const BADGE: Record<string, string> = {
   ok: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25",
   warn: "bg-amber-400/10 text-amber-300 ring-amber-400/25",
   error: "bg-rose-400/10 text-rose-300 ring-rose-400/25",
-  info: "bg-blue-400/10 text-blue-300 ring-blue-400/25",
+  info: "bg-[var(--info-bg)] text-[var(--info-text)] ring-[var(--info-ring)]",
   muted: "bg-slate-400/10 text-slate-300 ring-slate-400/20",
 };
 
@@ -164,7 +164,7 @@ export function Code({ children }: { children: ReactNode }) {
 
 export function Notice({ tone = "info", children }: { tone?: "info" | "warn" | "error" | "ok"; children: ReactNode }) {
   const cls = {
-    info: "border-blue-400/30 bg-blue-400/10 text-blue-200",
+    info: "border-[var(--info-ring)] bg-[var(--info-bg)] text-[var(--info-text)]",
     warn: "border-amber-400/30 bg-amber-400/10 text-amber-200",
     error: "border-rose-400/30 bg-rose-400/10 text-rose-200",
     ok: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",

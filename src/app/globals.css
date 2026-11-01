@@ -20,25 +20,31 @@
 }
 
 :root {
+  /* Paleta "Grafite + Violeta" (01/11/2026): fundo grafite neutro (sem tom azul), cápsulas mais claras que o fundo,
+     violeta como cor de ação (não colide com lucro verde, prejuízo vermelho nem pendente âmbar). */
   color-scheme: dark;
-  --app-bg: #161d31;
-  --app-bg-deep: #161d31;
-  --surface: #283046;
-  --surface-hover: #2f3850;
-  --text: #d0d2d6;
+  --app-bg: #0f1013;
+  --app-bg-deep: #0f1013;
+  --surface: #262931;
+  --surface-hover: #2f323b;
+  --text: #e4e5e9;
   --text-strong: #ffffff;
-  --muted: #a3a6b4;
-  --primary: #005ae3;
-  --primary-hover: #0052cf;
-  --primary-active: #0356d7;
-  --success: #28c76f;
-  --danger: #ee4542;
-  --danger-accessible: #ff6a67;
-  --warning: #ff9f43;
-  --input-border: #404656;
-  --divider: #3b4253;
-  --link: #5b9dff;
-  --tooltip: #1b2236;
+  --muted: #989ca7;
+  --primary: #7356f7;
+  --primary-hover: #6646e6;
+  --primary-active: #6a4cf0;
+  --success: #1fae5b;
+  --danger: #ef4444;
+  --danger-accessible: #ff6b6b;
+  --warning: #f5a524;
+  --input-border: #3a3d47;
+  --divider: #31343c;
+  --link: #a996ff;
+  --tooltip: #17181c;
+  /* Superfície "informativa" (selos e avisos neutros), derivada da cor principal. */
+  --info-bg: color-mix(in srgb, var(--primary) 13%, transparent);
+  --info-ring: color-mix(in srgb, var(--primary) 34%, transparent);
+  --info-text: #c9bdff;
 }
 
 * {
@@ -267,4 +273,5 @@ body .text-rose-700,
 body .text-rose-800,
 body .text-rose-900 { color: var(--danger-accessible); }
 body .text-sky-700,
-body .text-sky-900 { color: var(--link); }
+body .text-sky-900,
+body .text-sky-300 { color: var(--link); }

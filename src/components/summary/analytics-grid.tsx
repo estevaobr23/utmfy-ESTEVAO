@@ -7,11 +7,11 @@ import { ApprovalCard, PaymentCard } from "./payment-card";
 import { HourlyFinancialCard, HourlyProfitCard } from "./hourly-charts";
 import { TabbedCard } from "./segmented";
 
-const PALETTE = ["#005ae3", "#28c76f", "#ff9f43", "#7367f0", "#ee4542", "#00cfe8", "#82868b"];
+const PALETTE = ["#7356f7", "#1fae5b", "#f5a524", "#e0569b", "#ef4444", "#2ec4b6", "#8e919b"];
 
 const KIND_LABEL: Record<string, string> = { main: "Principal", orderbump: "Bump", upsell: "Upsell", downsell: "Downsell" };
 const KIND_TONE: Record<string, string> = {
-  main: "bg-blue-400/10 text-blue-300 ring-blue-400/25",
+  main: "bg-[var(--info-bg)] text-[var(--info-text)] ring-[var(--info-ring)]",
   orderbump: "bg-amber-400/10 text-amber-300 ring-amber-400/25",
   upsell: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25",
   downsell: "bg-slate-400/10 text-slate-300 ring-slate-400/20",

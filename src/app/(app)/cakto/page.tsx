@@ -135,7 +135,7 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
                     <SubmitButton variant="secondary" pendingText="Verificando...">Verificar na Cakto</SubmitButton>
                   </form>
                 )}
-                <Link href={`/ofertas/${o.id}/integracoes`} className="text-xs text-sky-300 hover:underline">abrir oferta</Link>
+                <Link href={`/ofertas/${o.id}/integracoes`} className="text-xs text-[var(--link)] hover:underline">abrir oferta</Link>
                 {o.cakto_webhook_checked_at && <span className="text-xs text-copy-muted">verificado {timeAgo(o.cakto_webhook_checked_at)}</span>}
               </div>
             </Card>
@@ -146,7 +146,7 @@ export default async function CaktoPage({ searchParams }: PageProps<"/cakto">) {
       <Card title="Como criar o webhook de uma oferta nova" className="mt-6" actions={<AskClaude prompt={ask.novaOferta()} label="Fazer isso com o Claude" />}>
         <p className="mb-3 text-sm text-copy">Caminho rápido: clique em <b>Fazer isso com o Claude</b>. Ele cria a oferta, o webhook e o pixel; você só confirma. O passo a passo manual abaixo continua valendo.</p>
         <ol className="space-y-3 text-sm text-copy">
-          <li><b>1. Crie a oferta no UTMFY.</b> A URL do webhook nasce sozinha e aparece nesta página. <Link href="/ofertas" className="text-sky-300 underline">Criar oferta</Link></li>
+          <li><b>1. Crie a oferta no UTMFY.</b> A URL do webhook nasce sozinha e aparece nesta página. <Link href="/ofertas" className="text-[var(--link)] underline">Criar oferta</Link></li>
           <li>
             <b>2. Na Cakto, vá em Integrações → Webhooks → Adicionar.</b> Cole a URL da oferta, marque <b>só os produtos dela</b> e estes eventos:
             <div className="mt-1.5 flex flex-wrap gap-1.5">{EVENTS.map((ev) => <Badge key={ev} tone="info">{ev}</Badge>)}</div>

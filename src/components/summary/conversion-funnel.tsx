@@ -2,15 +2,15 @@ import type { ConversionFunnel as FunnelData } from "@/lib/core/summary";
 import { funnelPath, funnelRatios } from "@/lib/core/funnel-shape";
 import { formatNumber, formatPct } from "@/lib/core/money";
 
-// Cores e posições medidas na referência, em degradê contínuo da esquerda para a direita.
+// Degradê contínuo violeta → magenta → vinho (paleta Grafite + Violeta).
 const COLORS = [
-  [0, "#0259e2"],
-  [14, "#1953d3"],
-  [33, "#3d4bbe"],
-  [52, "#6142a9"],
-  [65, "#5e387f"],
-  [77, "#6e3576"],
-  [100, "#8a2d65"],
+  [0, "#7356f7"],
+  [18, "#7651ee"],
+  [36, "#8747d8"],
+  [54, "#973fc0"],
+  [70, "#a1389f"],
+  [85, "#a43284"],
+  [100, "#9c2b67"],
 ] as const;
 const W = 1000;
 const H = 248;
@@ -47,7 +47,7 @@ export function ConversionFunnel({ data }: { data: FunnelData }) {
       <div className="hidden overflow-x-auto px-5 py-2 md:block">
         <div className="relative min-w-[760px]">
           <div className="pointer-events-none absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }} aria-hidden>
-            {data.stages.map((stage, index) => <div key={stage.key} className={index > 0 ? "border-l border-[#9896dc]" : ""} />)}
+            {data.stages.map((stage, index) => <div key={stage.key} className={index > 0 ? "border-l border-[#5d5679]" : ""} />)}
           </div>
           <div className="relative grid" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
             {data.stages.map((stage) => (

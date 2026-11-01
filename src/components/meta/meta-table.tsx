@@ -451,7 +451,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
               {configurable.map((metric) => (
                 <label key={metric.id} className="flex items-start gap-2 rounded px-1.5 py-1 text-xs hover:bg-surface-hover" title={`${metric.source}${metric.formula ? ` · ${metric.formula}` : ""}`}>
                   <input type="checkbox" checked={columns.includes(metric.id)} onChange={() => toggleColumn(metric.id)} className="mt-0.5" />
-                  <span className="flex-1"><span className="block text-copy-strong">{metric.label}</span><span className={metric.availability === "unavailable" ? "text-amber-300" : metric.availability === "partial" ? "text-blue-300" : "text-copy-muted"}>{metric.availability === "unavailable" ? "Indisponível" : metric.availability === "partial" ? "Fonte parcial" : metric.source}</span></span>
+                  <span className="flex-1"><span className="block text-copy-strong">{metric.label}</span><span className={metric.availability === "unavailable" ? "text-amber-300" : metric.availability === "partial" ? "text-[var(--link)]" : "text-copy-muted"}>{metric.availability === "unavailable" ? "Indisponível" : metric.availability === "partial" ? "Fonte parcial" : metric.source}</span></span>
                 </label>
               ))}
             </div>
