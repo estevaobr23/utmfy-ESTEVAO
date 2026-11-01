@@ -6,7 +6,7 @@ import { adminClient } from "@/lib/supabase/admin";
 import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { syncHotmartSales } from "@/lib/services/hotmart-sync";
 import { processDispatches } from "@/lib/services/capi-dispatch";
-import { syncMeta } from "@/lib/services/meta-sync";
+import { backfillHourly, syncMeta } from "@/lib/services/meta-sync";
 
 // Rotinas automáticas. Chamadas por Vercel Cron ou pg_cron (pg_net) com
 // "Authorization: Bearer $CRON_SECRET".
@@ -15,6 +15,7 @@ import { syncMeta } from "@/lib/services/meta-sync";
 //   capi-dispatch    fila de conversões (só com CAPI_ENABLED=true)
 //   purge-sessions   retenção do IP/sessões do tracker
 //   all              todos
+//   meta-hourly      retroativo só do gasto por hora (?dias=30, máx. 90)
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -24,12 +25,17 @@ function authorized(request: Request) {
   return safeEqual(h, `Bearer ${env.cronSecret}`);
 }
 
-async function run(job: string) {
+async function run(job: string, url: URL) {
   const db = adminClient();
   const { data: workspaces } = await db.from("workspaces").select("id, timezone").eq("is_demo", false);
   const results: Record<string, unknown> = {};
   for (const ws of workspaces ?? []) {
     const r: Record<string, unknown> = {};
+    if (job === "meta-hourly") {
+      r.hourly = await backfillHourly(db, ws.id, Number(url.searchParams.get("dias") ?? 30) || 30);
+      results[ws.id] = r;
+      continue;
+    }
     if (job === "meta-sync" || job === "all") {
       r.meta = (await syncMeta(db, ws.id, { trigger: "cron" })).stats;
     }
@@ -49,8 +55,8 @@ async function run(job: string) {
 async function handler(request: Request, ctx: { params: Promise<{ job: string }> }) {
   if (!authorized(request)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const { job } = await ctx.params;
-  if (!["meta-sync", "cakto-reconcile", "capi-dispatch", "purge-sessions", "all"].includes(job)) return NextResponse.json({ error: "unknown_job" }, { status: 404 });
-  return NextResponse.json({ ok: true, job, results: await run(job) });
+  if (!["meta-sync", "meta-hourly", "cakto-reconcile", "capi-dispatch", "purge-sessions", "all"].includes(job)) return NextResponse.json({ error: "unknown_job" }, { status: 404 });
+  return NextResponse.json({ ok: true, job, results: await run(job, new URL(request.url)) });
 }
 
 export { handler as GET, handler as POST };

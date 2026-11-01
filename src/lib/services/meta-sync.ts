@@ -194,7 +194,8 @@ async function syncInsights(db: Db, workspaceId: string, client: MetaClient, acc
  * no log e NUNCA derruba o gasto diário já salvo. A Meta entrega a hora no fuso da conta; aqui já vai para o fuso do workspace.
  * A janela começa 1 dia antes porque a conversão de fuso desloca algumas horas da conta para o dia seguinte no workspace.
  */
-async function syncHourly(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, workspaceTz: string) {
+async function syncHourly(db: Db, workspaceId: string, client: MetaClient, acc: AccountRow, since: string, until: string, workspaceTz: string): Promise<{ rows: number; error: string | null }> {
+  let saved = 0;
   try {
     for (const win of chunkRange(addDays(since, -1), until, 7)) {
       const raw = await client.getAll<RawHourlyInsight>(`act_${acc.account_id}/insights`, {
@@ -212,10 +213,34 @@ async function syncHourly(db: Db, workspaceId: string, client: MetaClient, acc: 
       }
       const rows = [...merged.values()].map((r) => ({ ...r, workspace_id: workspaceId, imported_at: new Date().toISOString() }));
       await upsertChunks(db, "meta_insights_hourly", rows, "workspace_id,account_id,adset_id,date,hour");
+      saved += rows.length;
     }
+    return { rows: saved, error: null };
   } catch (e) {
     await logEvent(db, { workspaceId, level: "warn", code: "META_HOURLY_SYNC_FAILED", provider: "meta", message: (e as Error).message.slice(0, 300), context: { account_id: acc.account_id, reason: e instanceof MetaApiError ? e.kind : "exception" } });
+    return { rows: saved, error: (e as Error).message.slice(0, 200) };
   }
+}
+
+/**
+ * Retroativo SÓ do gasto por hora (não mexe no gasto diário, catálogo nem vendas): todas as contas monitoradas, `days` dias até hoje.
+ * Usado uma vez para preencher o histórico dos gráficos por horário; o sync normal mantém os últimos dias em dia.
+ */
+export async function backfillHourly(db: Db, workspaceId: string, days: number) {
+  const { data: ws } = await db.from("workspaces").select("timezone").eq("id", workspaceId).maybeSingle();
+  const tz = ws?.timezone ?? "America/Sao_Paulo";
+  const until = todayIn(tz);
+  const since = addDays(until, -Math.max(1, Math.min(days, 90)));
+  const conns = await ensureEnvConnection(db, workspaceId);
+  const { data: accounts } = await db.from("meta_ad_accounts").select("id, account_id, connection_id, timezone, currency").eq("workspace_id", workspaceId).eq("active", true);
+  const result: Record<string, { rows: number; error: string | null }> = {};
+  for (const acc of (accounts ?? []) as AccountRow[]) {
+    const conn = conns.find((c) => c.id === acc.connection_id) ?? conns[0];
+    const token = conn ? await getMetaToken(db, conn) : null;
+    if (!token) { result[acc.account_id] = { rows: 0, error: "sem token" }; continue; }
+    result[acc.account_id] = await syncHourly(db, workspaceId, new MetaClient(token), acc, since, until, tz);
+  }
+  return { since, until, accounts: result };
 }
 
 type AdvancedStats = {
