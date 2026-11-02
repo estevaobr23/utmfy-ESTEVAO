@@ -275,7 +275,13 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
   const scopedPaid = paidOrders.filter(orderMatches);
   const scopedAttempts = attempts.filter(orderMatches);
   const scopedIds = new Set([...scopedPaid, ...scopedAttempts].map((order) => order.id));
-  return buildSummaryAnalytics({
+  // Gasto do período no fuso do WORKSPACE (soma das horas). O gasto diário da Meta vem por dia da CONTA (Nova York), que
+  // começa 2–3 h depois do dia de São Paulo: sem este ajuste os cartões ficavam abaixo do gráfico por hora e o lucro, otimista.
+  // Só vale quando o gasto por hora cobre o período inteiro; senão (ou com filtro de anúncio) segue o gasto diário.
+  const alignedSpend = hourly?.spendByHour && hourly.from === f.from
+    ? Math.round(hourly.spendByHour.reduce((a, b) => a + b, 0) * 100) / 100
+    : null;
+  return { ...buildSummaryAnalytics({
     paidOrders: scopedPaid,
     attempts: scopedAttempts,
     attributions: attributions.filter((item) => scopedIds.has(item.order_id)),
@@ -286,7 +292,7 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     approvedCount: summary.approved_count,
     hourly,
     timezone: ws.timezone,
-  });
+  }), alignedSpend };
   });
 }
 

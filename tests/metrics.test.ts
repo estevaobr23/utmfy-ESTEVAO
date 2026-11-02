@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { derive, emptySums } from "@/lib/core/metrics";
-import { buildTree, totals, type OrderRow, type SpendRow } from "@/lib/core/report";
+import { buildTree, totals, withAlignedSpend, type OrderRow, type SpendRow } from "@/lib/core/report";
 
 const spend = (o: Partial<SpendRow>): SpendRow => ({
   account_id: "1", campaign_id: "C", campaign_name: "C", adset_id: "S", adset_name: "S", ad_id: "A", ad_name: "A",
@@ -80,5 +80,23 @@ describe("árvore Campanha → Conjunto → Anúncio", () => {
     const a = buildTree(s.slice(0, 2), o.slice(0, 2))[0];
     expect(t.roas).toBe(a.metrics.roas);
     expect(t.cpa).toBe(a.metrics.cpa);
+  });
+});
+
+describe("withAlignedSpend (gasto no dia do workspace)", () => {
+  // Caso real de 02/11/2026: gasto diário da Meta (dia de Nova York) R$ 81,10; soma das horas de São Paulo R$ 102,82.
+  const base = derive({ ...emptySums(), spend: 81.1, gross_revenue: 43.53, fees: 4.82, approved_count: 1 });
+  it("troca o gasto e recalcula lucro, ROAS, CPA e ROI", () => {
+    const r = withAlignedSpend(base, 102.82, 14.96);
+    expect(r.summary.spend).toBe(102.82);
+    expect(r.summary.profit).toBe(-64.11);
+    expect(r.summary.cpa).toBeCloseTo(102.82);
+    expect(r.summary.roas).toBeCloseTo(38.71 / 102.82);
+    expect(r.summary.net_revenue).toBe(38.71);
+    expect(r.spendUsd).toBe(18.97);
+  });
+  it("sem gasto por hora cobrindo o período, nada muda", () => {
+    expect(withAlignedSpend(base, null, 14.96)).toEqual({ summary: base, spendUsd: 14.96 });
+    expect(withAlignedSpend(base, Number.NaN, null).summary).toBe(base);
   });
 });

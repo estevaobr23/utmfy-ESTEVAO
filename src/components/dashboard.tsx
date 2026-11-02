@@ -10,6 +10,7 @@ import { Notice } from "@/components/ui";
 import { timeAgo } from "@/lib/core/dates";
 import { catalogOptions, filtersToQuery, listAccounts, listOfferAccounts, listOffers, loadReport, loadSummaryAnalytics, parseFilters } from "@/lib/queries";
 import { timed } from "@/lib/perf";
+import { withAlignedSpend } from "@/lib/core/report";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 
@@ -38,6 +39,8 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
     // Layout do modo edição (do próprio usuário). Sem tabela/linha = layout padrão.
     sb.from("dashboard_layouts").select("layout").eq("workspace_id", ws.id).eq("page", "resumo").maybeSingle().then((r) => (r.error ? null : r.data?.layout ?? null), () => null),
   ]);
+  // Cartões no mesmo fuso e gasto do gráfico por hora (dia do workspace), só com o spend confiável.
+  const aligned = withAlignedSpend(report.summary, report.spendStatus.reliable ? analytics.alignedSpend : null, report.spendUsd);
   const query = filtersToQuery(offerId ? { ...filters, offer: null } : filters);
   const untrackedHref = offerId ? `${untrackedPath}${query}${query ? "&" : "?"}atribuicao=nao-rastreadas` : `${untrackedPath}${query}`;
   const lastSync = accounts.map((account) => account.last_sync_at as string | null).filter((value): value is string => !!value).sort().pop() ?? null;
@@ -59,7 +62,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
       <EditableDashboard
         initial={normalizeLayout(savedLayout)}
         blocks={{
-          kpis: <KpiGrid m={report.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} spendUsd={report.spendUsd} />,
+          kpis: <KpiGrid m={aligned.summary} analytics={analytics} currency={ws.currency} untrackedHref={untrackedHref} spend={report.spendStatus} spendUsd={aligned.spendUsd} />,
           funnel: <ConversionFunnel data={analytics.funnel} />,
           ...summaryBlocks(analytics, ws.currency),
         }}

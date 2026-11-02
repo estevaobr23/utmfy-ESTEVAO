@@ -128,6 +128,17 @@ export function totals(spend: SpendRow[], orders: OrderRow[], otherCosts = 0): D
   return derive(s);
 }
 
+/**
+ * Troca o gasto do período pelo gasto no fuso do workspace (soma das horas) e recalcula lucro, ROAS, ROI, CPA e margem.
+ * O gasto diário da Meta é por dia da conta (Nova York) e não bate com o dia de São Paulo nas pontas do período.
+ * `aligned` nulo = sem gasto por hora cobrindo o período: nada muda.
+ */
+export function withAlignedSpend(m: Derived, aligned: number | null, spendUsd: number | null): { summary: Derived; spendUsd: number | null } {
+  if (aligned == null || !Number.isFinite(aligned) || aligned < 0) return { summary: m, spendUsd };
+  const usd = spendUsd != null && m.spend > 0 ? Math.round(spendUsd * (aligned / m.spend) * 100) / 100 : spendUsd;
+  return { summary: derive({ ...m, spend: aligned }), spendUsd: usd };
+}
+
 type Acc = { name: string | null; sums: BaseSums; children: Map<string, Acc> };
 
 const NO_ID = "__sem_id__";
