@@ -16,6 +16,7 @@ import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
 import { autoLinkOfferAccounts } from "@/lib/services/offer-auto-link";
 import { activeRefresh, recentlyRefreshed, runRefresh, runRefreshExtras } from "@/lib/services/refresh";
 import { updateMetaDailyBudget } from "@/lib/services/meta-budget";
+import { updateMetaBidCap } from "@/lib/services/meta-bid";
 import { updateMetaStatus } from "@/lib/services/meta-status";
 import { isStatusLevel, isStatusOp, MAX_BULK, parseBulkIds, STATUS_OPS } from "@/lib/core/meta-status";
 import { processDispatches, retryDispatch } from "@/lib/services/capi-dispatch";
@@ -343,6 +344,20 @@ export async function updateMetaBudget(fd: FormData) {
   if (!r.ok) return back(path, r.error, "error");
   const unit = (minor: number) => (minor / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   back(path, `Orçamento de “${r.update.name}” atualizado na Meta: ${r.update.currency} ${unit(r.update.beforeMinor)} → ${unit(r.update.afterMinor)}/dia`);
+}
+
+/** Lápis do bid cap na tabela Meta Ads: valor em reais → conjunto(s) na Meta (campanha = todos os conjuntos com bid cap). */
+export async function updateMetaBid(fd: FormData) {
+  const s = await writer();
+  const raw = str(fd, "back");
+  const path = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/meta-ads";
+  const level = str(fd, "level");
+  if (level !== "campaign" && level !== "adset") return back(path, "Nível inválido.", "error");
+  const requested = Number(str(fd, "amount").replace(/\./g, "").replace(",", "."));
+  const r = await updateMetaBidCap(adminClient(), s.workspace.id, { level, objectId: str(fd, "object_id"), requested, workspaceCurrency: s.workspace.currency });
+  if (!r.ok) return back(path, r.error, "error");
+  const unit = (minor: number) => (minor / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  back(path, `Bid cap de “${r.update.name}” atualizado na Meta: ${r.update.currency} ${unit(r.update.afterMinor)} em ${r.update.adsets} conjunto(s)`);
 }
 
 /** Seleção na tabela Meta Ads: ativar, desativar ou excluir várias campanhas/conjuntos/anúncios de uma vez (botão + confirmação na tela). */

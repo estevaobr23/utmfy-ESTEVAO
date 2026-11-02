@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  adsetBidCap, adsetBudget, buildAdvancedIndex, campaignBidCap, campaignBudget, deriveVideo, indexVideo, minorToMajor, planBudgetChange,
+  adsetBidCap, adsetBudget, buildAdvancedIndex, campaignBidCap, campaignBudget, deriveVideo, indexVideo, minorToMajor, planBudgetChange, planBidChange,
   normalizeAdset, normalizeCampaign, normalizeReach, normalizeVideoInsight, reachWindows, rejectedField, scopeFromSpend,
   type AdsetConfig, type CampaignConfig, type RawVideoInsight, type VideoRow,
 } from "@/lib/core/meta-advanced";
@@ -232,5 +232,21 @@ describe("campo rejeitado pela Graph", () => {
   it("identifica o campo no texto do erro", () => {
     expect(rejectedField("(#100) video_continuous_2_sec_watched_actions is not valid for fields param", ["impressions", "video_continuous_2_sec_watched_actions"])).toBe("video_continuous_2_sec_watched_actions");
     expect(rejectedField("Invalid parameter", ["impressions"])).toBeNull();
+  });
+});
+
+describe("planBidChange (bid cap)", () => {
+  // Caso real: campanha "bd", bid cap US$ 4,00 (400 centavos) mostrado como R$ 21,68 (câmbio 5,42).
+  it("converte reais para a moeda da conta", () => {
+    const r = planBidChange({ requested: 27.1, currentMinor: 400, currency: "USD", targetCurrency: "BRL", rate: 5.42 });
+    expect(r).toEqual({ ok: true, newMinor: 500, newMajor: 5 });
+  });
+  it("recusa valor inválido, sem cotação e aumento acima de 5×", () => {
+    expect(planBidChange({ requested: 0, currentMinor: 400, currency: "USD", targetCurrency: "BRL", rate: 5.42 }).ok).toBe(false);
+    expect(planBidChange({ requested: 10, currentMinor: 400, currency: "USD", targetCurrency: "BRL", rate: null }).ok).toBe(false);
+    expect(planBidChange({ requested: 5.42 * 25, currentMinor: 400, currency: "USD", targetCurrency: "BRL", rate: 5.42 }).ok).toBe(false);
+  });
+  it("sem valor atual não compara e na mesma moeda não converte", () => {
+    expect(planBidChange({ requested: 8, currentMinor: null, currency: "BRL", targetCurrency: "BRL", rate: null })).toEqual({ ok: true, newMinor: 800, newMajor: 8 });
   });
 });

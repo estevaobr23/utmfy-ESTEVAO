@@ -92,7 +92,7 @@ export type BudgetInfo = {
   source?: { amount: number; currency: string; rate: number } | null;
 };
 
-export type BidInfo = { amount: number | null; currency: string | null; note: string | null; strategy: string | null };
+export type BidInfo = { amount: number | null; currency: string | null; note: string | null; strategy: string | null; source?: BudgetInfo["source"] };
 
 type BudgetSource = { daily_budget_minor: number | null; lifetime_budget_minor: number | null; currency: string | null };
 
@@ -398,6 +398,22 @@ export function planBudgetChange(input: { requested: number; currentMinor: numbe
   return { ok: true, newMinor, newMajor: Math.round(newMajor * 100) / 100 };
 }
 
+/**
+ * Novo bid cap digitado na moeda do workspace → unidade menor da conta. Mesma regra do orçamento (cotação, mínimo e
+ * teto de {@link MAX_BUDGET_INCREASE}× o valor atual por mudança). `currentMinor` nulo = sem valor atual para comparar.
+ */
+export function planBidChange(input: { requested: number; currentMinor: number | null; currency: string; targetCurrency: string; rate: number | null }): BudgetChangePlan {
+  const { requested, currentMinor, currency, targetCurrency } = input;
+  if (!Number.isFinite(requested) || requested <= 0) return { ok: false, reason: "Informe um valor maior que zero." };
+  const rate = currency === targetCurrency ? 1 : input.rate;
+  if (!rate || !(rate > 0)) return { ok: false, reason: `Sem cotação ${currency} → ${targetCurrency}. Defina o câmbio da conta antes de editar.` };
+  const newMajor = requested / rate;
+  const newMinor = majorToMinor(newMajor, currency);
+  if (newMinor < 1) return { ok: false, reason: "Valor abaixo do mínimo da Meta." };
+  if (currentMinor && newMinor > currentMinor * MAX_BUDGET_INCREASE) return { ok: false, reason: `Aumento maior que ${MAX_BUDGET_INCREASE}× o bid cap atual. Faça em etapas.` };
+  return { ok: true, newMinor, newMajor: Math.round(newMajor * 100) / 100 };
+}
+
 export function buildAdvancedIndex(data: AdvancedData, scope: AdvancedScope | null, opts: { offerScoped: boolean; fx?: FxMap }) {
   const adsInScope = scope?.ad ?? null;
   const campaigns = new Map(data.campaigns.map((c) => [c.campaign_id, c]));
@@ -430,8 +446,8 @@ export function buildAdvancedIndex(data: AdvancedData, scope: AdvancedScope | nu
     }
     if (budget) budget = { ...budget, ...toTarget(budget.amount, budget.currency, opts.fx) };
     if (bidCap) {
-      const { amount, currency } = toTarget(bidCap.amount, bidCap.currency, opts.fx);
-      bidCap = { ...bidCap, amount, currency };
+      const { amount, currency, source } = toTarget(bidCap.amount, bidCap.currency, opts.fx);
+      bidCap = { ...bidCap, amount, currency, source };
     }
     return { budget, bidCap, ...reachOf(level, id), video: video[level].get(id) ?? null };
   };

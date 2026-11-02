@@ -21,6 +21,8 @@ const PRESETS = PERIOD_PRESETS;
 const LEVEL_ICON: Record<Level, string> = { contas: "▣", campanhas: "◫", conjuntos: "⊞", anuncios: "▯" };
 const one = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value) ?? "";
 const ID = /^[0-9]{1,30}$/;
+/** Lista de IDs na URL ("123,456") vinda de "Filtrar selecionadas": só números, até 50. */
+const idList = (value: string) => { const ids = value.split(",").filter((id) => ID.test(id)).slice(0, 50); return ids.length ? ids : null; };
 
 type CatalogRow = CatalogEntry;
 
@@ -60,6 +62,9 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   const campaign = ID.test(one(sp.campaign)) ? one(sp.campaign) : null;
   const adset = ID.test(one(sp.adset)) ? one(sp.adset) : null;
   const name = one(sp.q).slice(0, 80);
+  // Campanhas/conjuntos escolhidos em "Filtrar selecionadas": valem nas abas seguintes (conjuntos e anúncios só dessas campanhas).
+  const campaigns = idList(one(sp.campaigns));
+  const adsets = idList(one(sp.adsets));
   const f = parseFilters({ ...sp, campaign: undefined, adset: undefined, ad: undefined }, ws.timezone, offerId);
   const [report, accounts, adsResult, advancedData, pixelScope, budgetLogs] = await Promise.all([
     loadReport(sb, ws, f),
@@ -87,6 +92,8 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
       nivel: level,
       campaign,
       adset,
+      campaigns: campaigns?.join(",") ?? null,
+      adsets: adsets?.join(",") ?? null,
       q: name || null,
       preset: f.preset === "custom" ? null : f.preset,
       from: f.preset === "custom" ? f.from : null,
@@ -189,6 +196,15 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
     }
   }
 
+  // Filtro "só as selecionadas": campanhas = a própria lista; conjuntos/anúncios = os das campanhas escolhidas (e dos conjuntos escolhidos).
+  const campaignScope = campaigns ? new Set(campaigns) : null;
+  const adsetScope = adsets ? new Set(adsets) : null;
+  const scopedRows = level === "contas" ? levelRows : levelRows.filter((row) => {
+    if (level === "campanhas") return !campaignScope || campaignScope.has(row.id);
+    if (campaignScope && !(row.campaignId && campaignScope.has(row.campaignId))) return false;
+    if (level === "conjuntos") return !adsetScope || adsetScope.has(row.id);
+    return !adsetScope || (row.adsetId != null && adsetScope.has(row.adsetId));
+  });
   const parentCampaign = campaign ? aggregateLevel("campanhas", report.spendRows, report.orderRows, { campaign }).rows[0]?.name : null;
   const parentAdset = adset ? aggregateLevel("conjuntos", report.spendRows, report.orderRows, { adset }).rows[0]?.name : null;
   const sortCandidate = one(sp.sort) as MetaColumnId;
@@ -217,6 +233,8 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         <input type="hidden" name="nivel" value={level} />
         {campaign && <input type="hidden" name="campaign" value={campaign} />}
         {adset && <input type="hidden" name="adset" value={adset} />}
+        {campaigns && <input type="hidden" name="campaigns" value={campaigns.join(",")} />}
+        {adsets && <input type="hidden" name="adsets" value={adsets.join(",")} />}
         <PeriodControl
           preset={f.preset}
           from={f.from}
@@ -246,21 +264,23 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
             : "ⓘ Alcance e frequência exatos só existem nos períodos predefinidos (o alcance não pode ser somado entre dias). Em período personalizado eles aparecem como N/D."}
         </div>
       )}
-      {(campaign || adset || !report.spendStatus.reliable) && (
+      {(campaign || adset || campaigns || adsets || !report.spendStatus.reliable) && (
         <div className="flex flex-wrap items-center gap-2 border-b border-divider bg-app-bg px-4 py-2 text-xs">
           {campaign && <Link href={link({ nivel: "campanhas", campaign: null, adset: null, page: null })} className="rounded-full bg-surface-hover px-2 py-1 text-copy">Campanha: {parentCampaign ?? campaign} ×</Link>}
           {adset && <Link href={link({ nivel: "conjuntos", adset: null, page: null })} className="rounded-full bg-surface-hover px-2 py-1 text-copy">Conjunto: {parentAdset ?? adset} ×</Link>}
+          {campaigns && level !== "contas" && <Link href={link({ campaigns: null, adsets: null, page: null })} title="Remover o filtro de campanhas selecionadas" className="rounded-full bg-primary/15 px-2 py-1 text-copy ring-1 ring-primary/40">{campaigns.length} campanha(s) selecionada(s) ×</Link>}
+          {adsets && (level === "conjuntos" || level === "anuncios") && <Link href={link({ adsets: null, page: null })} title="Remover o filtro de conjuntos selecionados" className="rounded-full bg-primary/15 px-2 py-1 text-copy ring-1 ring-primary/40">{adsets.length} conjunto(s) selecionado(s) ×</Link>}
           {!report.spendStatus.reliable && <span className="text-amber-200">⚠ {report.spendStatus.message}</span>}
         </div>
       )}
 
       <MetaTable
-        rows={levelRows}
+        rows={scopedRows}
         level={level}
         currency={ws.currency}
         path={path}
         spendReliable={report.spendStatus.reliable}
-        totalReach={advanced.totalReach({ campaign, adset, accountIds: [...new Set(levelRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
+        totalReach={campaigns || adsets ? { reach: null, frequency: null } : advanced.totalReach({ campaign, adset, accountIds: [...new Set(levelRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
         initial={{ query: name, status: one(sp.meta_status), sort, direction, page, pageSize }}
         canWrite={canWrite}
         periodLabel={f.preset === "custom" ? `${f.from} → ${f.to}` : PRESETS.find(([key]) => key === f.preset)?.[1] ?? null}

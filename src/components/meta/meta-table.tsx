@@ -17,6 +17,7 @@ import {
 import { formatMoney, formatNumber, formatPct } from "@/lib/core/money";
 import { formatBudgetPeriod } from "@/lib/core/meta-advanced";
 import { BudgetEditor } from "@/components/meta/budget-editor";
+import { BidEditor, canEditBid } from "@/components/meta/bid-editor";
 import { bulkMetaStatus } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
 import { isRemovedStatus, removedLabel, STATUS_OPS, type StatusLevel, type StatusOp } from "@/lib/core/meta-status";
@@ -38,7 +39,7 @@ type Props = {
 
 /** Larguras padrão (px) e limites do redimensionamento por arrasto. */
 const DEFAULT_WIDTH = 112;
-const COLUMN_WIDTH: Partial<Record<MetaColumnId, number>> = { select: 40, status: 64, name: 280, last_sync: 300, budget: 150 };
+const COLUMN_WIDTH: Partial<Record<MetaColumnId, number>> = { select: 40, status: 64, name: 280, last_sync: 300, budget: 150, bid_cap: 130 };
 const FIXED_COLUMNS = new Set<MetaColumnId>(["select", "status"]);
 const MIN_WIDTH = 72;
 const MAX_WIDTH = 640;
@@ -227,6 +228,9 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const selectionKey = `utmfy:v1:meta-selection:${path}:${level}`;
   const [selected, setSelected] = useState<Map<string, string>>(new Map());
   const [onlySelected, setOnlySelected] = useState(false);
+  // "Filtrar selecionadas" em campanhas/conjuntos vai para a URL (campaigns=… / adsets=…): o servidor filtra e as abas seguintes herdam.
+  const urlFilterKey = level === "campanhas" ? "campaigns" : level === "conjuntos" ? "adsets" : null;
+  const urlFiltered = !!(urlFilterKey && searchParams.get(urlFilterKey));
   const [pendingOp, setPendingOp] = useState<StatusOp | null>(null);
   const [copied, setCopied] = useState(false);
   const [seenLevel, setSeenLevel] = useState(level);
@@ -464,7 +468,10 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
           <div className="flex flex-wrap items-center gap-2">
             <b className="text-white">{selectedIds.length} {noun} selecionada(s)</b>
             <button type="button" onClick={copyIds} className="rounded border border-input-border bg-surface-hover px-2.5 py-1 font-medium text-copy hover:bg-app-bg">{copied ? "IDs copiados ✓" : "Copiar IDs"}</button>
-            <button type="button" onClick={() => setOnlySelected((v) => !v)} className="rounded border border-input-border bg-surface-hover px-2.5 py-1 font-medium text-copy hover:bg-app-bg">{onlySelected ? "Mostrar todas" : "Filtrar selecionadas"}</button>
+            <button type="button" onClick={() => {
+              if (urlFilterKey) updateQuery(router, new URLSearchParams(searchParams.toString()), path, { [urlFilterKey]: urlFiltered ? null : selectedIds.slice(0, 50).join(","), page: null });
+              else setOnlySelected((v) => !v);
+            }} className="rounded border border-input-border bg-surface-hover px-2.5 py-1 font-medium text-copy hover:bg-app-bg">{urlFiltered || onlySelected ? "Mostrar todas" : "Filtrar selecionadas"}</button>
             {canWrite && selectableLevel && (["activate", "pause", "delete"] as const).map((op) => (
               <button key={op} type="button" onClick={() => setPendingOp(pendingOp === op ? null : op)} aria-pressed={pendingOp === op} className={`rounded border px-2.5 py-1 font-medium ${op === "delete" ? "border-rose-400/40 bg-rose-400/10 text-rose-300 hover:bg-rose-400/20" : "border-input-border bg-surface-hover text-copy hover:bg-app-bg"} ${pendingOp === op ? "ring-1 ring-primary" : ""}`}>{STATUS_OPS[op].label}</button>
             ))}
@@ -514,10 +521,10 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                   if (metric.id === "status") return <td key={metric.id} className={`${base} text-center`}><StatusIndicator status={row.status} /></td>;
                   if (metric.id === "name") return (
                     <td key={metric.id} className={base}>
-                      <div className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: depth * 16 }}>
-                        {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="w-4 shrink-0 text-copy-muted hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
-                        {row.drillUrl ? <Link href={row.drillUrl} className="min-w-0 truncate font-semibold text-white hover:text-[var(--link)]" title={row.name}>{row.name}</Link> : <span className="min-w-0 truncate font-semibold" title={row.name}>{row.name}</span>}
-                        {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="text-copy-muted hover:text-[var(--link)]">↗</a>}
+                      <div className="flex min-w-0 items-start gap-1.5" style={{ paddingLeft: depth * 16 }}>
+                        {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="mt-px w-4 shrink-0 text-copy-muted hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
+                        {row.drillUrl ? <Link href={row.drillUrl} className="min-w-0 flex-1 break-words font-semibold leading-snug text-white [overflow-wrap:anywhere] line-clamp-3 hover:text-[var(--link)]" title={row.name}>{row.name}</Link> : <span className="min-w-0 flex-1 break-words font-semibold leading-snug [overflow-wrap:anywhere] line-clamp-3" title={row.name}>{row.name}</span>}
+                        {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="shrink-0 text-copy-muted hover:text-[var(--link)]">↗</a>}
                       </div>
                     </td>
                   );
@@ -531,8 +538,9 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                   const badge = metric.format === "budget" && row.budget?.amount != null
                     ? <span className="mr-1.5 rounded bg-surface-hover px-1 py-0.5 text-[9px] font-semibold text-copy">{row.budget.mode}</span>
                     : null;
+                  const bidEditable = canWrite && metric.format === "bid" && canEditBid(row);
                   const editable = canWrite && metric.format === "budget" && row.budget?.amount != null && row.budget.period === "daily";
-                  return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}{editable && <BudgetEditor row={row} back={backUrl} currency={currency} spendReliable={spendReliable} periodLabel={periodLabel} />}</td>;
+                  return <td key={metric.id} title={cellTitle(row, metric)} className={`${base} whitespace-nowrap text-right tabular-nums ${tone}`}>{badge}{value}{editable && <BudgetEditor row={row} back={backUrl} currency={currency} spendReliable={spendReliable} periodLabel={periodLabel} />}{bidEditable && <BidEditor row={row} back={backUrl} currency={currency} />}</td>;
                 })}
               </tr>
             ))}
