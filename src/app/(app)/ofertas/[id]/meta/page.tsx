@@ -20,7 +20,7 @@ async function MetaContent({ params, searchParams }: PageProps<"/ofertas/[id]/me
 export default function OfferMeta(props: PageProps<"/ofertas/[id]/meta">) {
   return (
     <>
-      <SectionTitle title="Meta Ads" subtitle="Clique numa campanha para ver conjuntos e anúncios. Esta área é somente leitura." />
+      <SectionTitle title="Meta Ads" subtitle="Clique numa campanha para ver conjuntos e anúncios." />
       <Suspense fallback={<MetaAdsSkeleton />}><MetaContent {...props} /></Suspense>
     </>
   );

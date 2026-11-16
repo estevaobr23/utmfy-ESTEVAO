@@ -134,6 +134,28 @@ function rowValue(row: MetaTableRow, column: MetaColumnId) {
   return metaMetricValue(row, column);
 }
 
+const MOBILE_METRICS: MetaColumnId[] = ["spend", "sales", "cpa", "profit", "roas", "clicks", "cpc", "ctr", "page_views", "checkouts", "cpm", "impressions"];
+
+/** Grade compacta do celular: só as métricas que decidem (gasto, venda, custo, retorno e funil). */
+function MobileMetrics({ row, currency, spendReliable }: { row: MetaTableRow; currency: string; spendReliable: boolean }) {
+  return (
+    <dl className="mt-2 grid grid-cols-3 gap-x-2 gap-y-2">
+      {MOBILE_METRICS.map((id) => {
+        const metric = META_METRICS.find((m) => m.id === id);
+        if (!metric) return null;
+        const value = displayValue(row, metric, currency, spendReliable);
+        const tone = id === "profit" ? (row.metrics.profit > 0 ? "text-success" : row.metrics.profit < 0 ? "text-danger-accessible" : "text-white") : id === "roas" ? (returnTone(row, "roas", spendReliable) || "text-white") : value === "N/D" || value === "—" ? "text-copy-muted" : "text-white";
+        return (
+          <div key={id} className="min-w-0">
+            <dt className="truncate text-[10px] uppercase tracking-wide text-copy-muted">{metric.label}</dt>
+            <dd className={`truncate text-[13px] font-semibold tabular-nums ${tone}`}>{value}</dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
 function flattenExpanded(rows: MetaTableRow[], expanded: Set<string>, showRemoved: boolean, depth = 0): { row: MetaTableRow; depth: number }[] {
   const output: { row: MetaTableRow; depth: number }[] = [];
   for (const row of rows) {
@@ -438,11 +460,11 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
           </select>
         </label>
         {expandableKeys.length > 0 && (
-          <button type="button" onClick={() => setExpanded(expanded.size ? new Set() : new Set(expandableKeys))} className="h-[34px] rounded border border-input-border bg-surface-hover px-3 text-xs font-medium text-copy hover:bg-app-bg">
+          <button type="button" onClick={() => setExpanded(expanded.size ? new Set() : new Set(expandableKeys))} className="hidden h-[34px] md:block rounded border border-input-border bg-surface-hover px-3 text-xs font-medium text-copy hover:bg-app-bg">
             {expanded.size ? "Recolher tudo" : "Expandir tudo"}
           </button>
         )}
-        <details className="relative">
+        <details className="relative hidden md:block">
           <summary className="grid h-[34px] cursor-pointer list-none place-items-center rounded border border-input-border bg-surface-hover px-3 text-xs font-medium text-copy hover:bg-app-bg">Personalizar colunas</summary>
           <div className="absolute right-0 z-40 mt-1 w-80 rounded-md border border-divider bg-surface p-3 shadow-2xl shadow-black/40">
             <input value={columnSearch} onChange={(event) => setColumnSearch(event.target.value)} placeholder="Buscar métrica" className="mb-2 h-[34px] w-full rounded border border-input-border bg-app-bg px-2 text-sm text-white outline-none" />
@@ -495,7 +517,38 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
         </div>
       )}
 
-      <div className="max-h-[68vh] overflow-auto">
+      {/* Celular: cartões com o essencial (a tabela larga fica só no computador). */}
+      <div className="space-y-2 bg-app-bg p-2 md:hidden">
+        {filtered.length > 0 && (
+          <div className="rounded-lg border border-primary/40 bg-surface p-3">
+            <p className="text-xs font-semibold text-white">Total · {filtered.length} resultado(s)</p>
+            <MobileMetrics row={totalRow} currency={currency} spendReliable={spendReliable} />
+          </div>
+        )}
+        {visibleRows.map(({ row, depth }) => {
+          const budgetMetric = META_METRICS.find((m) => m.id === "budget")!;
+          const editable = canWrite && row.budget?.amount != null && row.budget.period === "daily";
+          return (
+            <div key={`m:${row.level}:${row.id}`} className="rounded-lg border border-divider bg-surface p-3" style={{ marginLeft: depth * 10 }}>
+              <div className="flex items-start gap-2">
+                {isSelectable(row, depth) && <input type="checkbox" aria-label={`Selecionar ${row.name}`} checked={selected.has(row.id)} onChange={() => toggleSelected(row)} className="mt-1 h-4 w-4 shrink-0" />}
+                <span className="mt-0.5 shrink-0"><StatusIndicator status={row.status} /></span>
+                {row.drillUrl
+                  ? <Link href={row.drillUrl} className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</Link>
+                  : <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</span>}
+                {row.children.length > 0 && <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} aria-label="Ver itens de dentro" className="shrink-0 rounded border border-input-border px-2 py-0.5 text-xs text-copy">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button>}
+              </div>
+              {row.budget?.amount != null && (
+                <p className="mt-1.5 text-[11px] text-copy-muted">Orçamento <span className="tabular-nums text-copy">{displayValue(row, budgetMetric, currency, spendReliable)}</span>{editable && <BudgetEditor row={row} back={backUrl} currency={currency} spendReliable={spendReliable} periodLabel={periodLabel} />}</p>
+              )}
+              <MobileMetrics row={row} currency={currency} spendReliable={spendReliable} />
+            </div>
+          );
+        })}
+        {!visibleRows.length && <p className="rounded-lg bg-surface px-4 py-10 text-center text-sm text-copy-muted">Nenhum resultado para os filtros atuais.</p>}
+      </div>
+
+      <div className="hidden max-h-[68vh] overflow-auto md:block">
         <table className="border-separate border-spacing-0 text-[12px] text-copy" style={{ tableLayout: "fixed", width: visibleColumns.reduce((sum, metric) => sum + widthOf(metric.id), 0) }}>
           <colgroup>
             {visibleColumns.map((metric) => <col key={metric.id} style={{ width: widthOf(metric.id) }} />)}

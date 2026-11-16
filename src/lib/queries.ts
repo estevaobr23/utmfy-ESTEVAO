@@ -278,9 +278,13 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
   // Gasto do período no fuso do WORKSPACE (soma das horas). O gasto diário da Meta vem por dia da CONTA (Nova York), que
   // começa 2–3 h depois do dia de São Paulo: sem este ajuste os cartões ficavam abaixo do gráfico por hora e o lucro, otimista.
   // Só vale quando o gasto por hora cobre o período inteiro; senão (ou com filtro de anúncio) segue o gasto diário.
-  const alignedSpend = hourly?.spendByHour && hourly.from === f.from
+  const hourlySum = hourly?.spendByHour && hourly.from === f.from
     ? Math.round(hourly.spendByHour.reduce((a, b) => a + b, 0) * 100) / 100
     : null;
+  // A Meta atrasa o detalhamento por hora (às vezes horas depois do gasto diário). Em período que inclui HOJE, se a soma
+  // das horas ficou abaixo do gasto diário, o por-hora está atrasado: vale o diário (antes os cartões mostravam R$ 0).
+  const hourlyLagging = hourlySum != null && f.to >= todayIn(ws.timezone) && hourlySum < summary.spend;
+  const alignedSpend = hourlyLagging ? null : hourlySum;
   return { ...buildSummaryAnalytics({
     paidOrders: scopedPaid,
     attempts: scopedAttempts,
@@ -290,7 +294,7 @@ export async function loadSummaryAnalytics(sb: Db, ws: Workspace, f: Filters, su
     clicks: spendReliable ? summary.clicks : null,
     metaPixel: spendReliable ? metaPixel : null,
     approvedCount: summary.approved_count,
-    hourly,
+    hourly: hourlyLagging && hourly ? { ...hourly, note: "A Meta ainda não liberou o gasto por hora de hoje: os cartões usam o gasto diário e o gráfico por hora completa em algumas horas." } : hourly,
     timezone: ws.timezone,
   }), alignedSpend };
   });
