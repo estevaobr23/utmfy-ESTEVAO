@@ -2,7 +2,8 @@ import "server-only";
 import type { Db } from "../supabase/types";
 import { hint } from "../core/hash";
 import { chunkRange, HOURLY_BREAKDOWN, HOURLY_FIELDS, INSIGHTS_FIELDS, normalizeAccountId, normalizeHourlyInsight, normalizeInsight, type RawHourlyInsight, type RawInsight } from "../core/meta";
-import { addDays, todayIn } from "../core/dates";
+import { addDays, localDateHour, localHourToUtc, todayIn } from "../core/dates";
+import { estimateHourlyFill, type HourKey } from "../core/hourly-estimate";
 import { mapPool } from "../core/concurrency";
 import {
   ADSET_FIELDS, CAMPAIGN_FIELDS, REACH_LEVELS, VIDEO_INSIGHTS_FIELDS, creativeHasVideo, hasVideoData, normalizeAdset,
@@ -115,6 +116,7 @@ async function syncAccount(db: Db, workspaceId: string, client: MetaClient, acc:
   if (!parts.insights) return stats;
   const result = await syncInsights(db, workspaceId, client, acc, since, until, catalog, stats);
   await syncHourly(db, workspaceId, client, acc, since, until, workspaceTz);
+  await estimateTodayHourly(db, workspaceId, acc, workspaceTz);
   return result;
 }
 
@@ -212,6 +214,10 @@ async function syncHourly(db: Db, workspaceId: string, client: MetaClient, acc: 
         merged.set(key, prev ? { ...prev, spend: Math.round((prev.spend + row.spend) * 100) / 100, clicks: prev.clicks + row.clicks, impressions: prev.impressions + row.impressions } : row);
       }
       const rows = [...merged.values()].map((r) => ({ ...r, workspace_id: workspaceId, imported_at: new Date().toISOString() }));
+      // Dia que a Meta já entregou por hora: apaga a estimativa (ou horas antigas) desse dia da conta antes de gravar o real.
+      for (const day of new Set(raw.map((item) => item.date_start).filter((d): d is string => !!d))) {
+        await deleteAccountDayHours(db, workspaceId, acc, day, workspaceTz);
+      }
       await upsertChunks(db, "meta_insights_hourly", rows, "workspace_id,account_id,adset_id,date,hour");
       saved += rows.length;
     }
@@ -219,6 +225,62 @@ async function syncHourly(db: Db, workspaceId: string, client: MetaClient, acc: 
   } catch (e) {
     await logEvent(db, { workspaceId, level: "warn", code: "META_HOURLY_SYNC_FAILED", provider: "meta", message: (e as Error).message.slice(0, 300), context: { account_id: acc.account_id, reason: e instanceof MetaApiError ? e.kind : "exception" } });
     return { rows: saved, error: (e as Error).message.slice(0, 200) };
+  }
+}
+
+/** As 24 horas de um dia da CONTA (fuso da conta) escritas no fuso do workspace (podem cair em 2 datas). */
+function accountDayHours(day: string, accountTz: string, workspaceTz: string, untilNow = false): HourKey[] {
+  const out: HourKey[] = [];
+  const now = Date.now();
+  for (let h = 0; h < 24; h++) {
+    const instant = localHourToUtc(day, h, accountTz);
+    if (untilNow && instant.getTime() > now) break;
+    out.push(localDateHour(instant, workspaceTz));
+  }
+  return out;
+}
+
+async function deleteAccountDayHours(db: Db, workspaceId: string, acc: AccountRow, day: string, workspaceTz: string) {
+  const byDate = new Map<string, number[]>();
+  for (const k of accountDayHours(day, acc.timezone || workspaceTz, workspaceTz)) byDate.set(k.date, [...(byDate.get(k.date) ?? []), k.hour]);
+  for (const [date, hours] of byDate) {
+    await db.from("meta_insights_hourly").delete().eq("workspace_id", workspaceId).eq("account_id", acc.account_id).eq("date", date).in("hour", hours);
+  }
+}
+
+/**
+ * Hoje a Meta ainda não entrega horas: transforma o gasto diário já sincronizado em horas estimadas (ver core/hourly-estimate).
+ * Opcional e isolado: falha vira aviso no log e nunca derruba a sincronização.
+ */
+async function estimateTodayHourly(db: Db, workspaceId: string, acc: AccountRow, workspaceTz: string) {
+  try {
+    const tz = acc.timezone || workspaceTz;
+    const day = todayIn(tz);
+    const hours = accountDayHours(day, tz, workspaceTz, true);
+    if (!hours.length) return;
+    const { data: dailyRaw, error } = await db.from("meta_insights_daily").select("campaign_id,campaign_name,adset_id,spend,clicks,impressions,currency")
+      .eq("workspace_id", workspaceId).eq("account_id", acc.account_id).eq("date", day).limit(5000);
+    if (error) throw new Error(error.message);
+    const byAdset = new Map<string, { adset_id: string; campaign_id: string; campaign_name: string | null; spend: number; clicks: number; impressions: number; currency: string | null }>();
+    for (const r of (dailyRaw ?? []) as { campaign_id: string; campaign_name: string | null; adset_id: string; spend: number | string | null; clicks: number | string | null; impressions: number | string | null; currency: string | null }[]) {
+      const prev = byAdset.get(r.adset_id) ?? { adset_id: r.adset_id, campaign_id: r.campaign_id, campaign_name: r.campaign_name, spend: 0, clicks: 0, impressions: 0, currency: r.currency };
+      prev.spend += Number(r.spend ?? 0); prev.clicks += Number(r.clicks ?? 0); prev.impressions += Number(r.impressions ?? 0);
+      byAdset.set(r.adset_id, prev);
+    }
+    if (!byAdset.size) return;
+    const dates = [...new Set(hours.map((h) => h.date))];
+    const { data: existingRaw, error: e2 } = await db.from("meta_insights_hourly").select("date,hour,adset_id,spend,clicks,impressions")
+      .eq("workspace_id", workspaceId).eq("account_id", acc.account_id).in("date", dates).limit(10000);
+    if (e2) throw new Error(e2.message);
+    const pos = new Map(hours.map((h, i) => [`${h.date}|${h.hour}`, i]));
+    const existing = ((existingRaw ?? []) as { date: string; hour: number; adset_id: string; spend: number; clicks: number; impressions: number }[]).filter((r) => pos.has(`${r.date}|${r.hour}`));
+    const lastFill = new Map<string, number>();
+    for (const r of existing) lastFill.set(r.adset_id, Math.max(lastFill.get(r.adset_id) ?? -1, pos.get(`${r.date}|${r.hour}`)!));
+    const rows = estimateHourlyFill(acc.account_id, hours, [...byAdset.values()], existing, lastFill)
+      .map((r) => ({ ...r, workspace_id: workspaceId, imported_at: new Date().toISOString() }));
+    if (rows.length) await upsertChunks(db, "meta_insights_hourly", rows, "workspace_id,account_id,adset_id,date,hour");
+  } catch (e) {
+    await logEvent(db, { workspaceId, level: "warn", code: "META_HOURLY_ESTIMATE_FAILED", provider: "meta", message: (e as Error).message.slice(0, 300), context: { account_id: acc.account_id } });
   }
 }
 
