@@ -8,6 +8,7 @@ import { buildAreaRelay } from "@/lib/core/hotmart/area-relay";
 import { buildEntrega } from "@/lib/core/hotmart/entrega";
 
 const AREA_URL = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/lavadoras-webhook";
+const AREA_URL_INGLES = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/ingles-webhook";
 
 // POST /api/webhooks/hotmart            (webhook GERAL: produtos "todos"; a oferta sai do mapeamento produto → oferta)
 // POST /api/webhooks/hotmart?ws=<slug>   (idem, escolhendo o workspace)
@@ -35,19 +36,26 @@ export async function POST(request: Request) {
       await processDispatches(adminClient(), { limit: 20, trigger: "cron" }).catch(() => null);
     });
   }
-  // Acesso da área de membros: repasse (webhook único). Só com hottok válido (200) e fora da resposta à Hotmart.
-  const secretArea = process.env.AREA_WEBHOOK_SECRET;
-  if (out.httpStatus === 200 && secretArea) {
-    after(async () => {
-      try {
-        const relay = buildAreaRelay(JSON.parse(rawBody), (process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892,8844527,8844938,8844997,8844999").split(",").map((s) => s.trim()).filter(Boolean));
-        if (!relay) return;
-        const r = await fetch(process.env.AREA_WEBHOOK_URL ?? AREA_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: secretArea, ...relay }) });
-        if (!r.ok) await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: `status ${r.status}`, context: { event: relay.event, transaction: relay.data.id } });
-      } catch (e) {
-        await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: (e as Error).message.slice(0, 200) }).catch(() => null);
-      }
-    });
+  // Acesso das áreas de membros: repasse (webhook único da Hotmart). Só com hottok válido (200) e fora da resposta à Hotmart.
+  // Cada área recebe só as vendas dos produtos dela. 17/11/2026: + área "Inglês da Limpeza" (produto 9004178).
+  const areas = [
+    { nome: "lavadoras", secret: process.env.AREA_WEBHOOK_SECRET, url: process.env.AREA_WEBHOOK_URL ?? AREA_URL, produtos: process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892,8844527,8844938,8844997,8844999" },
+    { nome: "ingles", secret: process.env.INGLES_AREA_WEBHOOK_SECRET, url: process.env.INGLES_AREA_WEBHOOK_URL ?? AREA_URL_INGLES, produtos: process.env.INGLES_AREA_PRODUCT_IDS ?? "9004178" },
+  ];
+  if (out.httpStatus === 200) {
+    for (const area of areas) {
+      if (!area.secret) continue;
+      after(async () => {
+        try {
+          const relay = buildAreaRelay(JSON.parse(rawBody), area.produtos.split(",").map((s) => s.trim()).filter(Boolean));
+          if (!relay) return;
+          const r = await fetch(area.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: area.secret, ...relay }) });
+          if (!r.ok) await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: `${area.nome}: status ${r.status}`, context: { area: area.nome, event: relay.event, transaction: relay.data.id } });
+        } catch (e) {
+          await logEvent(adminClient(), { level: "error", code: "AREA_RELAY_FAILED", provider: "hotmart", message: `${area.nome}: ${(e as Error).message.slice(0, 200)}` }).catch(() => null);
+        }
+      });
+    }
   }
   // Entrega por WhatsApp: agenda a mensagem na ferramenta de recuperação (mesmo banco). Desligada por padrão no banco
   // (recuperacao.config 'entrega'.ativo); sem telefone no webhook não faz nada.
