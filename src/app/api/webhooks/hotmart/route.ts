@@ -9,6 +9,7 @@ import { buildEntrega } from "@/lib/core/hotmart/entrega";
 
 const AREA_URL = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/lavadoras-webhook";
 const AREA_URL_INGLES = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/ingles-webhook";
+const AREA_URL_INGLES_ES = "https://nsduiygbatefbbhoriex.supabase.co/functions/v1/ingles-es-webhook";
 
 // POST /api/webhooks/hotmart            (webhook GERAL: produtos "todos"; a oferta sai do mapeamento produto → oferta)
 // POST /api/webhooks/hotmart?ws=<slug>   (idem, escolhendo o workspace)
@@ -41,8 +42,8 @@ export async function POST(request: Request) {
   const areas = [
     { nome: "lavadoras", secret: process.env.AREA_WEBHOOK_SECRET, url: process.env.AREA_WEBHOOK_URL ?? AREA_URL, produtos: process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892,8844527,8844938,8844997,8844999" },
     { nome: "ingles", secret: process.env.INGLES_AREA_WEBHOOK_SECRET, url: process.env.INGLES_AREA_WEBHOOK_URL ?? AREA_URL_INGLES, produtos: process.env.INGLES_AREA_PRODUCT_IDS ?? "9004178" },
-    // 18/11/2026: área "El Inglés de la Limpieza" (ES, produto 9015321). URL e segredo só por env (sem URL = não repassa).
-    { nome: "ingles-es", secret: process.env.INGLES_ES_AREA_WEBHOOK_SECRET, url: process.env.INGLES_ES_AREA_WEBHOOK_URL ?? "", produtos: process.env.INGLES_ES_AREA_PRODUCT_IDS ?? "9015321" },
+    // 18/11/2026: área "El Inglés de la Limpieza" (ES, produto 9015321). segredo só por env (sem segredo = não repassa).
+    { nome: "ingles-es", secret: process.env.INGLES_ES_AREA_WEBHOOK_SECRET, url: process.env.INGLES_ES_AREA_WEBHOOK_URL ?? AREA_URL_INGLES_ES, produtos: process.env.INGLES_ES_AREA_PRODUCT_IDS ?? "9015321" },
   ];
   if (out.httpStatus === 200) {
     for (const area of areas) {
