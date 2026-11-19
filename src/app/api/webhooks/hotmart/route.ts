@@ -37,14 +37,16 @@ export async function POST(request: Request) {
     });
   }
   // Acesso das áreas de membros: repasse (webhook único da Hotmart). Só com hottok válido (200) e fora da resposta à Hotmart.
-  // Cada área recebe só as vendas dos produtos dela. 17/11/2026: + área "Inglês da Limpeza" (produto 9004178).
+  // Cada área recebe só as vendas dos produtos dela. 17/11/2026: + área "Inglês da Limpeza" (produto 9004178); 18/11: + área ES (9015321).
   const areas = [
     { nome: "lavadoras", secret: process.env.AREA_WEBHOOK_SECRET, url: process.env.AREA_WEBHOOK_URL ?? AREA_URL, produtos: process.env.AREA_HOTMART_PRODUCT_IDS ?? "8814892,8844527,8844938,8844997,8844999" },
     { nome: "ingles", secret: process.env.INGLES_AREA_WEBHOOK_SECRET, url: process.env.INGLES_AREA_WEBHOOK_URL ?? AREA_URL_INGLES, produtos: process.env.INGLES_AREA_PRODUCT_IDS ?? "9004178" },
+    // 18/11/2026: área "El Inglés de la Limpieza" (ES, produto 9015321). URL e segredo só por env (sem URL = não repassa).
+    { nome: "ingles-es", secret: process.env.INGLES_ES_AREA_WEBHOOK_SECRET, url: process.env.INGLES_ES_AREA_WEBHOOK_URL ?? "", produtos: process.env.INGLES_ES_AREA_PRODUCT_IDS ?? "9015321" },
   ];
   if (out.httpStatus === 200) {
     for (const area of areas) {
-      if (!area.secret) continue;
+      if (!area.secret || !area.url) continue;
       after(async () => {
         try {
           const relay = buildAreaRelay(JSON.parse(rawBody), area.produtos.split(",").map((s) => s.trim()).filter(Boolean));
