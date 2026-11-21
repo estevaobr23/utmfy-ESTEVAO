@@ -163,6 +163,42 @@ Pendente de confirmar com um evento real: nomes exatos dos campos do payload v2 
 - `hotmart-verificar` ainda mostra o aviso fixo "vendas em MXN"; com oferta em USD é ignorável. Falta: 1ª venda real (campos do payload e `sck`); CAPI depois (decisão do dono).
 - Criação de produto/ofertas na Hotmart e armadilhas (415 do hottok etc.): skill `criar-produto-hotmart`.
 
+## 2.7 Wiapy (checkout principal do Brasil desde 20/11/2026) — receptor construído em 20/11/2026
+
+Produto/checkout da Wiapy: conector `node ~/.wiapy/wiapy.mjs` (OAuth do titular). Aqui só o lado da UTMFY.
+
+| Peça | Como é |
+|---|---|
+| Endpoint | `POST https://utmfy-tracker.vercel.app/api/webhooks/wiapy?o=<webhook_token da oferta>` — **uma integração "Webhook" na Wiapy por oferta**, com os produtos dela marcados |
+| Autenticação | token da integração no cabeçalho `Authorization` (cru ou `Bearer`), tempo constante. Guardado no **Vault** (tipo `cakto_webhook`, dono = uuid derivado `sha256("wiapy:<id da oferta>")`, sem migration) e/ou env `WIAPY_WEBHOOK_TOKENS`. Gerado e cadastrado pelo `wiapy-webhook-criar` (nunca impresso) |
+| Eventos | a Wiapy **não manda nome de evento**: vale `payment.status` — `paid`→paid, `unpaid`→pending (PIX gerado), `credit_card_declined`→refused, `refunded`, `chargedback`. Carrinho abandonado = `payment` null → gravado em `webhook_events` (`cart_abandoned`, sem PII) e não vira pedido |
+| Valores | **centavos** (11600 = R$ 116,00; confirmado no teste real da Wiapy). `payment.fee` = taxa; líquido = bruto − taxa. Número com casas decimais é tratado como reais (formato antigo) |
+| Pedido | provider `wiapy`; `external_order_id` = `payment.id`; produto = `checkout.id` (o id do PRODUTO da Wiapy, o mesmo do `products_list`). `products[].id` são os entregáveis (não servem para separar planos). **Order bump** (`checkout.orderbump[]`) vira pedido próprio `<payment.id>:<bump.id>` (orderbump), o principal fica com total − bumps, taxa rateada |
+| Idempotência | `payment.id + status` (reenvio do mesmo status = `duplicate`); a transição de status é a do `upsert_order` |
+| Teste da Wiapy | comprador fictício `teste+wiapy@wiapy.com` (ou qualquer `@wiapy.com`) → pedido `source='test'`: fora das métricas, **nunca** entra na fila da Meta (trava no `ingestOrder` e no `capi-dispatch`), não autovincula produto |
+| Atribuição | a Wiapy **não devolve sck**, devolve `tracking.utm_*`, `ip`, `useragent`, `fbc`, `fbp`. O `t.js` (desde 20/11 decora `pay.wiapy.com` por padrão) leva a sessão no fim do **`utm_term`**: `<posicionamento>|sid_<sessão>` (os outros 4 UTMs são usados pelos anúncios: `url_tags` conferidos pela API em 20/11). O receptor limpa o `utm_term` e casa a sessão nesta ordem: **utm_term → fbc (fbclid da sessão) → IP+navegador (janela −48 h/+30 min) → navegador único da oferta**. O caminho fica em `order_attribution.raw_parameters.match.method` (`utm_term`/`fbc`/`ip_ua`/`ua_unico`/`none`) |
+| CAPI | igual à Cakto (`event_id` = `wiapy:<payment.id>:Purchase`). IP/navegador: os da sessão; sem sessão, os do checkout (`raw_parameters.match.client_ip/client_user_agent`). **Um remetente só:** NÃO ligar a integração "Facebook" nem a "Utmify" da Wiapy nos produtos da oferta (`wiapy-verificar` acusa) |
+
+```bash
+U="node ~/.utmfy/utmfy.mjs"
+$U oferta-criar --nome "X" --slug x --confirmar
+$U pixel-criar --oferta x --nome "x" --confirmar        # se der #6200: criar no Business (skill utmfy-tracker) e pixel-add + pixel-vincular
+$U wiapy-vincular --oferta x --produto <id24>,<id24> --confirmar      # ids do products_list da Wiapy
+$U wiapy-webhook-criar --oferta x --confirmar           # token novo no Vault + integração Webhook (6 eventos); roda de novo para atualizar/reativar
+$U capi-ativar --oferta x --cakto-sem-pixel --confirmar # a flag aqui = "nenhum outro remetente" (sem integração Facebook na Wiapy)
+$U snippet --oferta x                                    # t.js para o <head>; pay.wiapy.com já é decorado por padrão
+$U wiapy-testar --oferta x --confirmar                  # integrations_test → pedidos de TESTE (desligue a CAPI antes por garantia: capi-desativar/capi-ativar)
+$U wiapy-verificar --oferta x                           # checklist ✓/✗
+$U wiapy-simular --confirmar                            # ponta a ponta no receptor de produção (utm_term, fbc, IP+navegador, teste, abandono, estorno); apaga tudo
+```
+
+- A listagem da Wiapy **mascara a query** da URL (`…/api/webhooks/wiapy?…`): o helper acha a integração da oferta pelo nome `UTMFY rastreio · <nome da oferta>`. Não renomeie na Wiapy.
+- A Wiapy desativa a integração depois de falhas seguidas: `wiapy-webhook-criar` de novo reativa (gera token novo nos dois lados).
+- `utm_term` de anúncio vira `Instagram_Reels|sid_…` só dentro do link do checkout; no painel aparece limpo.
+- Retenção: o IP do checkout fica em `order_attribution.raw_parameters.match` (não entra no `purge_tracking_pii`, que só limpa sessões). Pendente: incluir na limpeza de 30 dias.
+- Código: `src/app/api/webhooks/wiapy/route.ts`, `src/lib/services/wiapy-webhook.ts`, `src/lib/core/wiapy/{normalize,signature,session-match}.ts`, testes `tests/wiapy.test.ts` (+ `tests/tracker.test.ts`).
+- **Estado 20/11/2026:** oferta `suportes-plantas` (pixel `1456546503336438`, CAPI ligada, integração Wiapy `6b00ea4995ecbc27e66068dd`, produtos `6b00e1c2…eeb3` R$ 29,90 e `6b00e1c3…eeff` R$ 19,90, t.js no ar). `wiapy-simular` 100% ✓; `integrations_test` 4/4 eventos 200 (teste, nada à Meta). Falta a 1ª compra real para provar que as UTMs do link chegam no webhook.
+
 ## 2.2 Botão "Pedir ao Claude" no painel
 
 O painel tem botões **✦ Pedir ao Claude / Resolver com o Claude** que abrem o Claude Code **no VS Code deste
