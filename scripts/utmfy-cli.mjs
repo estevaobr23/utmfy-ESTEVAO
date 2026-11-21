@@ -863,7 +863,9 @@ function wiapy(fn, args = {}) {
 }
 const wiapyProducts = () => wiapy("products_list", {})?.result?.products ?? [];
 const wiapyIntegrations = (q = {}) => wiapy("integrations_list", q)?.integrations ?? [];
-const wiapyHookOf = (offer) => wiapyIntegrations({ type: "webhook" }).find((i) => String(i.config?.url ?? "").split("?o=")[1] === offer.webhook_token);
+// A Wiapy mascara a query da URL na listagem ("…/api/webhooks/wiapy?…"): a integração da oferta é achada pelo nome + receptor.
+const wiapyHookName = (offer) => `UTMFY rastreio · ${offer.name}`.slice(0, 120);
+const wiapyHookOf = (offer) => wiapyIntegrations({ type: "webhook" }).find((i) => i.name === wiapyHookName(offer) && String(i.config?.url ?? "").startsWith(`${APP}/api/webhooks/wiapy`));
 async function wiapyItems(offer) {
   return (await db("GET", `offer_cakto_items?select=cakto_product_id,product_name&offer_id=eq.${offer.id}`)).filter((i) => WIAPY_ID.test(i.cakto_product_id));
 }
@@ -901,7 +903,7 @@ async function wiapyWebhookCriar() {
   const fb = wiapyIntegrations({ type: "facebook" }).filter((i) => i.all_products || (i.products ?? []).some((x) => items.some((it) => it.cakto_product_id === x.id)));
   const plan = {
     acao: current ? `ATUALIZAR a integração existente ${current.id} (token novo, produtos e eventos)` : "CRIAR integração Webhook na Wiapy (produção)",
-    nome: `UTMFY rastreio · ${offer.name}`.slice(0, 120),
+    nome: wiapyHookName(offer),
     url: url.replace(/\?o=.*/, "?o=<token da oferta>"),
     token: "gerado agora, guardado no Vault do UTMFY e enviado à Wiapy (nunca impresso)",
     produtos: items.map((i) => `${i.cakto_product_id} ${i.product_name ?? ""}`.trim()),
@@ -917,7 +919,7 @@ async function wiapyWebhookCriar() {
   const r = current ? wiapy("integrations_update", { id: current.id, ...body }) : wiapy("integrations_create", { type: "webhook", ...body });
   const back = wiapyHookOf(offer);
   if (check(!!back, back ? `integração na Wiapy ${back.id} (${back.status})` : "integração criada na Wiapy (relida)", JSON.stringify(r).slice(0, 300))) {
-    check(String(back.config?.url) === url && back.config?.token === "configurado", "URL e token conferem");
+    check(String(back.config?.url).startsWith(`${APP}/api/webhooks/wiapy`) && back.config?.token === "configurado", "URL do receptor e token configurados (a Wiapy mascara o ?o=)");
     check(WIAPY_EVENTS.every((e) => (back.events ?? []).includes(e)), "6 eventos marcados");
     check(items.every((i) => (back.products ?? []).some((x) => x.id === i.cakto_product_id)), "todos os produtos da oferta na integração");
     p(`\nTeste (comprador fictício, vira pedido de TESTE e nunca vai à Meta): node ~/.utmfy/utmfy.mjs wiapy-testar --oferta ${offer.slug} --confirmar`);
