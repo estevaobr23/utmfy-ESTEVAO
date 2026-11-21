@@ -134,7 +134,18 @@ export async function handleWiapyWebhook(db: Db, req: { rawBody: string; authori
     return { httpStatus: 200, body: { ok: false, processed: 0, errors: 1 } };
   }
   const tr = wiapyTracking(body);
-  const matchInfo = { provider: "wiapy", method: match.method, session_id: match.sessionId, client_ip: tr.ip, client_user_agent: tr.userAgent };
+  let matchInfo: Record<string, unknown> = { provider: "wiapy", method: match.method, session_id: match.sessionId, client_ip: tr.ip, client_user_agent: tr.userAgent };
+  // Evento seguinte do mesmo pagamento (estorno, chargeback...) costuma vir sem tracking: mantém o casamento e o IP já gravados.
+  const { data: prevOrder } = await db.from("orders").select("order_attribution(raw_parameters)").eq("workspace_id", workspaceId).eq("provider", "wiapy").eq("external_order_id", env.paymentId!).maybeSingle();
+  const prevAttr = prevOrder ? (Array.isArray(prevOrder.order_attribution) ? prevOrder.order_attribution[0] : prevOrder.order_attribution) : null;
+  const prevMatch = ((prevAttr as { raw_parameters?: { match?: Record<string, unknown> } } | null)?.raw_parameters?.match) ?? null;
+  if (prevMatch) {
+    matchInfo = match.method === "none"
+      ? { ...prevMatch, client_ip: tr.ip ?? prevMatch.client_ip ?? null, client_user_agent: tr.userAgent ?? prevMatch.client_user_agent ?? null }
+      : { ...matchInfo, client_ip: tr.ip ?? prevMatch.client_ip ?? null, client_user_agent: tr.userAgent ?? prevMatch.client_user_agent ?? null };
+    const sid = typeof matchInfo.session_id === "string" ? matchInfo.session_id : null;
+    if (sid) for (const o of n.orders) if (!o.callback) { o.callback = sid; o.attribution.sck = sid; }
+  }
   const results: { order: string; status: string; attribution: string }[] = [];
   try {
     for (const o of n.orders) {
