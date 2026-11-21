@@ -125,8 +125,24 @@ describe("tracker public/t.js", () => {
     expect(env.T.decorate("https://checkout.meusite.com/p")).not.toContain("callback=");
   });
 
+  it("Wiapy: decora pay.wiapy.com por padrão e leva a sessão no fim do utm_term (a Wiapy não devolve sck)", () => {
+    const { T } = makeEnv(AD);
+    const u = new URL(T.decorate("https://pay.wiapy.com/IkP53_SmIY9u"));
+    expect(u.searchParams.get("utm_content")).toBe("Ad 123|120200000000000123");
+    expect(u.searchParams.get("utm_term")).toBe(`Instagram_Reels|sid_${T.sessionId()}`);
+    // decorar de novo não repete a sessão
+    expect(T.decorate(u.toString())).toBe(u.toString());
+    // visita orgânica (sem UTM): o utm_term leva só a sessão
+    const org = makeEnv("https://pagina.com/");
+    expect(new URL(org.T.decorate("https://pay.wiapy.com/x")).searchParams.get("utm_term")).toBe(`sid_${org.T.sessionId()}`);
+    // data-wiapy-sid=false desliga; Cakto não recebe o sufixo
+    const off = makeEnv(AD, { attrs: { "data-wiapy-sid": "false" } });
+    expect(new URL(off.T.decorate("https://pay.wiapy.com/x")).searchParams.get("utm_term")).toBe("Instagram_Reels");
+    expect(new URL(T.decorate("https://pay.cakto.com.br/x")).searchParams.get("utm_term")).toBe("Instagram_Reels");
+  });
+
   it("paridade com o espelho TS do Diagnóstico", () => {
-    for (const checkout of ["https://pay.cakto.com.br/a8BcHrY", "https://pay.cakto.com.br/a8BcHrY?utm_source=site", "https://pay.cakto.com.br/a?callback=fixo&x=%20y"]) {
+    for (const checkout of ["https://pay.cakto.com.br/a8BcHrY", "https://pay.cakto.com.br/a8BcHrY?utm_source=site", "https://pay.cakto.com.br/a?callback=fixo&x=%20y", "https://pay.wiapy.com/IkP53_SmIY9u", "https://pay.wiapy.com/x?utm_term=Feed"]) {
       const { T } = makeEnv(AD);
       const js = T.decorate(checkout);
       const ts = decorateCheckoutUrl(checkout, pickTrackerParams(new URL(AD).search), { sessionId: T.sessionId() }).url;

@@ -114,7 +114,7 @@ export function normalizePhone(phone: unknown): string | null {
 }
 
 export type NormalizedOrder = {
-  provider: "cakto" | "hotmart";
+  provider: "cakto" | "hotmart" | "wiapy";
   external_order_id: string;
   ref_id: string | null;
   status: OrderStatus;

@@ -107,7 +107,11 @@ async function loadSession(db: Db, workspaceId: string, callback: string | null)
 /** (Re)calcula e grava a atribuição de um pedido. */
 export async function attributeOrder(
   db: Db,
-  args: { workspaceId: string; orderId: string; offerId: string | null; utms: UtmInput & { fbc?: string | null; fbp?: string | null }; callback: string | null; externalOrderId: string },
+  args: {
+    workspaceId: string; orderId: string; offerId: string | null; utms: UtmInput & { fbc?: string | null; fbp?: string | null }; callback: string | null; externalOrderId: string;
+    /** Guardado em raw_parameters.match: como a sessão foi achada (Wiapy) e o IP/navegador do checkout para a CAPI. */
+    match?: Record<string, unknown> | null;
+  },
 ) {
   const session = await loadSession(db, args.workspaceId, args.callback);
   const u = args.utms;
@@ -138,7 +142,7 @@ export async function attributeOrder(
     attribution_method: r.method,
     untracked_reason: r.reason,
     issues: r.issues,
-    raw_parameters: { order: args.utms, session: session?.utms ?? null, used: r.usedParams },
+    raw_parameters: { order: args.utms, session: session?.utms ?? null, used: r.usedParams, ...(args.match ? { match: args.match } : {}) },
     attributed_at: new Date().toISOString(),
   };
   const { error } = await db.from("order_attribution").upsert(row, { onConflict: "order_id" });
@@ -182,12 +186,18 @@ export async function ingestOrder(
   workspaceId: string,
   o: NormalizedOrder,
   source: Source,
-  opts: { offerId?: string | null } = {},
+  opts: {
+    offerId?: string | null;
+    /** false: não cadastra sozinho o produto desconhecido na oferta da URL (eventos de teste da Wiapy). */
+    autoLink?: boolean;
+    /** Vai para order_attribution.raw_parameters.match (ver attributeOrder). */
+    match?: Record<string, unknown> | null;
+  } = {},
 ): Promise<IngestResult> {
   const mapped = await resolveOffer(db, workspaceId, o.product_external_id, o.offer_external_id);
   // A URL do webhook (por oferta) decide; o mapeamento por produto cobre API e webhook geral.
   const offerId = opts.offerId ?? mapped;
-  if (opts.offerId && !mapped && o.product_external_id) {
+  if (opts.offerId && !mapped && o.product_external_id && opts.autoLink !== false) {
     await db.from("offer_cakto_items").insert({
       workspace_id: workspaceId, offer_id: opts.offerId, cakto_product_id: o.product_external_id,
       product_name: o.product_name, label: o.product_name, source: "cakto_webhook",
@@ -236,13 +246,14 @@ export async function ingestOrder(
 
   let attrStatus = "UNKNOWN";
   try {
-    const a = await attributeOrder(db, { workspaceId, orderId: r.order_id, offerId, utms, callback, externalOrderId: o.external_order_id });
+    const a = await attributeOrder(db, { workspaceId, orderId: r.order_id, offerId, utms, callback, externalOrderId: o.external_order_id, match: opts.match ?? null });
     attrStatus = a.status;
   } catch (e) {
     await logEvent(db, { workspaceId, level: "error", code: "ATTRIBUTION_FAILED", provider: "cakto", message: (e as Error).message, context: { order_id: o.external_order_id, reason: "exception" } });
   }
 
-  if (r.status === "paid" && (r.inserted || r.previous_status !== "paid")) {
+  // Pedido de teste (ex.: comprador fictício da Wiapy) nunca entra na fila da Meta.
+  if (source !== "test" && r.status === "paid" && (r.inserted || r.previous_status !== "paid")) {
     await enqueuePurchaseDispatches(db, workspaceId, r.order_id, offerId, o.external_order_id, o.provider);
   }
 
@@ -274,7 +285,7 @@ export async function reattributePending(db: Db, workspaceId: string, sinceDays 
   const since = new Date(Date.now() - sinceDays * 864e5).toISOString();
   const { data } = await db
     .from("order_attribution")
-    .select("order_id, utm_source, utm_medium, utm_campaign, utm_term, utm_content, sck, fbc, fbp, orders!inner(offer_id, callback, external_order_id, created_at)")
+    .select("order_id, utm_source, utm_medium, utm_campaign, utm_term, utm_content, sck, fbc, fbp, raw_parameters, orders!inner(offer_id, callback, external_order_id, created_at)")
     .eq("workspace_id", workspaceId)
     .in("attribution_status", ["UTM_PARSED", "UNKNOWN", "NAME_MATCH", "EXACT_ID"])
     .in("untracked_reason", ["ad_not_synced", "ad_id_not_found", "name_not_found", "missing_ad_id"])
@@ -290,6 +301,7 @@ export async function reattributePending(db: Db, workspaceId: string, sinceDays 
       utms: row,
       callback: o.callback,
       externalOrderId: o.external_order_id,
+      match: ((row.raw_parameters as { match?: Record<string, unknown> } | null)?.match) ?? null,
     });
     if (r.status === "EXACT_ID" && !r.reason) changed++;
   }

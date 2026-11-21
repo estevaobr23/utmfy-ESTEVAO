@@ -8,7 +8,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -347,7 +348,7 @@ async function mostrarSnippet() {
 `);
   if (px) p(`  O pixel da Meta (${px}) é carregado pelo próprio t.js: PageView + InitiateCheckout (clique no checkout).
   NÃO instale outro código do pixel da Meta nem o pixel da UTMify na página (dobra os eventos).
-  Marque com data-checkout os links que vão ao checkout (links para pay.cakto.com.br já contam).
+  Marque com data-checkout os links que vão ao checkout (links para pay.cakto.com.br e pay.wiapy.com já contam).
 `);
   else warn("esta oferta ainda não tem pixel vinculado: o snippet acima NÃO carrega o pixel da Meta. Rode pixel-add + pixel-vincular e peça o snippet de novo.");
   p(`Anúncios (Meta) — campo "Parâmetros de URL", no nível do anúncio:
@@ -671,6 +672,12 @@ const HELP = `UTMFY — configura ofertas, pixels e webhooks (qualquer chat)
   node ~/.utmfy/utmfy.mjs hotmart-verificar --oferta <slug>              checklist ✓/✗ do receptor, hottok, vínculo, webhook e moeda
   node ~/.utmfy/utmfy.mjs hotmart-simular --confirmar                    teste ponta a ponta no receptor da Hotmart (oferta temporária, sem pixel; apaga tudo)
 
+  node ~/.utmfy/utmfy.mjs wiapy-vincular --oferta <slug> --produto <id[,id]> --confirmar      liga produto(s) da Wiapy (24 hex, products_list) à oferta
+  node ~/.utmfy/utmfy.mjs wiapy-webhook-criar --oferta <slug> --confirmar                     cria/atualiza a integração Webhook na Wiapy (token novo no Vault, 6 eventos)
+  node ~/.utmfy/utmfy.mjs wiapy-testar --oferta <slug> [--evento payment_paid,...] --confirmar  integrations_test da Wiapy → pedido de TESTE (nunca vai à Meta)
+  node ~/.utmfy/utmfy.mjs wiapy-verificar --oferta <slug>                                     checklist (receptor, token, produtos, integração, um remetente só, CAPI, sessões)
+  node ~/.utmfy/utmfy.mjs wiapy-simular --confirmar                                           teste ponta a ponta no receptor da Wiapy (utm_term/fbc/IP+navegador; apaga tudo)
+
 Gravações exigem --confirmar; sem a flag é só simulação. Guia: docs/04-operacao-chats/INTEGRACAO-CHATS.md`;
 
 // ------------------------------------------------------------------ Hotmart ---
@@ -702,7 +709,11 @@ async function hotmartVincular() {
   const offer = await findOffer(f.oferta);
   const ids = list(f.produto);
   if (!ids.length) throw new Error("informe --produto <id Hotmart>[,id] (ex.: 8813153)");
-  const prods = await (await hotmart()).hotmartProducts();
+  // --nome-produto "<nome>": pula a consulta à Hotmart (que exige o Chrome 9556 logado). Use quando o produto já foi conferido
+  // na sessão do navegador do VS Code (só com 1 produto).
+  const nomeManual = f["nome-produto"] && f["nome-produto"] !== true ? String(f["nome-produto"]) : null;
+  if (nomeManual && ids.length !== 1) throw new Error("--nome-produto vale para 1 produto só");
+  const prods = nomeManual ? [{ id: ids[0], name: nomeManual }] : await (await hotmart()).hotmartProducts();
   const rows = [];
   for (const id of ids) {
     if (!/^\d+$/.test(id)) throw new Error(`id Hotmart inválido: ${id} (é numérico)`);
@@ -828,7 +839,261 @@ async function hotmartSimular() {
   }
 }
 
-const COMMANDS = { "hotmart-hottok": hotmartHottokCmd, "hotmart-vincular": hotmartVincular, "hotmart-verificar": hotmartVerificar, "hotmart-simular": hotmartSimular, status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, "pixel-desvincular": pixelDesvincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
+// ------------------------------------------------------------------- Wiapy ---
+// Uma integração "Webhook" na Wiapy por oferta: URL <app>/api/webhooks/wiapy?o=<webhook_token da oferta>, token no Authorization.
+// O token mora no Vault (tipo cakto_webhook, dono = uuid derivado da oferta: sha256("wiapy:<oferta>"), igual ao servidor
+// src/lib/core/wiapy/signature.ts). Vínculo produto Wiapy → oferta em offer_cakto_items (source 'manual'; nome de coluna histórico).
+// Conector da Wiapy: node ~/.wiapy/wiapy.mjs (OAuth do titular). A Wiapy NÃO devolve sck: o t.js leva a sessão no utm_term.
+const WIAPY_EVENTS = ["payment_unpaid", "payment_paid", "payment_refunded", "payment_chargeback", "payment_credit_card_declined", "cart_abandoned"];
+const WIAPY_ID = /^[a-f0-9]{24}$/i;
+const wiapyUrl = (offer) => `${APP}/api/webhooks/wiapy?o=${offer.webhook_token}`;
+function wiapyOwnerId(offerId) {
+  const h = createHash("sha256").update(`wiapy:${offerId}`).digest("hex");
+  const v = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${v}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+function wiapy(fn, args = {}) {
+  const file = join(homedir(), ".wiapy", "wiapy.mjs");
+  if (!existsSync(file)) throw new Error(`conector da Wiapy não encontrado em ${file}`);
+  const out = execFileSync(process.execPath, [file, "call", fn, JSON.stringify(args)], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  const j = JSON.parse(out);
+  const text = j?.content?.[0]?.text ?? "";
+  if (j?.isError) throw new Error(`Wiapy ${fn}: ${String(text).slice(0, 300)}`);
+  try { return JSON.parse(text); } catch { return text; }
+}
+const wiapyProducts = () => wiapy("products_list", {})?.result?.products ?? [];
+const wiapyIntegrations = (q = {}) => wiapy("integrations_list", q)?.integrations ?? [];
+const wiapyHookOf = (offer) => wiapyIntegrations({ type: "webhook" }).find((i) => String(i.config?.url ?? "").split("?o=")[1] === offer.webhook_token);
+async function wiapyItems(offer) {
+  return (await db("GET", `offer_cakto_items?select=cakto_product_id,product_name&offer_id=eq.${offer.id}`)).filter((i) => WIAPY_ID.test(i.cakto_product_id));
+}
+
+async function wiapyVincular() {
+  const offer = await findOffer(f.oferta);
+  const ids = list(f.produto);
+  if (!ids.length) throw new Error("informe --produto <id Wiapy>[,id] (24 caracteres hex, de products_list)");
+  const prods = wiapyProducts();
+  const rows = [];
+  for (const id of ids) {
+    if (!WIAPY_ID.test(id)) throw new Error(`id Wiapy inválido: ${id} (24 caracteres hex)`);
+    const prod = prods.find((x) => x.id === id);
+    if (!prod) throw new Error(`produto ${id} não está na conta da Wiapy conectada (products_list)`);
+    const [dup] = await db("GET", `offer_cakto_items?select=offer_id&workspace_id=eq.${offer.workspace_id}&cakto_product_id=eq.${id}&cakto_offer_id=is.null`);
+    if (dup && dup.offer_id !== offer.id) throw new Error(`produto ${id} já pertence a outra oferta`);
+    rows.push({ id, name: prod.name, price: prod.price, link: prod.checkout_link, exists: !!dup });
+  }
+  if (!dryRun(`vai vincular à oferta "${offer.name}" os produtos Wiapy:\n${rows.map((r) => `  · ${r.id} ${r.name} (R$ ${r.price}) ${r.link}${r.exists ? " [já vinculado]" : ""}`).join("\n")}`)) return;
+  for (const r of rows.filter((x) => !x.exists)) {
+    await db("POST", "offer_cakto_items", { workspace_id: offer.workspace_id, offer_id: offer.id, cakto_product_id: r.id, product_name: r.name, label: r.name, source: "manual" });
+  }
+  const items = await wiapyItems(offer);
+  check(rows.every((r) => items.some((i) => i.cakto_product_id === r.id)), "produtos vinculados à oferta (relido)");
+  p(`\nPróximo: node ~/.utmfy/utmfy.mjs wiapy-webhook-criar --oferta ${offer.slug} --confirmar`);
+}
+
+/** Cria (ou atualiza) a integração Webhook da Wiapy desta oferta: token novo no Vault + URL + produtos + 6 eventos. Nunca imprime o token. */
+async function wiapyWebhookCriar() {
+  const offer = await findOffer(f.oferta);
+  const items = await wiapyItems(offer);
+  if (!items.length) throw new Error("a oferta não tem produto Wiapy vinculado (rode wiapy-vincular antes)");
+  const url = wiapyUrl(offer);
+  const current = wiapyHookOf(offer);
+  const fb = wiapyIntegrations({ type: "facebook" }).filter((i) => i.all_products || (i.products ?? []).some((x) => items.some((it) => it.cakto_product_id === x.id)));
+  const plan = {
+    acao: current ? `ATUALIZAR a integração existente ${current.id} (token novo, produtos e eventos)` : "CRIAR integração Webhook na Wiapy (produção)",
+    nome: `UTMFY rastreio · ${offer.name}`.slice(0, 120),
+    url: url.replace(/\?o=.*/, "?o=<token da oferta>"),
+    token: "gerado agora, guardado no Vault do UTMFY e enviado à Wiapy (nunca impresso)",
+    produtos: items.map((i) => `${i.cakto_product_id} ${i.product_name ?? ""}`.trim()),
+    eventos: WIAPY_EVENTS,
+  };
+  if (fb.length) warn(`há integração "Facebook" da Wiapy nos produtos desta oferta (${fb.map((x) => x.name).join(", ")}): REMOVA esses produtos dela — um remetente só (a UTMFY manda o Purchase). Senão a venda conta em dobro.`);
+  if (!dryRun("vai ligar a Wiapy ao receptor da UTMFY:", plan)) return;
+  const token = randomBytes(32).toString("hex");
+  const owner = wiapyOwnerId(offer.id);
+  await rpc("store_secret", { p_workspace: offer.workspace_id, p_owner_type: "cakto_webhook", p_owner_id: owner, p_secret: token });
+  check((await rpc("read_secret", { p_owner_type: "cakto_webhook", p_owner_id: owner })) === token, "token guardado no Vault e relido");
+  const body = { name: plan.nome, product_ids: items.map((i) => i.cakto_product_id), config: { url, token }, events: WIAPY_EVENTS };
+  const r = current ? wiapy("integrations_update", { id: current.id, ...body }) : wiapy("integrations_create", { type: "webhook", ...body });
+  const back = wiapyHookOf(offer);
+  if (check(!!back, back ? `integração na Wiapy ${back.id} (${back.status})` : "integração criada na Wiapy (relida)", JSON.stringify(r).slice(0, 300))) {
+    check(String(back.config?.url) === url && back.config?.token === "configurado", "URL e token conferem");
+    check(WIAPY_EVENTS.every((e) => (back.events ?? []).includes(e)), "6 eventos marcados");
+    check(items.every((i) => (back.products ?? []).some((x) => x.id === i.cakto_product_id)), "todos os produtos da oferta na integração");
+    p(`\nTeste (comprador fictício, vira pedido de TESTE e nunca vai à Meta): node ~/.utmfy/utmfy.mjs wiapy-testar --oferta ${offer.slug} --confirmar`);
+  }
+}
+
+/** integrations_test da Wiapy contra o receptor (comprador teste+wiapy@wiapy.com → pedido source "test", nunca vai à Meta). */
+async function wiapyTestar() {
+  const offer = await findOffer(f.oferta);
+  const integ = wiapyHookOf(offer);
+  if (!integ) throw new Error("integração Webhook da oferta não encontrada na Wiapy (rode wiapy-webhook-criar)");
+  const events = f.evento && f.evento !== true ? list(f.evento) : ["payment_unpaid", "payment_paid", "payment_refunded", "cart_abandoned"];
+  if (!dryRun(`vai pedir à Wiapy ${events.length} evento(s) de TESTE (${events.join(", ")}) para a integração ${integ.id}. O comprador é fictício; o receptor grava como teste e não manda nada à Meta.`)) return;
+  for (const ev of events) {
+    const r = wiapy("integrations_test", { id: integ.id, event: ev });
+    p(`  · ${ev}: ${JSON.stringify(r).slice(0, 400)}`);
+    await new Promise((res) => setTimeout(res, 7000)); // limite da Wiapy: 10 testes/min
+  }
+  const evs = await db("GET", `webhook_events?select=event_name,processing_status,error_message,received_at&provider=eq.wiapy&workspace_id=eq.${offer.workspace_id}&order=received_at.desc&limit=10`);
+  p("  últimos eventos Wiapy gravados:");
+  for (const e of evs) p(`    · ${e.received_at?.slice(0, 19)} ${e.event_name} → ${e.processing_status}${e.error_message ? ` (${e.error_message})` : ""}`);
+  const testOrders = await db("GET", `orders?select=id,external_order_id,status,source,gross_amount&provider=eq.wiapy&offer_id=eq.${offer.id}&source=eq.test`);
+  check(testOrders.length > 0, `pedidos de teste gravados (source=test): ${testOrders.map((o) => `${o.status} R$ ${o.gross_amount}`).join(", ") || "nenhum"}`);
+  if (testOrders.length) {
+    const disp = await db("GET", `conversion_dispatches?select=id&order_id=in.(${testOrders.map((o) => o.id).join(",")})`);
+    check(disp.length === 0, "nenhum pedido de teste entrou na fila da Meta");
+  }
+}
+
+async function wiapyVerificar() {
+  const offer = await findOffer(f.oferta);
+  p(`Wiapy — ${offer.name} (${offer.slug})`);
+  const root = await fetch(`${APP}/api/webhooks/wiapy`).then((r) => r.status).catch(() => 0);
+  check(root === 200, `receptor no ar (GET /api/webhooks/wiapy → ${root})`, "confira o deploy na Vercel (projeto utmfy-tracker)");
+  const sec = await rpc("read_secret", { p_owner_type: "cakto_webhook", p_owner_id: wiapyOwnerId(offer.id) });
+  check(!!sec, "token do webhook guardado no Vault", "rode wiapy-webhook-criar --oferta " + offer.slug + " --confirmar");
+  const items = await wiapyItems(offer);
+  check(items.length > 0, `produtos Wiapy vinculados: ${items.map((i) => `${i.cakto_product_id} ${i.product_name ?? ""}`.trim()).join("; ") || "nenhum"}`, "rode wiapy-vincular");
+  const prods = wiapyProducts();
+  for (const i of items) {
+    const pr = prods.find((x) => x.id === i.cakto_product_id);
+    check(!!pr && pr.active, `produto ${i.cakto_product_id} ativo na Wiapy${pr ? ` (R$ ${pr.price}, ${pr.checkout_link})` : ""}`, "produto inativo ou fora da conta");
+    if (pr) check(pr.support_email_verified, `e-mail de suporte confirmado (${i.cakto_product_id})`, "sem isso o produto não vende");
+  }
+  const integ = wiapyHookOf(offer);
+  if (check(!!integ, integ ? `integração Webhook na Wiapy ${integ.id}` : "integração Webhook na Wiapy", "rode wiapy-webhook-criar")) {
+    check(integ.status === "active", `integração ativa (${integ.status})`, "a Wiapy desativa depois de falhas seguidas: rode wiapy-webhook-criar de novo (atualiza e reativa)");
+    check(integ.config?.token === "configurado", "token configurado na integração");
+    check(WIAPY_EVENTS.every((e) => (integ.events ?? []).includes(e)), "6 eventos marcados", `faltam: ${WIAPY_EVENTS.filter((e) => !(integ.events ?? []).includes(e)).join(", ")}`);
+    check(integ.all_products || items.every((i) => (integ.products ?? []).some((x) => x.id === i.cakto_product_id)), "todos os produtos da oferta na integração", "produto fora da lista vende e NUNCA dispara evento");
+    try {
+      const lg = wiapy("integrations_logs", { id: integ.id });
+      const logs = lg?.logs ?? lg?.result?.logs ?? [];
+      p(`  · envios da Wiapy: ${logs.length ? `${logs.length} recente(s); último: ${JSON.stringify(logs[0]).slice(0, 160)}` : "nenhum ainda"}`);
+    } catch (e) { warn(`não li os logs da integração: ${e.message.slice(0, 120)}`); }
+  }
+  const dupes = [...wiapyIntegrations({ type: "facebook" }), ...wiapyIntegrations({ type: "utmify" })].filter((i) => i.all_products || (i.products ?? []).some((x) => items.some((it) => it.cakto_product_id === x.id)));
+  check(!dupes.length, "um remetente só: nenhuma integração Facebook/Utmify da Wiapy nos produtos da oferta", `remova os produtos destas integrações: ${dupes.map((d) => `${d.type_label} "${d.name}"`).join(", ")}`);
+  const px = await db("GET", `offer_pixels?select=pixel_id,pixels(name,external_pixel_id,server_tracking_enabled,token_source)&offer_id=eq.${offer.id}&active=eq.true`);
+  if (check(px.length === 1, px.length ? `pixel: ${px[0].pixels?.name} (${px[0].pixels?.external_pixel_id})` : "pixel vinculado", "pixel-criar --oferta " + offer.slug)) {
+    check(px[0].pixels?.server_tracking_enabled && px[0].pixels?.token_source === "vault", "CAPI ligada (envio do Purchase pelo servidor)", "capi-ativar --oferta " + offer.slug + " --cakto-sem-pixel --confirmar");
+  }
+  const total = (await db("GET", `tracking_sessions?select=id&offer_id=eq.${offer.id}`)).length;
+  check(total > 0, total ? `tracker na página: ${total} sessão(ões)` : "tracker na página (t.js)", `coloque ${snippet(offer, px[0]?.pixels?.external_pixel_id ?? "")} na página`);
+  const orders = await db("GET", `orders?select=id,status,source,order_attribution(attribution_status,raw_parameters)&provider=eq.wiapy&offer_id=eq.${offer.id}&order=created_at.desc&limit=200`);
+  const real = orders.filter((o) => o.source !== "test");
+  const by = {};
+  for (const o of real) { const a = Array.isArray(o.order_attribution) ? o.order_attribution[0] : o.order_attribution; const m = a?.raw_parameters?.match?.method ?? "?"; by[m] = (by[m] ?? 0) + 1; }
+  p(`  · pedidos Wiapy: ${real.length} real(is) + ${orders.length - real.length} de teste${real.length ? ` · casamento com a sessão: ${Object.entries(by).map(([k, v]) => `${k}=${v}`).join(" · ")}` : ""}`);
+  if (!real.length) warn("sem venda real ainda: o caminho utm_term (UTMs do link → webhook) só se prova com 1 compra real");
+  p(process.exitCode ? "\nHá pendências (✗)." : "\nTudo certo.");
+}
+
+/** Venda de teste ponta a ponta pelo receptor da Wiapy (oferta temporária SEM pixel = nada vai à Meta) e limpeza total. */
+async function wiapySimular() {
+  if (!dryRun("vai simular eventos da Wiapy no receptor de PRODUÇÃO (oferta temporária 'SIMULAÇÃO WIAPY – APAGAR', pagamentos SIMWP-*, 3 sessões de tracker fictícias) e apagar tudo no fim. A oferta não tem pixel: nada vai para a Meta.")) return;
+  const ws = await workspaceId();
+  const [ad] = await db("GET", "meta_ads?select=campaign_id,adset_id,ad_id&order=updated_at.desc&limit=1");
+  if (!ad) throw new Error("sem anúncios no catálogo Meta para simular atribuição");
+  const stamp = Date.now();
+  const PRODUCT = createHash("sha256").update(`p${stamp}`).digest("hex").slice(0, 24);
+  const pay = { A: `SIMWP-A-${stamp}`, B: `SIMWP-B-${stamp}`, C: `SIMWP-C-${stamp}`, T: `SIMWP-T-${stamp}` };
+  const sid = { A: `simwpa${String(stamp).slice(-10)}`, B: `simwpb${String(stamp).slice(-10)}`, C: `simwpc${String(stamp).slice(-10)}` };
+  const UA = `Mozilla/5.0 (SIMULACAO ${stamp}) Instagram`;
+  const token = randomBytes(32).toString("hex");
+  const now = Date.now();
+  const mk = (id, status, amount, tracking, email = "simulacao@example.com") => JSON.stringify({
+    payment: { id, status, amount, payment_method: "pix", type: "payment", installments: 1, fee: 200, pix_boleto: { code: "SIM", url: "https://sim" }, dt_create: new Date(now - 60000).toISOString(), dt_update: new Date().toISOString() },
+    subscription: {}, customer: { id: "simc", name: "Cliente Simulacao", email, mobile_phone: "11999999999", document: "00000000000" },
+    checkout: { id: PRODUCT, title: "Produto SIMULAÇÃO Wiapy", amount, orderbump: [] },
+    products: [{ id: "000000000000000000000000", title: "Entregável SIM", type: "E-book", itens: [] }], tracking,
+  });
+  const noUtm = { utm_source: null, utm_medium: null, utm_campaign: null, utm_content: null, utm_term: null };
+  const utm = (term) => ({ utm_source: "FB", utm_campaign: `Campanha|${ad.campaign_id}`, utm_medium: `Conjunto|${ad.adset_id}`, utm_content: `Anuncio|${ad.ad_id}`, utm_term: term });
+  const abandonRaw = JSON.stringify({ payment: null, subscription: null, customer: { id: null, name: "Sim", email: "simulacao@example.com", mobile_phone: "11999999999", document: null }, checkout: { id: PRODUCT, title: "SIM", amount: 2990, orderbump: null, _sim: stamp }, products: null, tracking: null });
+  const send = async (url, raw, auth = token) => {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Wiapy-Webhook/simulacao", ...(auth ? { Authorization: auth } : {}) }, body: raw });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  let offer;
+  try {
+    [offer] = await db("POST", "offers", { workspace_id: ws, name: "SIMULAÇÃO WIAPY – APAGAR", slug: `simulacao-wiapy-apagar-${stamp}`, currency: "BRL", timezone: "America/Sao_Paulo" });
+    await db("POST", "offer_cakto_items", { workspace_id: ws, offer_id: offer.id, cakto_product_id: PRODUCT, product_name: "Produto SIMULAÇÃO Wiapy", label: "SIM", source: "manual" });
+    await rpc("store_secret", { p_workspace: ws, p_owner_type: "cakto_webhook", p_owner_id: wiapyOwnerId(offer.id), p_secret: token });
+    const seen = new Date(now - 5 * 60000).toISOString();
+    await db("POST", "tracking_sessions", [
+      { workspace_id: ws, offer_id: offer.id, session_id: sid.A, last_seen_at: seen, user_agent: "outro navegador A", client_ip: "10.0.0.1", utm_source: "FB", fbclid: null, fbc: null },
+      { workspace_id: ws, offer_id: offer.id, session_id: sid.B, last_seen_at: seen, user_agent: "outro navegador B", client_ip: "10.0.0.2", utm_source: null, fbclid: `IwARsim${stamp}`, fbc: `fb.1.${stamp}.IwARsim${stamp}` },
+      { workspace_id: ws, offer_id: offer.id, session_id: sid.C, last_seen_at: seen, user_agent: UA, client_ip: "203.0.113.77", utm_source: null, fbclid: null, fbc: null },
+    ]);
+    const url = wiapyUrl(offer);
+    p("\n[segurança]");
+    check((await send(url, mk(pay.A, "paid", 2990, null), "errado")).status === 401, "token errado recusado (401)");
+    check((await send(url, mk(pay.A, "paid", 2990, null), "")).status === 401, "sem token recusado (401)");
+    check((await send(`${APP}/api/webhooks/wiapy?o=${"0".repeat(32)}`, mk(pay.A, "paid", 2990, null))).status === 404, "oferta inexistente recusada (404)");
+    p("\n[fluxo de venda e casamento com a sessão]");
+    const trA = { ...utm(`Instagram_Reels|sid_${sid.A}`), ip: "198.51.100.1", useragent: "x", fbc: null, fbp: null };
+    const a1 = await send(url, mk(pay.A, "unpaid", 2990, trA));
+    check(a1.status === 200 && a1.body.status === "pending", `A: PIX gerado (pendente) ${a1.status} ${JSON.stringify(a1.body).slice(0, 160)}`);
+    const a2 = await send(url, mk(pay.A, "paid", 2990, trA));
+    check(a2.status === 200 && a2.body.status === "paid" && a2.body.match === "utm_term", `A: paga R$ 29,90 — sessão pelo utm_term (${a2.body.match})`);
+    const b = await send(url, mk(pay.B, "paid", 1990, { ...noUtm, ip: "198.51.100.2", useragent: "y", fbc: `fb.1.${stamp + 5}.IwARsim${stamp}`, fbp: "fb.1.1.1" }));
+    check(b.status === 200 && b.body.match === "fbc", `B: paga sem UTM — sessão pelo fbc (${b.body.match})`);
+    const c = await send(url, mk(pay.C, "paid", 2990, { ...noUtm, ip: "203.0.113.77", useragent: UA, fbc: null, fbp: null }));
+    check(c.status === 200 && c.body.match === "ip_ua", `C: paga sem UTM nem fbc — sessão por IP+navegador (${c.body.match})`);
+    await new Promise((s) => setTimeout(s, 1200));
+    check((await send(url, mk(pay.C, "refunded", 2990, null))).body.status === "refunded", "C: estorno");
+    const t = await send(url, mk(pay.T, "paid", 2990, null, "teste+wiapy@wiapy.com"));
+    check(t.status === 200 && t.body.test === true, "comprador fictício da Wiapy → marcado como teste");
+    const ab = await send(url, abandonRaw);
+    check(ab.status === 200 && ab.body.ignored === "abandonment", "carrinho abandonado registrado (não vira pedido)");
+    p("\n[gravado]");
+    const orders = await db("GET", "orders?select=id,external_order_id,status,gross_amount,fees,net_amount,provider,offer_id,source,callback&external_order_id=like.SIMWP-*");
+    const by = (k) => orders.find((x) => x.external_order_id === pay[k]);
+    check(orders.length === 4, `4 pedidos gravados (${orders.length})`);
+    check(by("A")?.status === "paid" && Number(by("A").gross_amount) === 29.9 && Number(by("A").net_amount) === 27.9 && by("A").provider === "wiapy" && by("A").offer_id === offer.id && by("A").source === "webhook", "A: paga, R$ 29,90 (líquido 27,90), provedor wiapy, na oferta certa");
+    check(by("A")?.callback === sid.A && by("B")?.callback === sid.B && by("C")?.callback === sid.C, "sessão do tracker gravada em cada pedido");
+    check(by("C")?.status === "refunded" && by("T")?.source === "test", "C estornada; pedido de teste com source=test");
+    const [atA] = await db("GET", `order_attribution?select=attribution_status,ad_id,utm_term,session_id,raw_parameters&order_id=eq.${by("A")?.id}`);
+    check(atA?.attribution_status === "EXACT_ID" && atA.ad_id === ad.ad_id && atA.utm_term === "Instagram_Reels", `A atribuída ao anúncio certo pelas UTMs da Wiapy (${atA?.attribution_status}, utm_term limpo "${atA?.utm_term}")`);
+    check(atA?.raw_parameters?.match?.method === "utm_term" && atA?.session_id === sid.A, "caminho do casamento registrado na atribuição (utm_term)");
+    const [atC] = await db("GET", `order_attribution?select=raw_parameters&order_id=eq.${by("C")?.id}`);
+    check(atC?.raw_parameters?.match?.method === "ip_ua" && atC?.raw_parameters?.match?.client_ip === "203.0.113.77", "C: casamento ip_ua e IP do checkout guardados para a CAPI");
+    const dup = await send(url, mk(pay.A, "paid", 2990, trA));
+    check(dup.body.duplicate === true && (await db("GET", "orders?select=id&external_order_id=like.SIMWP-*")).length === 4, "reenvio da mesma venda não duplica");
+    check((await db("GET", `conversion_dispatches?select=id&order_id=in.(${orders.map((o) => o.id).join(",") || "00000000-0000-0000-0000-000000000000"})`)).length === 0, "oferta sem pixel + teste: nada entra na fila da Meta");
+    check(!JSON.stringify(await db("GET", "webhook_events?select=payload&external_order_id=like.SIMWP-*")).includes("example.com"), "payload de auditoria sem e-mail em claro");
+  } catch (e) {
+    p(`\nERRO NA SIMULAÇÃO: ${e.message}`); process.exitCode = 1;
+  } finally {
+    p("\n[limpeza]");
+    try {
+      const sim = await db("GET", "orders?select=id&external_order_id=like.SIMWP-*");
+      const idList = sim.map((x) => x.id).join(",");
+      if (idList) {
+        for (const tb of ["order_attribution", "order_status_history", "conversion_dispatches"]) { try { await db("DELETE", `${tb}?order_id=in.(${idList})`); } catch { /* sem linhas */ } }
+        await db("DELETE", `orders?id=in.(${idList})`);
+      }
+      await db("DELETE", "webhook_events?external_order_id=like.SIMWP-*");
+      await db("DELETE", `webhook_events?provider=eq.wiapy&dedupe_key=eq.${createHash("sha256").update(abandonRaw).digest("hex")}`);
+      await db("DELETE", `tracking_sessions?session_id=in.(${Object.values(sid).join(",")})`);
+      if (offer?.id) {
+        const owner = wiapyOwnerId(offer.id);
+        await rpc("store_secret", { p_workspace: ws, p_owner_type: "cakto_webhook", p_owner_id: owner, p_secret: randomBytes(16).toString("hex") }); // invalida o token
+        await db("DELETE", `secret_refs?owner_type=eq.cakto_webhook&owner_id=eq.${owner}`);
+        await db("DELETE", `offer_cakto_items?offer_id=eq.${offer.id}`);
+        await db("DELETE", `offers?id=eq.${offer.id}`);
+      }
+      const left = (await db("GET", "orders?select=id&external_order_id=like.SIMWP-*")).length + (await db("GET", "offers?select=id&slug=like.simulacao-wiapy-apagar-*")).length
+        + (await db("GET", "webhook_events?select=id&external_order_id=like.SIMWP-*")).length + (await db("GET", `tracking_sessions?select=id&session_id=in.(${Object.values(sid).join(",")})`)).length;
+      check(left === 0, "dados de teste removidos");
+    } catch (e) { p(`LIMPEZA FALHOU: ${e.message} — apague as linhas SIMWP-*, as sessões simwp* e a oferta "SIMULAÇÃO WIAPY – APAGAR"`); process.exitCode = 1; }
+  }
+}
+
+const COMMANDS = { "wiapy-vincular": wiapyVincular, "wiapy-webhook-criar": wiapyWebhookCriar, "wiapy-testar": wiapyTestar, "wiapy-verificar": wiapyVerificar, "wiapy-simular": wiapySimular, "hotmart-hottok": hotmartHottokCmd, "hotmart-vincular": hotmartVincular, "hotmart-verificar": hotmartVerificar, "hotmart-simular": hotmartSimular, status, ofertas, "oferta-criar": ofertaCriar, "webhook-criar": webhookCriar, "oferta-nova": ofertaNova, "pixel-criar": pixelCriar, "pixel-add": pixelAdd, "pixel-vincular": pixelVincular, "pixel-desvincular": pixelDesvincular, snippet: mostrarSnippet, verificar, simular, "capi-ativar": capiAtivar, "capi-desativar": capiDesativar, "capi-medir": capiMedir, "capi-renovar-tokens": capiRenovarTokens };
 try {
   if (!cmd || cmd === "ajuda" || cmd === "help" || !COMMANDS[cmd]) { p(HELP); if (cmd && !COMMANDS[cmd] && cmd !== "ajuda" && cmd !== "help") process.exitCode = 1; }
   else await COMMANDS[cmd]();

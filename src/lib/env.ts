@@ -24,6 +24,9 @@ export const env = {
   // Hotmart: "hottok" do webhook (o token da conta; vem em X-HOTMART-HOTTOK). Vários separados por vírgula.
   hotmartHottoks: list(process.env.HOTMART_HOTTOKS ?? process.env.HOTMART_HOTTOK),
 
+  // Wiapy: tokens extras aceitos no Authorization do webhook (o normal é o token por oferta no Vault). Vários separados por vírgula.
+  wiapyWebhookTokens: list(process.env.WIAPY_WEBHOOK_TOKENS),
+
   // Hotmart API de vendas (Ferramentas → Credenciais → API Hotmart, sandbox DESLIGADO). Só servidor; usada na reconciliação.
   hotmartClientId: process.env.HOTMART_CLIENT_ID ?? "",
   hotmartClientSecret: process.env.HOTMART_CLIENT_SECRET ?? "",

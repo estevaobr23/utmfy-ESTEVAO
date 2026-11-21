@@ -2,10 +2,12 @@
  * Uso: <script src="https://SEU_APP/t.js" data-offer="slug-da-oferta" async></script>
  * Atributos opcionais:
  *   data-endpoint="https://SEU_APP/api/track"   (padrão: mesma origem do script)
- *   data-checkout-domains="pay.cakto.com.br"     (lista separada por vírgula)
+ *   data-checkout-domains="pay.cakto.com.br,pay.wiapy.com"  (lista separada por vírgula; padrão: Cakto + Wiapy)
  *   data-callback="false"                        (não enviar ?callback=<sessão> ao checkout)
  *   data-beacon="false"                          (não enviar sessão ao servidor)
  *   data-sck="false"                             (não enviar ?sck=<sessão> ao checkout; por padrão vai, a Cakto devolve no webhook)
+ *   data-wiapy-sid="false"                       (Wiapy: não pôr a sessão no utm_term. A Wiapy não devolve sck; ela devolve as
+ *                                                 UTMs, então o link vai com utm_term=<posicionamento>|sid_<sessão>)
  *   data-pixel="<ID_DO_PIXEL_META>"              (carrega o pixel da Meta: PageView + InitiateCheckout no clique do
  *                                                 checkout. Use SÓ em páginas sem outro pixel da Meta instalado;
  *                                                 se a página já tiver `fbq`, o t.js não mexe no pixel)
@@ -34,9 +36,10 @@
   var cfg = {
     offer: attr("data-offer", ""),
     endpoint: attr("data-endpoint", scriptOrigin ? scriptOrigin + "/api/track" : ""),
-    domains: String(attr("data-checkout-domains", "pay.cakto.com.br")).split(",").map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean),
+    domains: String(attr("data-checkout-domains", "pay.cakto.com.br,pay.wiapy.com")).split(",").map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean),
     callback: attr("data-callback", "true") !== "false",
     sck: attr("data-sck", "true") !== "false",
+    wiapySid: attr("data-wiapy-sid", "true") !== "false",
     beacon: attr("data-beacon", "true") !== "false",
     pixel: /^\d{5,30}$/.test(attr("data-pixel", "")) ? attr("data-pixel", "") : "",
     initiateCheckout: attr("data-initiate-checkout", "true") !== "false",
@@ -189,6 +192,15 @@
       if (checkout && cfg.sck && !u.searchParams.has("sck")) {
         u.searchParams.set("sck", state.sid);
         changed = true;
+      }
+      // Wiapy: o webhook não traz sck/callback, só as UTMs. A sessão vai no fim do utm_term (o posicionamento continua antes do "|"):
+      // o receptor separa as duas coisas e casa a venda com a sessão (IP, navegador, fbc) para a CAPI.
+      if (checkout && cfg.wiapySid && /(^|\.)wiapy\.com$/i.test(u.hostname)) {
+        var term = u.searchParams.get("utm_term") || "";
+        if (!/(^|\|)sid_[A-Za-z0-9._~-]{8,64}$/.test(term)) {
+          u.searchParams.set("utm_term", (term ? term.slice(0, 400) + "|" : "") + "sid_" + state.sid);
+          changed = true;
+        }
       }
       return changed ? u.toString() : href;
     } catch (e) {

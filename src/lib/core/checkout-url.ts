@@ -4,7 +4,7 @@
 // Diagnóstico de Tracking. tests/tracker.test.ts garante que os dois produzem
 // exatamente a mesma URL.
 export const TRACKER_PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id", "sck", "fbclid"] as const;
-export const DEFAULT_CHECKOUT_DOMAINS = ["pay.cakto.com.br"];
+export const DEFAULT_CHECKOUT_DOMAINS = ["pay.cakto.com.br", "pay.wiapy.com"];
 
 export function isCheckoutHost(host: string, domains = DEFAULT_CHECKOUT_DOMAINS): boolean {
   const h = host.toLowerCase();
@@ -24,7 +24,7 @@ export function pickTrackerParams(search: string | URLSearchParams): Record<stri
 export function decorateCheckoutUrl(
   checkoutUrl: string,
   params: Record<string, string>,
-  opts: { sessionId?: string | null; callback?: boolean; sck?: boolean; domains?: string[] } = {},
+  opts: { sessionId?: string | null; callback?: boolean; sck?: boolean; wiapySid?: boolean; domains?: string[] } = {},
 ): { url: string; added: string[]; kept: string[]; isCheckout: boolean } {
   const u = new URL(checkoutUrl);
   const isCheckout = isCheckoutHost(u.hostname, opts.domains);
@@ -54,6 +54,14 @@ export function decorateCheckoutUrl(
     } else {
       u.searchParams.set("sck", opts.sessionId);
       added.push("sck");
+    }
+  }
+  // Wiapy não devolve sck: a sessão vai no fim do utm_term ("<posicionamento>|sid_<sessão>"), que a Wiapy devolve no webhook.
+  if (opts.wiapySid !== false && opts.sessionId && /(^|\.)wiapy\.com$/i.test(u.hostname)) {
+    const term = u.searchParams.get("utm_term") ?? "";
+    if (!/(^|\|)sid_[A-Za-z0-9._~-]{8,64}$/.test(term)) {
+      u.searchParams.set("utm_term", (term ? term.slice(0, 400) + "|" : "") + "sid_" + opts.sessionId);
+      added.push("sid_no_utm_term");
     }
   }
   return { url: added.length ? u.toString() : checkoutUrl, added, kept, isCheckout };

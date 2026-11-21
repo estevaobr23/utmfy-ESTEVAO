@@ -41,7 +41,7 @@ export async function processDispatches(db: Db, opts: { limit?: number; trigger:
     const { data: pixel } = await db.from("pixels").select("id, external_pixel_id, active, server_tracking_enabled, token_source, test_event_code").eq("id", d.pixel_id).single();
     const { data: order } = await db
       .from("orders")
-      .select("provider, external_order_id, gross_amount, currency, paid_at, customer_email_sha256, customer_phone_sha256, customer_fn_sha256, customer_ln_sha256, product_external_id, status, order_attribution(fbc, fbp, session_id)")
+      .select("provider, source, external_order_id, gross_amount, currency, paid_at, customer_email_sha256, customer_phone_sha256, customer_fn_sha256, customer_ln_sha256, product_external_id, status, order_attribution(fbc, fbp, session_id, raw_parameters)")
       .eq("id", d.order_id)
       .single();
 
@@ -54,12 +54,19 @@ export async function processDispatches(db: Db, opts: { limit?: number; trigger:
       stats.skipped++;
       continue;
     }
+    if (order?.source === "test") {
+      await finish("skipped", { last_error: "test_order" });
+      stats.skipped++;
+      continue;
+    }
     if (!order || order.status !== "paid") {
       await finish("skipped", { last_error: `order_status_${order?.status ?? "missing"}` });
       stats.skipped++;
       continue;
     }
-    const attr = (Array.isArray(order.order_attribution) ? order.order_attribution[0] : order.order_attribution) as { fbc: string | null; fbp: string | null; session_id: string | null } | null;
+    const attr = (Array.isArray(order.order_attribution) ? order.order_attribution[0] : order.order_attribution) as { fbc: string | null; fbp: string | null; session_id: string | null; raw_parameters?: { match?: { client_ip?: string | null; client_user_agent?: string | null } } | null } | null;
+    // Wiapy: IP e navegador do checkout (vêm no webhook); cobrem a venda que não casou com nenhuma sessão do tracker.
+    const checkoutNet = attr?.raw_parameters?.match ?? null;
     let ua: string | null = null;
     let sourceUrl: string | null = null;
     let net: { client_ip: string | null; geo_country: string | null; geo_region: string | null; geo_city: string | null; fbc: string | null; fbp: string | null } | null = null;
@@ -80,12 +87,12 @@ export async function processDispatches(db: Db, opts: { limit?: number; trigger:
       // fbc/fbp: o da Cakto vem do checkout (mais perto da compra); a sessão do tracker cobre quando faltar.
       fbc: attr?.fbc ?? net?.fbc ?? null,
       fbp: attr?.fbp ?? net?.fbp ?? null,
-      client_user_agent: ua,
+      client_user_agent: ua ?? checkoutNet?.client_user_agent ?? null,
       event_source_url: sourceUrl,
       product_external_id: order.product_external_id,
       customer_fn_sha256: order.customer_fn_sha256,
       customer_ln_sha256: order.customer_ln_sha256,
-      client_ip: net?.client_ip ?? null,
+      client_ip: net?.client_ip ?? checkoutNet?.client_ip ?? null,
       geo_country: net?.geo_country ?? null,
       geo_region: net?.geo_region ?? null,
       geo_city: net?.geo_city ?? null,
