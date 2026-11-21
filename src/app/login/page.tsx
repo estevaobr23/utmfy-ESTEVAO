@@ -1,12 +1,15 @@
+import { safeNextPath } from "@/lib/core/offer-navigation";
 import { LoginForm } from "./form";
 
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+  const sp = await searchParams;
+  const next = safeNextPath(typeof sp.next === "string" ? sp.next : null);
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6">
         <h1 className="text-lg font-semibold">UTMFY Tracker</h1>
         <p className="mb-4 text-sm text-slate-500">Acesso restrito. Contas são criadas pelo script <code>npm run admin:create</code>.</p>
-        <LoginForm />
+        <LoginForm next={next === "/" ? "" : next} />
       </div>
     </main>
   );

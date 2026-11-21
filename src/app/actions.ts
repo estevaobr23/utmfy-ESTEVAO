@@ -9,7 +9,7 @@ import { hint } from "@/lib/core/hash";
 import { parseBudgetSnapshot } from "@/lib/core/meta-metrics";
 import { adminClient } from "@/lib/supabase/admin";
 import { serverClient } from "@/lib/supabase/server";
-import { requireWorkspace, requireSession, WS_COOKIE } from "@/lib/session";
+import { requireWorkspace, requireSession, WS_COOKIE, WS_COOKIE_OPTIONS } from "@/lib/session";
 import { syncCaktoOrders } from "@/lib/services/cakto-sync";
 import { discoverAccounts, syncMeta } from "@/lib/services/meta-sync";
 import { syncOfferWebhooks } from "@/lib/services/offer-webhooks";
@@ -54,7 +54,7 @@ export async function switchWorkspace(fd: FormData) {
   const s = await requireSession();
   const id = str(fd, "workspace_id");
   if (s.workspaces.some((w) => w.id === id)) {
-    (await cookies()).set(WS_COOKIE, id, { httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production" });
+    (await cookies()).set(WS_COOKIE, id, WS_COOKIE_OPTIONS);
   }
   redirect("/");
 }
@@ -467,7 +467,7 @@ export async function updateWorkspace(fd: FormData) {
 export async function createDemo() {
   const s = await requireSession();
   const r = await seedDemo(adminClient(), s.user.id);
-  (await cookies()).set(WS_COOKIE, r.workspaceId, { httpOnly: true, sameSite: "lax", path: "/" });
+  (await cookies()).set(WS_COOKIE, r.workspaceId, WS_COOKIE_OPTIONS);
   await logEvent(adminClient(), { workspaceId: r.workspaceId, level: "info", code: "DEMO_SEEDED", message: `${r.orders} pedidos demo` });
   back("/", "Dados DEMO criados (workspace separado)");
 }

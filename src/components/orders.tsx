@@ -3,6 +3,7 @@ import { AttributionBadge, Code, Empty, OrderStatusBadge, Table, Td, Th, inputCl
 import { dayRangeUtc, formatDateTime } from "@/lib/core/dates";
 import { formatMoney } from "@/lib/core/money";
 import { catalogOptions, listAccounts, listOffers, parseFilters } from "@/lib/queries";
+import { withSavedPeriod } from "@/lib/period-cookie";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 
@@ -16,7 +17,7 @@ const ATTRIBUTION: [string, string][] = [
 
 /** Pedidos Cakto pelo horário de criação. Com offerId, a oferta vem da rota. */
 export async function OrdersView({ sb, ws, sp, offerId, action }: { sb: Db; ws: Workspace; sp: Record<string, string | string[] | undefined>; offerId?: string; action: string }) {
-  const f = parseFilters(sp, ws.timezone, offerId);
+  const f = parseFilters(await withSavedPeriod(sp), ws.timezone, offerId);
   const payment = typeof sp.payment === "string" && PAYMENT.includes(sp.payment) ? sp.payment : null;
   const attr = typeof sp.atribuicao === "string" && ATTRIBUTION.some(([k]) => k === sp.atribuicao) ? sp.atribuicao : null;
   const { start, end } = dayRangeUtc(f.from, f.to, ws.timezone);

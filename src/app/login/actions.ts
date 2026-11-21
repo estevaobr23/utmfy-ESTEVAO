@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { safeNextPath } from "@/lib/core/offer-navigation";
 import { serverClient } from "@/lib/supabase/server";
 
 export async function signIn(_prev: { error?: string } | undefined, fd: FormData) {
@@ -9,5 +10,6 @@ export async function signIn(_prev: { error?: string } | undefined, fd: FormData
   const sb = await serverClient();
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) return { error: "E-mail ou senha inválidos." };
-  redirect("/");
+  // Volta para onde a pessoa ia (só caminho interno); sem destino, a raiz reabre a última oferta.
+  redirect(safeNextPath(String(fd.get("next") ?? "")));
 }

@@ -16,6 +16,7 @@ import { loadPixelDerivation } from "@/lib/services/offer-auto-link";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 import { timed } from "@/lib/perf";
+import { withSavedPeriod } from "@/lib/period-cookie";
 
 const PRESETS = PERIOD_PRESETS;
 const LEVEL_ICON: Record<Level, string> = { contas: "▣", campanhas: "◫", conjuntos: "⊞", anuncios: "▯" };
@@ -65,7 +66,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   // Campanhas/conjuntos escolhidos em "Filtrar selecionadas": valem nas abas seguintes (conjuntos e anúncios só dessas campanhas).
   const campaigns = idList(one(sp.campaigns));
   const adsets = idList(one(sp.adsets));
-  const f = parseFilters({ ...sp, campaign: undefined, adset: undefined, ad: undefined }, ws.timezone, offerId);
+  const f = parseFilters(await withSavedPeriod({ ...sp, campaign: undefined, adset: undefined, ad: undefined }), ws.timezone, offerId);
   const [report, accounts, adsResult, advancedData, pixelScope, budgetLogs] = await Promise.all([
     loadReport(sb, ws, f),
     offerId ? listOfferAccounts(sb, offerId) : listAccounts(sb, ws.id),
@@ -236,6 +237,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         {campaigns && <input type="hidden" name="campaigns" value={campaigns.join(",")} />}
         {adsets && <input type="hidden" name="adsets" value={adsets.join(",")} />}
         <PeriodControl
+          key={`${f.preset}|${f.from}|${f.to}`}
           preset={f.preset}
           from={f.from}
           to={f.to}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_PATHS, OFFER_SECTIONS, isAdminPath, normalizeOfferSection, offerContextFromPath, offerSectionLinks, offerSwitchHref, resolveSelectedOffer } from "@/lib/core/offer-navigation";
+import { ADMIN_PATHS, CONSOLIDATED_HREF, OFFER_SECTIONS, isAdminPath, normalizeOfferSection, offerContextFromPath, offerSectionLinks, offerSwitchHref, resolveSelectedOffer, rootRedirectTarget, safeNextPath, wantsConsolidated } from "@/lib/core/offer-navigation";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -53,6 +53,50 @@ describe("navegação por ofertas", () => {
     it("não confunde prefixo parecido com tela de Administração", () => {
       expect(isAdminPath("/metadata")).toBe(false);
       expect(isAdminPath("/pixelsx")).toBe(false);
+    });
+  });
+
+  describe("abrir a UTMFY volta para a última oferta (bug 21/11: voltava para 'Todas as ofertas')", () => {
+    const valid = (id: string) => id === A;
+    it("raiz sem parâmetros + cookie de oferta válida → resumo da oferta", () => {
+      expect(rootRedirectTarget({}, A, valid)).toBe(`/ofertas/${A}/resumo`);
+    });
+    it("leva só o período da URL junto", () => {
+      expect(rootRedirectTarget({ preset: "month", campaign: "123" }, A, valid)).toBe(`/ofertas/${A}/resumo?preset=month`);
+      expect(rootRedirectTarget({ from: "2026-11-01", to: "2026-11-20" }, A, valid)).toBe(`/ofertas/${A}/resumo?from=2026-11-01&to=2026-11-20`);
+    });
+    it("'Todas as ofertas' escolhido de propósito fica no consolidado", () => {
+      expect(CONSOLIDATED_HREF).toBe("/?todas=1");
+      expect(wantsConsolidated({ todas: "1" })).toBe(true);
+      expect(wantsConsolidated({ todas: "0" })).toBe(false);
+      expect(wantsConsolidated({})).toBe(false);
+      expect(rootRedirectTarget({ todas: "1" }, A, valid)).toBeNull();
+    });
+    it("oferta apagada/arquivada/de outro workspace (validação do servidor falha) → consolidado, sem laço", () => {
+      expect(rootRedirectTarget({}, B, valid)).toBeNull();
+    });
+    it("sem cookie ou cookie com lixo → consolidado", () => {
+      expect(rootRedirectTarget({}, null, valid)).toBeNull();
+      expect(rootRedirectTarget({}, "../../etc", () => true)).toBeNull();
+    });
+    it("aviso de uma ação (?ok= / ?error=) não é engolido pelo redirect", () => {
+      expect(rootRedirectTarget({ ok: "Dados DEMO criados" }, A, valid)).toBeNull();
+      expect(rootRedirectTarget({ error: "x" }, A, valid)).toBeNull();
+    });
+    it("telas consolidadas continuam sem oferta selecionada (a lembrança fica no cookie)", () => {
+      expect(resolveSelectedOffer("/", null, A, [A])).toBeNull();
+    });
+  });
+
+  describe("destino depois do login", () => {
+    it("aceita só caminho interno", () => {
+      expect(safeNextPath(`/ofertas/${A}/meta?preset=7d`)).toBe(`/ofertas/${A}/meta?preset=7d`);
+      expect(safeNextPath("/campanhas")).toBe("/campanhas");
+    });
+    it("recusa externo, protocolo, barra invertida e /login", () => {
+      for (const bad of ["https://mal.com", "//mal.com", "/\\mal.com", "javascript:alert(1)", "/login", "/login?next=/x", "", null, undefined]) {
+        expect(safeNextPath(bad as string | null | undefined)).toBe("/");
+      }
     });
   });
 });

@@ -10,6 +10,7 @@ import { Notice } from "@/components/ui";
 import { timeAgo } from "@/lib/core/dates";
 import { catalogOptions, filtersToQuery, listAccounts, listOfferAccounts, listOffers, loadReport, loadSummaryAnalytics, parseFilters } from "@/lib/queries";
 import { timed } from "@/lib/perf";
+import { withSavedPeriod } from "@/lib/period-cookie";
 import { withAlignedSpend } from "@/lib/core/report";
 import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
@@ -25,7 +26,7 @@ export async function DashboardView({ sb, ws, sp, offerId, basePath, untrackedPa
   canWrite?: boolean;
 }) {
   return timed("dashboard.view", { offerScoped: !!offerId }, async () => {
-  const filters = parseFilters(sp, ws.timezone, offerId);
+  const filters = parseFilters(await withSavedPeriod(sp), ws.timezone, offerId);
   const reportPromise = loadReport(sb, ws, filters, { includeTree: false });
   const auxiliaryPromise = Promise.all([
     offerId ? Promise.resolve([]) : listOffers(sb, ws.id),

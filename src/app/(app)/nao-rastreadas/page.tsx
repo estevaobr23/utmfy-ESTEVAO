@@ -4,6 +4,7 @@ import { REASON_LABELS, type UntrackedReason } from "@/lib/core/attribution";
 import { dayRangeUtc, formatDateTime } from "@/lib/core/dates";
 import { formatMoney } from "@/lib/core/money";
 import { listOffers, parseFilters } from "@/lib/queries";
+import { withSavedPeriod } from "@/lib/period-cookie";
 import { requireWorkspace } from "@/lib/session";
 
 const UTM_COLS = ["utm_source", "utm_campaign", "utm_medium", "utm_content", "utm_term", "sck"];
@@ -12,7 +13,7 @@ const UTM_COLS = ["utm_source", "utm_campaign", "utm_medium", "utm_content", "ut
 export default async function UntrackedPage({ searchParams }: PageProps<"/nao-rastreadas">) {
   const s = await requireWorkspace();
   const sp = await searchParams;
-  const f = parseFilters(sp, s.workspace.timezone);
+  const f = parseFilters(await withSavedPeriod(sp), s.workspace.timezone);
   const { start, end } = dayRangeUtc(f.from, f.to, s.workspace.timezone);
   const offers = await listOffers(s.sb, s.workspace.id);
 

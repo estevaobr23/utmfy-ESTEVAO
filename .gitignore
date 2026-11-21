@@ -50,3 +50,6 @@ supabase/.branches
 
 .vercel
 .env*
+
+# prints do concorrente (estudo, 17 MB): fora do git
+chasflow-concorrente*

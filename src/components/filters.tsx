@@ -23,6 +23,7 @@ export function FilterBar({ f, offers, accounts, catalog, hideOffer, extra, acti
     <form method="get" action={action} className="mb-4 rounded-md bg-surface p-5">
       <div className="flex flex-wrap items-end gap-2">
         <PeriodControl
+          key={`${f.preset}|${f.from}|${f.to}`}
           preset={f.preset}
           from={f.from}
           to={f.to}

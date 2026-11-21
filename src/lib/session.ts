@@ -9,6 +9,9 @@ export type Workspace = { id: string; name: string; slug: string; is_demo: boole
 
 export const WS_COOKIE = "utmfy_ws";
 
+/** Workspace escolhido: 180 dias (antes era cookie de sessão e voltava para o 1º workspace ao fechar o navegador). */
+export const WS_COOKIE_OPTIONS = { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 180, secure: process.env.NODE_ENV === "production" } as const;
+
 /** Usuário logado + workspace atual (cookie) — tudo lido com RLS. */
 export const requireSession = cache(async () => timed("session.require", {}, async () => {
   const sb = await serverClient();

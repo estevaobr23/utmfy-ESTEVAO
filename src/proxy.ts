@@ -30,7 +30,9 @@ export async function proxy(request: NextRequest) {
     if (path.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const to = request.nextUrl.clone();
     to.pathname = "/login";
-    to.search = "";
+    // Guarda o destino (só caminho interno; o login valida de novo com safeNextPath). A raiz não precisa: ela reabre a última oferta.
+    const next = path === "/" ? "" : `${path}${request.nextUrl.search}`;
+    to.search = next ? `?next=${encodeURIComponent(next)}` : "";
     return NextResponse.redirect(to);
   }
   return response;

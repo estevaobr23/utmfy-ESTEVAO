@@ -5,13 +5,14 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { signOut, switchWorkspace } from "@/app/actions";
 import { AskClaude } from "@/components/ask-claude";
 import { ask } from "@/lib/claude-chat";
-import { OFFER_COOKIE, isAdminPath, offerContextFromPath, offerSectionLinks, offerSwitchHref, resolveSelectedOffer } from "@/lib/core/offer-navigation";
+import { CONSOLIDATED_HREF, OFFER_COOKIE, isAdminPath, offerContextFromPath, offerSectionLinks, offerSwitchHref, resolveSelectedOffer } from "@/lib/core/offer-navigation";
 
 export type NavOffer = { id: string; name: string; status: string };
 type Ws = { id: string; name: string; is_demo: boolean };
 
 const ALL_SECTIONS: [string, string][] = [
-  ["/", "Resumo"],
+  // Resumo consolidado = escolha explícita (/?todas=1): a raiz "/" sozinha reabre a última oferta.
+  [CONSOLIDATED_HREF, "Resumo"],
   ["/campanhas", "Meta Ads"],
   ["/pedidos", "Pedidos"],
   ["/ofertas", "Gerenciar ofertas"],
@@ -28,10 +29,18 @@ const ADMIN: [string, string][] = [
   ["/configuracoes", "Workspace"],
 ];
 
+/** Esquece a oferta lembrada. Só para a escolha EXPLÍCITA de "Todas as ofertas". */
+function forgetOffer() {
+  try {
+    document.cookie = `${OFFER_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+  } catch { /* cookie bloqueado */ }
+}
+
 /**
  * Oferta e seção atuais. A URL é a fonte do contexto; nas telas de Administração (sem id na URL) vale a oferta
- * lembrada, então navegar por Pixels, Webhooks, Saúde etc. NÃO tira você da oferta escolhida. Só escolher
- * "Todas as ofertas" (ou abrir uma tela consolidada) limpa a lembrança.
+ * lembrada, então navegar por Pixels, Webhooks, Saúde etc. NÃO tira você da oferta escolhida.
+ * Abrir uma tela consolidada NÃO apaga a lembrança (é ela que faz a UTMFY reabrir na última oferta); só a escolha
+ * explícita de "Todas as ofertas" (botão ou endereço /?todas=1) apaga.
  */
 export function useOfferContext(offers: NavOffer[], initialRemembered: string | null = null) {
   const path = usePathname();
@@ -42,12 +51,14 @@ export function useOfferContext(offers: NavOffer[], initialRemembered: string | 
   const selected = resolveSelectedOffer(path, fromUrl.offerId, remembered, ids);
   if (selected !== remembered && (fromUrl.offerId || !isAdminPath(path))) setRemembered(selected);
   useEffect(() => {
-    try {
-      document.cookie = selected
-        ? `${OFFER_COOKIE}=${selected}; path=/; max-age=2592000; SameSite=Lax`
-        : `${OFFER_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
-    } catch { /* cookie bloqueado: a oferta continua valendo nesta aba */ }
-  }, [selected]);
+    if (selected) {
+      try {
+        document.cookie = `${OFFER_COOKIE}=${selected}; path=/; max-age=2592000; SameSite=Lax`;
+      } catch { /* cookie bloqueado: a oferta continua valendo nesta aba */ }
+    } else if (path === "/" && new URLSearchParams(window.location.search).get("todas") === "1") {
+      forgetOffer();
+    }
+  }, [selected, path]);
   return { path, offerId: selected, section: fromUrl.section };
 }
 
@@ -105,7 +116,7 @@ function OfferPicker({ offers, offerId, section, compact = false }: { offers: Na
           {offers.length > 6 && (
             <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar oferta..." className="mb-1 w-full rounded border border-input-border bg-app-bg px-2 py-1 text-sm text-white outline-none placeholder:text-copy-muted focus:border-primary" />
           )}
-          <button type="button" onPointerEnter={() => router.prefetch("/")} onFocus={() => router.prefetch("/")} onClick={() => go("/")} className={`w-full rounded px-2 py-1.5 text-left text-sm text-copy hover:bg-surface-hover ${!current ? "bg-surface-hover font-semibold" : ""}`}>
+          <button type="button" onPointerEnter={() => router.prefetch(CONSOLIDATED_HREF)} onFocus={() => router.prefetch(CONSOLIDATED_HREF)} onClick={() => { forgetOffer(); go(CONSOLIDATED_HREF); }} className={`w-full rounded px-2 py-1.5 text-left text-sm text-copy hover:bg-surface-hover ${!current ? "bg-surface-hover font-semibold" : ""}`}>
             Todas as ofertas <span className="text-xs text-copy-muted">· consolidado</span>
           </button>
           <div className="my-1 border-t border-divider" />
@@ -153,7 +164,7 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
 
 function NavIcon({ href }: { href: string }) {
   const common = "h-[18px] w-[18px] shrink-0 fill-none stroke-current stroke-[1.75]";
-  if (href === "/") return <svg aria-hidden="true" viewBox="0 0 24 24" className={common}><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" /></svg>;
+  if (href === CONSOLIDATED_HREF) return <svg aria-hidden="true" viewBox="0 0 24 24" className={common}><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" /></svg>;
   if (href.includes("campanhas") || href === "/meta") return <svg aria-hidden="true" viewBox="0 0 24 24" className={common}><path d="M4 19V9m5 10V5m5 14v-7m5 7V3" /></svg>;
   if (href.includes("pedidos")) return <svg aria-hidden="true" viewBox="0 0 24 24" className={common}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" /></svg>;
   if (href.includes("ofertas")) return <svg aria-hidden="true" viewBox="0 0 24 24" className={common}><path d="m4 12 8-8h7v7l-8 8z" /><circle cx="16" cy="7" r="1" /></svg>;
@@ -217,7 +228,7 @@ function contextLinks(offerId: string | null): [string, string][] {
 
 function isActive(path: string, href: string, offerId: string | null, section: string) {
   if (offerId) return href.endsWith(`/${section}`);
-  return href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`);
+  return href === CONSOLIDATED_HREF ? path === "/" : path === href || path.startsWith(`${href}/`);
 }
 
 export function Sidebar({ offers, rememberedOfferId = null, workspaces, workspaceId, email }: { offers: NavOffer[]; rememberedOfferId?: string | null; workspaces: Ws[]; workspaceId: string | null; email: string }) {
