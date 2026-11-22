@@ -8,7 +8,7 @@ import { aggregateLevel, LEVELS, type Level, type LevelRow } from "@/lib/core/me
 import { META_METRICS, latestBudgetChanges, type MetaColumnId, type MetaTableRow } from "@/lib/core/meta-metrics";
 import type { ReportNode } from "@/lib/core/report";
 import { buildAdvancedIndex, scopeFromSpend } from "@/lib/core/meta-advanced";
-import { catalogOnlyRows, type CatalogEntry } from "@/lib/core/meta-catalog-rows";
+import { catalogOnlyRows, currentNames, type CatalogEntry } from "@/lib/core/meta-catalog-rows";
 import { derive, emptySums } from "@/lib/core/metrics";
 import { PERIOD_PRESETS } from "@/lib/core/period-presets";
 import { listAccounts, listOfferAccounts, loadMetaAdvanced, loadReport, parseFilters } from "@/lib/queries";
@@ -81,6 +81,11 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   if (adsResult.error) throw new Error(`meta_ads: ${adsResult.error.message}`);
   const catalog = (adsResult.data ?? []) as CatalogRow[];
   const accountName = new Map(accounts.map((account) => [account.account_id, account.account_name ?? `act_${account.account_id}`]));
+  const accountLabel = (id: string | null) => (id ? accountName.get(id) ?? `act_${id}` : null);
+  // Nome atual (catálogo da Meta) vence o nome gravado nos insights de dias antigos: renomear na Meta aparece aqui na próxima sincronização.
+  const names = currentNames(catalog);
+  const nameOf = (lvl: MetaTableRow["level"], id: string, fallback: string) =>
+    (lvl === "campaign" ? names.campaign.get(id) : lvl === "adset" ? names.adset.get(id) : lvl === "ad" ? names.ad.get(id) : null) ?? fallback;
   const syncOf = new Map(accounts.map((account) => [account.account_id, account.last_sync_at as string | null]));
   const accountOfCampaign = new Map<string, string>();
   for (const row of catalog) accountOfCampaign.set(row.campaign_id, row.account_id);
@@ -129,8 +134,9 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
     return {
       id: node.id,
       level: nodeLevel,
-      name: node.name,
+      name: nameOf(nodeLevel, node.id, node.name),
       accountId: acc,
+      accountName: accountLabel(acc),
       campaignId: currentCampaign,
       adsetId: currentAdset,
       status: statusOf(nodeLevel, node.id, catalog),
@@ -168,7 +174,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           managerUrl: managerUrl(mappedLevel, { id: row.id, accountId }),
           children: [],
         };
-    return { ...base, metrics: row.metrics, name: level === "contas" ? accountName.get(row.id) ?? base.name : base.name, drillUrl: drill(row) };
+    return { ...base, metrics: row.metrics, name: level === "contas" ? accountName.get(row.id) ?? base.name : nameOf(mappedLevel, row.id, base.name), accountName: level === "contas" ? null : accountLabel(accountId), drillUrl: drill(row) };
   });
 
   // Campanha/conjunto/anúncio no ar que ainda não gastou nem vendeu no período (ex.: agendado) aparece zerado,
@@ -183,6 +189,7 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         level: mappedLevel,
         name: row.name,
         accountId: row.accountId,
+        accountName: accountLabel(row.accountId),
         campaignId: row.campaignId,
         adsetId: row.adsetId,
         status: row.status,
@@ -206,8 +213,8 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
     if (level === "conjuntos") return !adsetScope || adsetScope.has(row.id);
     return !adsetScope || (row.adsetId != null && adsetScope.has(row.adsetId));
   });
-  const parentCampaign = campaign ? aggregateLevel("campanhas", report.spendRows, report.orderRows, { campaign }).rows[0]?.name : null;
-  const parentAdset = adset ? aggregateLevel("conjuntos", report.spendRows, report.orderRows, { adset }).rows[0]?.name : null;
+  const parentCampaign = campaign ? names.campaign.get(campaign) ?? aggregateLevel("campanhas", report.spendRows, report.orderRows, { campaign }).rows[0]?.name : null;
+  const parentAdset = adset ? names.adset.get(adset) ?? aggregateLevel("conjuntos", report.spendRows, report.orderRows, { adset }).rows[0]?.name : null;
   const sortCandidate = one(sp.sort) as MetaColumnId;
   // Sem ordenação escolhida: quem vendeu vem primeiro (desempate por gasto, na tabela).
   const sort = META_METRICS.some((metric) => metric.id === sortCandidate && metric.sortable) ? sortCandidate : "sales";

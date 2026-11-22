@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogOnlyRows, type CatalogEntry } from "@/lib/core/meta-catalog-rows";
+import { catalogOnlyRows, currentNames, type CatalogEntry } from "@/lib/core/meta-catalog-rows";
 
 const ad = (over: Partial<CatalogEntry>): CatalogEntry => ({
   account_id: "1", campaign_id: "c1", campaign_name: "Camp 1", adset_id: "s1", adset_name: "Conj 1", ad_id: "a1", ad_name: "Anúncio 1", effective_status: "ACTIVE", ...over,
@@ -30,5 +30,20 @@ describe("catalogOnlyRows", () => {
   it("filtra pelo nome digitado", () => {
     const catalog = [ad({}), ad({ campaign_id: "c2", campaign_name: "Outra", adset_id: "s2", ad_id: "a2" })];
     expect(catalogOnlyRows("campanhas", catalog, new Set(), { name: "outra" }).map((r) => r.id)).toEqual(["c2"]);
+  });
+});
+
+describe("currentNames", () => {
+  it("usa o nome atual do catálogo e ignora nome vazio", () => {
+    const names = currentNames([
+      { campaign_id: "c1", campaign_name: "C1 · AD1 DIRETO", adset_id: "s1", adset_name: null, ad_id: "a1", ad_name: "AD1" },
+      { campaign_id: "c2", campaign_name: "C2 · AD1 DIRETO", adset_id: "s2", adset_name: "Conjunto", ad_id: "a2", ad_name: null },
+    ]);
+    expect(names.campaign.get("c1")).toBe("C1 · AD1 DIRETO");
+    expect(names.campaign.get("c2")).toBe("C2 · AD1 DIRETO");
+    expect(names.adset.has("s1")).toBe(false);
+    expect(names.adset.get("s2")).toBe("Conjunto");
+    expect(names.ad.get("a1")).toBe("AD1");
+    expect(names.ad.has("a2")).toBe(false);
   });
 });

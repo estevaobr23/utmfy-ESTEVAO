@@ -76,6 +76,8 @@ export type MetaTableRow = {
   level: "account" | "campaign" | "adset" | "ad";
   name: string;
   accountId: string | null;
+  /** Nome da conta de anúncios (ex.: "CONTA 1 ADS EUA"): campanhas com o mesmo nome em contas diferentes ficam distinguíveis. */
+  accountName?: string | null;
   campaignId: string | null;
   adsetId: string | null;
   status: string | null;

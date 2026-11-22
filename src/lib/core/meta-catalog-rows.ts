@@ -45,3 +45,20 @@ export function catalogOnlyRows(
     .filter((r) => !q || r.name.toLowerCase().includes(q))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+export type CurrentNames = { campaign: Map<string, string>; adset: Map<string, string>; ad: Map<string, string> };
+
+/**
+ * Nome ATUAL de cada campanha/conjunto/anúncio, pelo catálogo (relido da Meta a cada sincronização).
+ * Os insights diários guardam o nome do dia em que foram importados; depois de renomear na Meta,
+ * os dias antigos ficariam com o nome velho. O catálogo vence; sem entrada nele, fica o nome dos insights.
+ */
+export function currentNames(catalog: Pick<CatalogEntry, "campaign_id" | "campaign_name" | "adset_id" | "adset_name" | "ad_id" | "ad_name">[]): CurrentNames {
+  const out: CurrentNames = { campaign: new Map(), adset: new Map(), ad: new Map() };
+  for (const row of catalog) {
+    if (row.campaign_id && row.campaign_name) out.campaign.set(row.campaign_id, row.campaign_name);
+    if (row.adset_id && row.adset_name) out.adset.set(row.adset_id, row.adset_name);
+    if (row.ad_id && row.ad_name) out.ad.set(row.ad_id, row.ad_name);
+  }
+  return out;
+}

@@ -111,6 +111,28 @@ function statusRank(status: string | null) {
   return 0;
 }
 
+/** Cores fixas por conta (mesma conta = mesma cor em todas as telas), só com os tokens da paleta. */
+const ACCOUNT_TONES = [
+  "bg-primary/15 text-copy ring-primary/40",
+  "bg-success/15 text-success ring-success/40",
+  "bg-amber-400/15 text-amber-200 ring-amber-400/30",
+];
+function accountTone(accountId: string | null) {
+  let h = 0;
+  for (const ch of accountId ?? "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return ACCOUNT_TONES[h % ACCOUNT_TONES.length];
+}
+
+/** Etiqueta da conta de anúncios ao lado da campanha/conjunto/anúncio. */
+function AccountTag({ row }: { row: MetaTableRow }) {
+  if (!row.accountName || row.level === "account") return null;
+  return (
+    <span title={`Conta de anúncios: ${row.accountName}${row.accountId ? ` (act_${row.accountId})` : ""}`} className={`inline-block max-w-full truncate rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ring-1 ${accountTone(row.accountId)}`}>
+      {row.accountName}
+    </span>
+  );
+}
+
 function StatusIndicator({ status }: { status: string | null }) {
   if (!status) return <span className="text-copy-muted">—</span>;
   const removed = removedLabel(status);
@@ -367,7 +389,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     const list = rows.filter((row) => {
-      const nameMatches = !normalized || row.name.toLocaleLowerCase("pt-BR").includes(normalized);
+      const nameMatches = !normalized || row.name.toLocaleLowerCase("pt-BR").includes(normalized) || (row.accountName?.toLocaleLowerCase("pt-BR").includes(normalized) ?? false);
       const removed = isRemovedStatus(row.status);
       // Arquivada/excluída na Meta não é listada (some do Gerenciador); só aparece se o filtro de status pedir.
       if (removed && status !== "REMOVED") return false;
@@ -533,9 +555,12 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
               <div className="flex items-start gap-2">
                 {isSelectable(row, depth) && <input type="checkbox" aria-label={`Selecionar ${row.name}`} checked={selected.has(row.id)} onChange={() => toggleSelected(row)} className="mt-1 h-4 w-4 shrink-0" />}
                 <span className="mt-0.5 shrink-0"><StatusIndicator status={row.status} /></span>
-                {row.drillUrl
-                  ? <Link href={row.drillUrl} className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</Link>
-                  : <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</span>}
+                <div className="min-w-0 flex-1">
+                  {row.drillUrl
+                    ? <Link href={row.drillUrl} className="block text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</Link>
+                    : <span className="block text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</span>}
+                  <div className="mt-1"><AccountTag row={row} /></div>
+                </div>
                 {row.children.length > 0 && <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} aria-label="Ver itens de dentro" className="shrink-0 rounded border border-input-border px-2 py-0.5 text-xs text-copy">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button>}
               </div>
               {row.budget?.amount != null && (
@@ -576,7 +601,10 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                     <td key={metric.id} className={base}>
                       <div className="flex min-w-0 items-start gap-1.5" style={{ paddingLeft: depth * 16 }}>
                         {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="mt-px w-4 shrink-0 text-copy-muted hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
-                        {row.drillUrl ? <Link href={row.drillUrl} className="min-w-0 flex-1 break-words font-semibold leading-snug text-white [overflow-wrap:anywhere] line-clamp-3 hover:text-[var(--link)]" title={row.name}>{row.name}</Link> : <span className="min-w-0 flex-1 break-words font-semibold leading-snug [overflow-wrap:anywhere] line-clamp-3" title={row.name}>{row.name}</span>}
+                        <div className="min-w-0 flex-1">
+                          {row.drillUrl ? <Link href={row.drillUrl} className="break-words font-semibold leading-snug text-white [overflow-wrap:anywhere] line-clamp-3 hover:text-[var(--link)]" title={row.name}>{row.name}</Link> : <span className="break-words font-semibold leading-snug [overflow-wrap:anywhere] line-clamp-3" title={row.name}>{row.name}</span>}
+                          {row.accountName && row.level !== "account" && <div className="mt-0.5"><AccountTag row={row} /></div>}
+                        </div>
                         {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="shrink-0 text-copy-muted hover:text-[var(--link)]">↗</a>}
                       </div>
                     </td>
