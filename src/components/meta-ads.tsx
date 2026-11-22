@@ -17,6 +17,9 @@ import type { Workspace } from "@/lib/session";
 import type { Db } from "@/lib/supabase/types";
 import { timed } from "@/lib/perf";
 import { withSavedPeriod } from "@/lib/period-cookie";
+import { cookies } from "next/headers";
+import { AccountChips } from "@/components/meta/account-chips";
+import { ALL_ACCOUNTS, META_ACCOUNT_COOKIE, accountToneMap, filterByAccount, resolveAccount } from "@/lib/core/meta-account-filter";
 
 const PRESETS = PERIOD_PRESETS;
 const LEVEL_ICON: Record<Level, string> = { contas: "▣", campanhas: "◫", conjuntos: "⊞", anuncios: "▯" };
@@ -66,10 +69,12 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   // Campanhas/conjuntos escolhidos em "Filtrar selecionadas": valem nas abas seguintes (conjuntos e anúncios só dessas campanhas).
   const campaigns = idList(one(sp.campaigns));
   const adsets = idList(one(sp.adsets));
-  const f = parseFilters(await withSavedPeriod({ ...sp, campaign: undefined, adset: undefined, ad: undefined }), ws.timezone, offerId);
-  const [report, accounts, adsResult, advancedData, pixelScope, budgetLogs] = await Promise.all([
+  // Contas primeiro: a conta lembrada no cookie só vale se for uma conta desta tela (chips "Todas · CONTA 1 · …").
+  const [accounts, cookieStore] = await Promise.all([offerId ? listOfferAccounts(sb, offerId) : listAccounts(sb, ws.id), cookies()]);
+  const selectedAccount = resolveAccount(sp, cookieStore.get(META_ACCOUNT_COOKIE)?.value, accounts.map((account) => account.account_id));
+  const f = parseFilters(await withSavedPeriod({ ...sp, account: selectedAccount ?? undefined, campaign: undefined, adset: undefined, ad: undefined }), ws.timezone, offerId);
+  const [report, adsResult, advancedData, pixelScope, budgetLogs] = await Promise.all([
     loadReport(sb, ws, f),
-    offerId ? listOfferAccounts(sb, offerId) : listAccounts(sb, ws.id),
     sb.from("meta_ads").select("account_id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, effective_status").eq("workspace_id", ws.id).limit(5000),
     loadMetaAdvanced(sb, ws, f),
     offerId ? loadPixelDerivation(sb, ws.id) : Promise.resolve(null),
@@ -207,7 +212,10 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
   // Filtro "só as selecionadas": campanhas = a própria lista; conjuntos/anúncios = os das campanhas escolhidas (e dos conjuntos escolhidos).
   const campaignScope = campaigns ? new Set(campaigns) : null;
   const adsetScope = adsets ? new Set(adsets) : null;
-  const scopedRows = level === "contas" ? levelRows : levelRows.filter((row) => {
+  const tones = accountToneMap(accounts);
+  // Conta escolhida nos chips: o relatório já veio só dela (p_account_id); o filtro aqui garante tabela e totais coerentes.
+  const accountRows = filterByAccount(levelRows, f.account);
+  const scopedRows = level === "contas" ? accountRows : accountRows.filter((row) => {
     if (level === "campanhas") return !campaignScope || campaignScope.has(row.id);
     if (campaignScope && !(row.campaignId && campaignScope.has(row.campaignId))) return false;
     if (level === "conjuntos") return !adsetScope || adsetScope.has(row.id);
@@ -252,11 +260,18 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
           selectClassName="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white"
           inputClassName="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-white"
         />
-        <label className="text-[11px] text-copy">Conta de anúncio<select name="account" defaultValue={f.account ?? ""} className="mt-1 block h-[34px] max-w-56 rounded border border-input-border bg-transparent px-3 text-sm text-white"><option value="">Qualquer</option>{accounts.map((account) => <option key={account.account_id} value={account.account_id}>{account.account_name ?? account.account_id}</option>)}</select></label>
+        {f.account && <input type="hidden" name="account" value={f.account} />}
         <label className="text-[11px] text-copy">Fonte<select disabled className="mt-1 block h-[34px] rounded border border-input-border bg-transparent px-3 text-sm text-copy-muted"><option>Meta Ads</option></select></label>
         <label className="text-[11px] text-copy">Produto<select disabled className="mt-1 block h-[34px] max-w-48 rounded border border-input-border bg-transparent px-3 text-sm text-copy-muted"><option>Oferta selecionada</option></select></label>
         <button className="h-[34px] rounded bg-primary px-4 text-sm font-semibold text-white hover:bg-[var(--primary-hover)]">Filtrar</button>
       </form>
+
+      <AccountChips
+        accounts={accounts.map((account) => ({ id: account.account_id, name: account.account_name ?? `act_${account.account_id}` })).sort((a, b) => tones[a.id] - tones[b.id])}
+        selected={f.account}
+        tones={tones}
+        hrefFor={Object.fromEntries([ALL_ACCOUNTS, ...accounts.map((account) => account.account_id)].map((id) => [id, link({ account: id, campaign: null, adset: null, campaigns: null, adsets: null, page: null })]))}
+      />
 
       <nav className="grid grid-cols-2 gap-3 bg-app-bg pt-3 sm:grid-cols-4">
         {LEVELS.map(([key, label]) => (
@@ -289,9 +304,10 @@ export async function MetaAdsView({ sb, ws, sp, offerId, path, canWrite }: {
         currency={ws.currency}
         path={path}
         spendReliable={report.spendStatus.reliable}
-        totalReach={campaigns || adsets ? { reach: null, frequency: null } : advanced.totalReach({ campaign, adset, accountIds: [...new Set(levelRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
+        totalReach={campaigns || adsets ? { reach: null, frequency: null } : advanced.totalReach({ campaign, adset, accountIds: [...new Set(accountRows.map((row) => row.accountId).filter((id): id is string => !!id))] })}
         initial={{ query: name, status: one(sp.meta_status), sort, direction, page, pageSize }}
         canWrite={canWrite}
+        accountTones={tones}
         periodLabel={f.preset === "custom" ? `${f.from} → ${f.to}` : PRESETS.find(([key]) => key === f.preset)?.[1] ?? null}
       />
     </div>

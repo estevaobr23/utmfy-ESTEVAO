@@ -20,6 +20,7 @@ import { BudgetEditor } from "@/components/meta/budget-editor";
 import { BidEditor, canEditBid } from "@/components/meta/bid-editor";
 import { bulkMetaStatus } from "@/app/actions";
 import { SubmitButton } from "@/components/client";
+import { accountToneClass } from "@/lib/core/meta-account-filter";
 import { isRemovedStatus, removedLabel, STATUS_OPS, type StatusLevel, type StatusOp } from "@/lib/core/meta-status";
 
 type Props = {
@@ -35,6 +36,8 @@ type Props = {
   canWrite?: boolean;
   /** Nome do período em tela (Hoje, 7 dias…): vai junto da foto de lucro/ROI de cada mudança de orçamento. */
   periodLabel?: string | null;
+  /** Cor de cada conta (id → índice da paleta), a mesma dos chips do filtro por conta. */
+  accountTones?: Record<string, number>;
 };
 
 /** Larguras padrão (px) e limites do redimensionamento por arrasto. */
@@ -111,23 +114,11 @@ function statusRank(status: string | null) {
   return 0;
 }
 
-/** Cores fixas por conta (mesma conta = mesma cor em todas as telas), só com os tokens da paleta. */
-const ACCOUNT_TONES = [
-  "bg-primary/15 text-copy ring-primary/40",
-  "bg-success/15 text-success ring-success/40",
-  "bg-amber-400/15 text-amber-200 ring-amber-400/30",
-];
-function accountTone(accountId: string | null) {
-  let h = 0;
-  for (const ch of accountId ?? "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ACCOUNT_TONES[h % ACCOUNT_TONES.length];
-}
-
 /** Etiqueta da conta de anúncios ao lado da campanha/conjunto/anúncio. */
-function AccountTag({ row }: { row: MetaTableRow }) {
+function AccountTag({ row, tones }: { row: MetaTableRow; tones: Record<string, number> }) {
   if (!row.accountName || row.level === "account") return null;
   return (
-    <span title={`Conta de anúncios: ${row.accountName}${row.accountId ? ` (act_${row.accountId})` : ""}`} className={`inline-block max-w-full truncate rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ring-1 ${accountTone(row.accountId)}`}>
+    <span title={`Conta de anúncios: ${row.accountName}${row.accountId ? ` (act_${row.accountId})` : ""}`} className={`inline-block max-w-full truncate rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide ring-1 ${accountToneClass(row.accountId, tones)}`}>
       {row.accountName}
     </span>
   );
@@ -245,7 +236,7 @@ function cellTitle(row: MetaTableRow, metric: MetaMetricDefinition) {
   return undefined;
 }
 
-export function MetaTable({ rows, level, currency, path, spendReliable, totalReach, initial, canWrite = false, periodLabel = null }: Props) {
+export function MetaTable({ rows, level, currency, path, spendReliable, totalReach, initial, canWrite = false, periodLabel = null, accountTones = {} }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const backUrl = (() => {
@@ -559,7 +550,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                   {row.drillUrl
                     ? <Link href={row.drillUrl} className="block text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</Link>
                     : <span className="block text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">{row.name}</span>}
-                  <div className="mt-1"><AccountTag row={row} /></div>
+                  <div className="mt-1"><AccountTag row={row} tones={accountTones} /></div>
                 </div>
                 {row.children.length > 0 && <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} aria-label="Ver itens de dentro" className="shrink-0 rounded border border-input-border px-2 py-0.5 text-xs text-copy">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button>}
               </div>
@@ -603,7 +594,7 @@ export function MetaTable({ rows, level, currency, path, spendReliable, totalRea
                         {row.children.length ? <button type="button" onClick={() => toggleExpanded(row)} aria-expanded={expanded.has(`${row.level}:${row.id}`)} className="mt-px w-4 shrink-0 text-copy-muted hover:text-white">{expanded.has(`${row.level}:${row.id}`) ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
                         <div className="min-w-0 flex-1">
                           {row.drillUrl ? <Link href={row.drillUrl} className="break-words font-semibold leading-snug text-white [overflow-wrap:anywhere] line-clamp-3 hover:text-[var(--link)]" title={row.name}>{row.name}</Link> : <span className="break-words font-semibold leading-snug [overflow-wrap:anywhere] line-clamp-3" title={row.name}>{row.name}</span>}
-                          {row.accountName && row.level !== "account" && <div className="mt-0.5"><AccountTag row={row} /></div>}
+                          {row.accountName && row.level !== "account" && <div className="mt-0.5"><AccountTag row={row} tones={accountTones} /></div>}
                         </div>
                         {row.managerUrl && <a href={row.managerUrl} target="_blank" rel="noreferrer" aria-label="Abrir no Gerenciador da Meta" className="shrink-0 text-copy-muted hover:text-[var(--link)]">↗</a>}
                       </div>
